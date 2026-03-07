@@ -1,58 +1,138 @@
 # rhino-os
 
-A knowledge-compounding strategy engine for solo founders. Not another Claude Code workflow kit — there are 349 of those.
-
-rhino-os does three things no other system does:
-1. **Portfolio intelligence** — Buy/Sell/Hold verdicts across your entire project and feature set
-2. **Landscape positions** — Opinionated strategic beliefs about 2026, not trend lists. Agents reason FROM these.
-3. **Taste learning** — Observes your decisions and builds a preference profile that every agent respects
+A knowledge-compounding strategy engine for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Built for solo technical founders who need strategic clarity, not more workflow automation.
 
 ```
 5 Agents  ·  3 Intelligence Layers  ·  1 MCP Server  ·  1 CLI
 Thick-skinned. Charges forward. Kills what isn't working.
 ```
 
-## Quickstart
+## What is this?
+
+The Claude Code ecosystem has 40+ workflow orchestrators, 100+ agent collections, and 349+ skills. All commodity. rhino-os doesn't compete there.
+
+rhino-os is a **strategic operating system** that layers on top of Claude Code. It does three things no other system does:
+
+1. **Portfolio intelligence** — Evaluates your entire project landscape with Buy/Sell/Hold verdicts, kill criteria, and focus prescriptions. Not project-level cheerleading — portfolio-level hard calls.
+2. **Landscape positions** — Maintains opinionated strategic beliefs (not trend lists) that agents reason FROM. "AI wrappers are dead" isn't a trend — it's a position with evidence and implications that shapes every recommendation.
+3. **Taste learning** — Observes your decisions over time and builds a preference profile. Every agent reads it before acting. By week four, agents know your judgment patterns.
+
+The builder and design-engineer agents are just hands. The intelligence layers are the brain.
+
+## Who is this for?
+
+Solo technical founders running 1-3 projects who use Claude Code daily. You're building fast, juggling priorities, and need a system that:
+
+- Tells you what to kill (not just what to build)
+- Remembers your preferences across sessions
+- Maintains strategic context between conversations
+- Gets sharper the more you use it
+
+If you're on a team, use something else. If you want a prettier CLI, use something else. If you want more agents and skills, there are 349 other options.
+
+## Prerequisites
+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- macOS or Linux (macOS for LaunchAgent automation)
+- Node.js 18+ (for MCP server)
+- `jq` recommended (`brew install jq`) for `rhino status` details
+
+## Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/rhino-os.git ~/rhino-os
+git clone https://github.com/laneyfraass/rhino-os.git ~/rhino-os
 cd ~/rhino-os
 ./install.sh
 ```
 
-Edit `~/.claude/CLAUDE.md` with your identity and project info. Then:
+The installer is idempotent (safe to re-run). It:
+
+1. Symlinks agents, skills, rules, and hooks into `~/.claude/`
+2. Merges `settings.json` and `config.json` (preserves your existing config)
+3. Seeds knowledge directories from templates
+4. Copies `landscape.json` to `~/.claude/knowledge/` (won't overwrite existing)
+5. Installs the MCP server (`rhino-state`) and API server dependencies
+6. Links the `rhino` CLI to `~/bin/rhino`
+7. Optionally installs macOS LaunchAgents for scheduled sweep/scout
 
 ```bash
-rhino doctor                 # verify installation
-rhino strategy               # portfolio evaluation — start here
-rhino scout                  # update landscape positions
-rhino sweep                  # daily triage
+# Skip LaunchAgents (e.g., on Linux):
+./install.sh --no-launchd
+
+# Verify everything:
+rhino doctor
 ```
 
-## Why This Exists
+After install, edit `~/.claude/CLAUDE.md` with your identity and project info.
 
-The Claude Code ecosystem has 40+ workflow orchestrators, 100+ agent collections, and 349+ skills. All commodity. rhino-os doesn't compete there.
+## Usage
 
-The gap: no system learns your judgment. No system evaluates your entire portfolio and tells you what to kill. No system maintains opinionated positions about the world and reasons from them.
+### CLI Commands
 
-rhino-os is the strategic brain. The builder/design-engineer agents are just hands.
+```bash
+# Strategic (weekly)
+rhino strategy               # Portfolio evaluation — Buy/Sell/Hold verdicts
+rhino scout                  # Update landscape positions from market signals
+
+# Operational (daily)
+rhino sweep                  # Daily triage — what needs attention?
+rhino status                 # System health, knowledge freshness, intelligence stats
+
+# Building
+rhino build                  # Auto-detects mode (gate → plan → build → doctor)
+rhino build "implement task 3"   # Build a specific task
+rhino build "gate"           # Should I build this? (ideation mode)
+
+# Design
+rhino design                 # Auto-detect design mode
+rhino design "audit"         # Visual audit of current project
+
+# Knowledge
+rhino capture                # Extract session decisions/preferences to knowledge
+rhino backup                 # Snapshot all knowledge to timestamped backup
+
+# System
+rhino doctor                 # Health check (symlinks, MCP, LaunchAgents, state)
+rhino serve                  # Start API server on localhost:7890
+```
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RHINO_BUDGET` | per-agent defaults | Override Claude budget cap (e.g., `RHINO_BUDGET=5.00 rhino scout`) |
+| `RHINO_PORT` | `7890` | API server port |
+| `RHINO_API_KEY` | — | API server authentication key |
+
+### First Run
+
+1. `rhino doctor` — verify installation
+2. `rhino strategy` — the strategist will auto-discover projects in `~/` with `.git` directories and populate your portfolio
+3. Review the Buy/Sell/Hold verdicts. Update project stages and user counts as needed.
+4. `rhino scout` — populates landscape positions with market intelligence
+5. Start building: `rhino build`
 
 ## The Three Intelligence Layers
 
 ### Portfolio Model (`rhino_portfolio`)
-Structured JSON, not markdown. Every project, every feature, every kill criterion.
+
+Structured JSON tracking every project, every feature, every kill criterion. The strategist reads the entire portfolio before making any recommendation.
 
 ```
 rhino_portfolio(action: "evaluate")
-→ HIVE → BUY (core loop incomplete, but wedge is real, campus is underserved)
-→ rhino-os → HOLD (useful to you, commodity market, don't chase stars)
-→ side-project-X → SELL (no users in 60 days, kill trigger hit)
+→ project-a → BUY  (core loop complete, 12 users, clear moat)
+→ project-b → HOLD (useful but commodity market, don't chase stars)
+→ project-c → SELL (no users in 60 days, kill trigger hit)
+
+FOCUS WARNING: 3 active projects. 1 project at 100% = escape velocity.
+3 at 33% = none escape.
 ```
 
-The strategist reads the ENTIRE portfolio before making any recommendation. Not project-level cheerleading — portfolio-level calls.
+Kill criteria are checked automatically: "No real user need in 30 days", "Can't name one person who'd pay", "Core loop incomplete for >2 months".
 
 ### Landscape Positions (`rhino_landscape`)
-Opinionated beliefs about what works in 2026. Not trends — positions with evidence and implications.
+
+Opinionated beliefs about what works right now. Not trends — positions with evidence and implications that every agent reasons from.
 
 ```
 [STRONG] "AI wrappers are dead — the wedge is proprietary data + workflow"
@@ -62,81 +142,136 @@ Opinionated beliefs about what works in 2026. Not trends — positions with evid
 [STRONG] "Solo founders win on context engineering + distribution, not product quality"
   Implications: Stop polishing. Focus on reaching users.
 
-[MODERATE] "Campus infrastructure is underserved — incumbents sell to admins, not students"
-  Implications: Student-first distribution is the wedge for HIVE
+[MODERATE] "Knowledge compounding is the only defensible innovation in AI dev tools"
+  Implications: The taste/preference learning system is genuinely novel
+```
+
+Positions have IDs for easy update/removal. Substring matching works too:
+
+```
+rhino_landscape(action: "update", position: "ai wrappers")
+→ matches "AI wrappers are dead — the wedge is proprietary data + workflow"
 ```
 
 Scout maintains these. Strategist reasons from them. Every recommendation references a position.
 
 ### Taste Signals (`rhino_taste`)
-Observations about your preferences, recorded as agents watch you work.
+
+Observations about your preferences, recorded as agents watch you work. Duplicate signals get deduplicated with strength promotion (weak → moderate → strong).
 
 ```
-[product]  "Rejects onboarding flows — wants users dropped into value immediately"
-[design]   "Prefers dense data layouts over whitespace"
-[strategy] "Kills features aggressively when no user signal exists"
-[technical] "Prefers simple bash over complex TypeScript when both work"
+[product]   "Rejects onboarding flows — wants users dropped into value immediately"   [strong]
+[design]    "Prefers dense data layouts over whitespace"                               [moderate]
+[strategy]  "Kills features aggressively when no user signal exists"                   [moderate]
+[technical] "Prefers simple bash over complex TypeScript when both work"               [weak]
 ```
 
-Every agent reads taste before acting. The design-engineer uses it instead of generic rubrics. The builder respects your technical preferences. The strategist aligns recommendations with your judgment patterns.
+Every agent reads taste before acting. The design-engineer uses it instead of generic design rubrics. The builder respects your technical preferences. The strategist aligns recommendations with your judgment patterns.
 
-## Agent Catalog
-
-| Agent | Role | Intelligence Used |
-|-------|------|-------------------|
-| **strategist** | Portfolio evaluation, Buy/Sell/Hold, kill calls | Portfolio + Landscape + Taste |
-| **scout** | Landscape position maintenance, market intelligence | Landscape + Portfolio + Taste |
-| **sweep** | Daily triage, system health, operational state | Portfolio + Taste |
-| **builder** | Gate → Plan → Build → Doctor | Taste (technical + product) |
-| **design-engineer** | Visual eval, design systems, UI fixes | Taste (design) |
-
-## Workflow
+## Architecture
 
 ```
-Weekly (strategic):
-  rhino strategy                    # Portfolio evaluation + hard calls
-  rhino scout                       # Update landscape positions
+~/.claude/
+├── agents/              # Symlinked agent definitions
+│   ├── strategist.md    # Portfolio strategy, Buy/Sell/Hold
+│   ├── builder.md       # Gate → Plan → Build → Doctor
+│   ├── design-engineer.md # Visual eval, design systems
+│   ├── scout.md         # Market intelligence, landscape maintenance
+│   └── sweep.md         # Daily triage, system health
+├── skills/              # User-invocable skills
+│   ├── eval/            # Ship-readiness checks
+│   ├── smart-commit/    # Conventional commits tied to plans
+│   ├── todofocus/       # Scope enforcement
+│   └── product-2026/    # Product strategy reasoning
+├── rules/               # Always-on coding rules
+│   ├── quality-bar.md
+│   └── product-reasoning.md
+├── hooks/               # Event-driven automation
+│   ├── enforce_ideation_readonly.sh  # Blocks edits during ideation
+│   ├── track_usage.sh               # Tool call logging
+│   └── capture_knowledge.sh         # Session knowledge extraction
+├── knowledge/           # Intelligence layer data (gitignored)
+│   ├── portfolio.json   # Project portfolio model
+│   ├── landscape.json   # Strategic positions
+│   ├── taste.jsonl      # Preference signals
+│   └── sessions/        # Captured session knowledge
+├── state/               # Inter-agent operational state
+├── logs/                # Session and usage logs
+└── config.json          # MCP server registration
 
-Daily (operational):
-  rhino sweep                       # What needs attention?
-  rhino status                      # System state at a glance
-
-During work:
-  rhino build                       # Auto-detects mode from context
-  rhino build "gate"                # Should I build this?
-  rhino build "implement task 3"    # Build specific task
-
-API (programmatic):
-  rhino serve                       # Start API on :7890
+~/rhino-os/              # Source repo
+├── src/
+│   ├── mcp-server/      # rhino-state MCP server (9 tools)
+│   └── api-server/      # REST API for programmatic access
+├── bin/rhino             # CLI wrapper
+├── install.sh           # Idempotent installer
+└── uninstall.sh         # Clean removal
 ```
 
-## MCP Tools
+### How agents communicate
 
-The intelligence layers are accessible via MCP tools that agents use automatically:
+Agents share state through the filesystem, not direct calls:
+
+- **MCP tools** (`rhino_*`) read/write structured data in `~/.claude/knowledge/`
+- **State files** in `~/.claude/state/` pass operational context (e.g., sweep writes `sweep-latest.md`, strategist reads it)
+- **Knowledge files** in `~/.claude/knowledge/{agent}/` accumulate per-agent learnings
+
+This means agents work asynchronously. The sweep runs, writes state, and the strategist picks it up on the next run.
+
+## MCP Tools Reference
+
+The `rhino-state` MCP server provides 9 tools that agents use automatically:
 
 | Tool | Purpose |
 |------|---------|
-| `rhino_portfolio` | Read/update/evaluate project portfolio |
-| `rhino_landscape` | Read/update strategic positions |
-| `rhino_taste` | Record/query preference signals |
-| `rhino_get_state` | Inter-agent operational state |
-| `rhino_set_state` | Write operational state |
-| `rhino_query_knowledge` | Query accumulated knowledge |
-| `rhino_update_knowledge` | Update knowledge files |
-| `rhino_backup_knowledge` | Snapshot all knowledge |
+| `rhino_portfolio` | Read, add, update, remove, or evaluate projects |
+| `rhino_landscape` | Read, add, update, or remove strategic positions |
+| `rhino_taste` | Record, read, or query preference signals (with dedup) |
+| `rhino_get_state` | Read inter-agent state files |
+| `rhino_set_state` | Write inter-agent state files |
+| `rhino_query_knowledge` | Query agent knowledge with confidence filtering |
+| `rhino_update_knowledge` | Append or replace knowledge files |
+| `rhino_log_session` | Log session metadata (agent, cost, duration) |
+| `rhino_get_usage` | Query usage stats by period and grouping |
+| `rhino_backup_knowledge` | Snapshot all knowledge to timestamped backup |
+
+## Hooks
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `enforce_ideation_readonly.sh` | PreToolUse (Edit/Write/Bash) | Blocks file edits during ideation/gate mode |
+| `track_usage.sh` | PostToolUse (all) | Logs every tool call to `usage.jsonl` |
+| `capture_knowledge.sh` | Manual (`rhino capture`) | Extracts session decisions/preferences to knowledge |
+
+Knowledge capture is opt-in — run `rhino capture` when you want to save a session's learnings. It won't auto-fire on every session stop.
+
+## Uninstall
+
+```bash
+cd ~/rhino-os
+./uninstall.sh
+```
+
+Removes symlinks and LaunchAgents. Your knowledge files in `~/.claude/knowledge/` are preserved (delete manually if desired).
 
 ## Honest Limitations
 
-**The taste system requires sessions to compound.** It starts empty. It gets better as you work and agents observe your decisions. First week is generic. By week four, agents know your judgment patterns.
+**The taste system requires sessions to compound.** It starts empty. First week is generic. By week four, agents know your judgment patterns.
 
-**Portfolio evaluation is only as good as the data.** You need to populate the portfolio model with your actual projects. The strategist can auto-discover projects, but you need to confirm stages and user counts.
+**Portfolio evaluation is only as good as the data.** You need to populate the portfolio with your actual projects. The strategist can auto-discover projects in `~/`, but you need to confirm stages and user counts.
 
 **Landscape positions are opinionated and sometimes wrong.** That's the point — they're positions, not facts. Scout revises them when evidence changes.
 
-**Budget caps are real.** `rhino` CLI passes `--max-budget-usd` to Claude. Still check the dashboard.
+**Budget caps are real.** The `rhino` CLI passes `--max-budget-usd` to Claude. Default is $2.00 for most agents. Override with `RHINO_BUDGET`.
 
-**Knowledge files are gitignored.** Use `rhino backup` regularly.
+**Knowledge files are gitignored.** They live in `~/.claude/knowledge/`, not in the repo. Use `rhino backup` regularly.
+
+**This is a solo founder tool.** It assumes one person making all decisions. Team dynamics, code review workflows, and multi-person taste profiles are not supported.
 
 ## Credits
 
 Informed by [PAHF](https://arxiv.org/abs/2602.16173) (preference learning from feedback), [compound engineering](https://every.to/chain-of-thought/compound-engineering-how-every-codes-with-agents) (knowledge loops), and [HBR portfolio management](https://hbr.org/2026/01/manage-your-ai-investments-like-a-portfolio) (Buy/Sell/Hold for AI investments).
+
+## License
+
+MIT
