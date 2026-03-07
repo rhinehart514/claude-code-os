@@ -21,8 +21,6 @@ if ! command -v claude &> /dev/null; then
 fi
 
 # Run the sweep agent interactively (needs human for RED items)
-# Note: morning-sweep is designed to be interactive, not headless
-# For automated runs, it will produce the report but skip RED dispatch
 claude --agent morning-sweep \
     "Run the morning sweep. Produce the morning brief. Classify all items. Do NOT auto-dispatch RED items — list them for human review." \
     2>> "$LOG_FILE"

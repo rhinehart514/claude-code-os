@@ -17,16 +17,15 @@ claude-code-os is an operating system layer for Claude Code. It transforms a col
 │  │ architect   │  │ product-2026│  │ reasoning       │ │
 │  │ implementer │  │             │  │                 │ │
 │  │ eval-runner │  └─────────────┘  └─────────────────┘ │
-│  │ perspective │                                        │
-│  │ scope-guard │  ┌─────────────┐  ┌─────────────────┐ │
-│  │ codebase-dr │  │   Hooks     │  │   Evals         │ │
-│  │ debt-collect│  │             │  │                 │ │
-│  │ todo-planner│  │ ideation    │  │ money-scout     │ │
-│  │ money-scout │  │ readonly    │  │ rubric          │ │
-│  │ morning-    │  │             │  │ agent-session   │ │
-│  │ sweep       │  └─────────────┘  │ rubric          │ │
-│  │ night-watch │                    └─────────────────┘ │
-│  └─────────────┘                                        │
+│  │ codebase-   │                                        │
+│  │ doctor      │  ┌─────────────┐  ┌─────────────────┐ │
+│  │ money-scout │  │   Hooks     │  │   Evals         │ │
+│  │ morning-    │  │             │  │                 │ │
+│  │ sweep       │  │ ideation    │  │ money-scout     │ │
+│  │             │  │ readonly    │  │ rubric          │ │
+│  │             │  │             │  │ agent-session   │ │
+│  │             │  └─────────────┘  │ rubric          │ │
+│  └─────────────┘                    └─────────────────┘ │
 │                                                         │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │              Knowledge System                     │   │
@@ -72,19 +71,18 @@ User intent
     │
     ├─ "what should I build?" ──→ strategist
     │
+    ├─ "what needs attention?" ──→ morning-sweep (daily triage)
+    │
     ├─ "build this feature" ──→ product-gate ──→ architect ──→ implementer ──→ eval-runner
     │                              (approve)      (plan)       (build)         (verify)
     │
     ├─ "fix this bug" ──→ (just do it — quick fix path)
     │
-    ├─ "this feels slow" ──→ codebase-doctor ──→ debt-collector
-    │                          (diagnose)          (fix)
+    ├─ "this feels slow" ──→ codebase-doctor (diagnose → fix in one agent)
     │
-    ├─ "am I on track?" ──→ scope-guard / todofocus
+    ├─ "am I on track?" ──→ /todofocus (skill, not an agent)
     │
-    ├─ "what's trending?" ──→ money-scout
-    │
-    └─ (automated) ──→ morning-sweep (daily) / night-watch (overnight)
+    └─ "what's trending?" ──→ money-scout
 ```
 
 ## File Layout
@@ -120,9 +118,9 @@ This pattern is reusable. Copy `knowledge/_template/` to create new learning age
 
 ## Automation Architecture
 
-Two automated agents run on schedules via macOS LaunchAgents:
+Two agents can run on schedules via macOS LaunchAgents:
 
-- **morning-sweep** (daily, 8am) — interactive triage with dispatch taxonomy
-- **money-scout** (weekly, Monday 6am) — headless trend scanning
+- **morning-sweep** (daily, 8am) — triage with dispatch taxonomy
+- **money-scout** (weekly, Monday 6am) — trend scanning
 
-Both are budget-capped and write-safe. See [SAFETY.md](SAFETY.md) for constraints.
+Both are budget-capped and write-safe. See [SAFETY.md](SAFETY.md) for constraints. Note: headless automation is fragile — running these manually is more reliable.

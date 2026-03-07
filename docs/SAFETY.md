@@ -19,14 +19,9 @@ How claude-code-os prevents autonomous agents from causing harm.
 | architect | No | No | None | Yes (ADR approval) |
 | implementer | No | Yes | None | Yes (task approval) |
 | eval-runner | No | No | None | No (diagnostic) |
-| perspective-runner | No | No | None | No (diagnostic) |
-| scope-guard | No | No | None | No (diagnostic) |
-| codebase-doctor | No | No | None | No (diagnostic) |
-| debt-collector | No | Yes | None | Yes (tier approval) |
-| todo-planner | No | No | None | No (read-only) |
+| codebase-doctor | No | Yes (fix mode) | None | Yes (tier 2+ fixes) |
 | money-scout | No | Yes (knowledge only) | $2.00 | No |
 | morning-sweep | No | No | $2.00 | Yes (RED items) |
-| night-watch | No | Yes (reports only) | $2.00 | No |
 
 ## Specific Safeguards
 
@@ -36,15 +31,6 @@ How claude-code-os prevents autonomous agents from causing harm.
 - YELLOW items dispatch with summary (low-risk, human notified)
 - RED items NEVER auto-dispatch (requires explicit human approval)
 - Total GREEN + YELLOW budget capped at $2.00
-
-### Night Watch
-- Budget capped at $2.00 per session
-- NEVER sends anything external
-- NEVER deploys to production
-- NEVER makes irreversible changes
-- NEVER creates user-facing features
-- Write-safe only (reports, knowledge files)
-- Code changes (if any) go to a separate branch, never merged
 
 ### Money Scout
 - Never posts, sends, or communicates externally

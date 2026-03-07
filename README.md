@@ -1,12 +1,12 @@
 # claude-code-os
 
-An operating system for Claude Code. Not just configuration — a self-improving, knowledge-compounding agent system for solo technical founders.
+An operating system for Claude Code. Agents, skills, rules, and a self-improving knowledge system for solo technical founders.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  claude-code-os                                          │
 │                                                          │
-│  13 Agents  ·  3 Skills  ·  2 Rules  ·  1 Hook          │
+│  8 Agents  ·  3 Skills  ·  2 Rules  ·  1 Hook           │
 │  Knowledge Systems  ·  Automated Orchestration           │
 │                                                          │
 │  git clone → ./install.sh → you have an OS               │
@@ -51,15 +51,12 @@ The system amplifies you, it doesn't replace you. Critical decisions (deploy, me
 | **product-gate** | Feature evaluation, prevents premature coding | Before any non-trivial feature |
 | **architect** | ADR creation, implementation planning | After product-gate approves |
 | **implementer** | Code execution from approved plans | After architect produces ADR |
-| **eval-runner** | Feature evaluation (code + product + UX) | After implementation, before shipping |
-| **perspective-runner** | User persona stress-testing | Evaluate features from user POV |
-| **scope-guard** | Drift detection during implementation | When work feels like it's expanding |
-| **codebase-doctor** | Health diagnostics, velocity blockers | When project feels slow or broken |
-| **debt-collector** | Batch-fix mechanical tech debt | After codebase-doctor identifies issues |
-| **todo-planner** | Session planning, next task recommendation | Start of work session |
+| **eval-runner** | Feature eval (code + perspectives + UX) | After implementation, before shipping |
+| **codebase-doctor** | Health diagnostics + mechanical debt fixes | "This feels slow" or "clean this up" |
 | **money-scout** | Trend scanning, opportunity intelligence | Weekly (automated or manual) |
 | **morning-sweep** | Daily triage with dispatch taxonomy | Start of day (automated or manual) |
-| **night-watch** | Overnight maintenance, diagnostics | Overnight (automated) |
+
+**Consolidated from 13 → 8.** Perspective-runner merged into eval-runner. Debt-collector merged into codebase-doctor (two modes: diagnose/fix). Scope-guard merged into `/todofocus` skill. Todo-planner absorbed by morning-sweep. Night-watch cut (aspirational automation that doesn't reliably work).
 
 ## Dispatch Taxonomy
 
@@ -96,28 +93,24 @@ See [docs/KNOWLEDGE-SYSTEMS.md](docs/KNOWLEDGE-SYSTEMS.md) for the full pattern.
 
 ## Workflow
 
-The recommended daily workflow:
-
 ```
 Morning:
-  claude --agent morning-sweep    # What needs attention?
-  → Review RED items, approve/skip
-  → Start on recommended focus
+  claude --agent morning-sweep    # What needs attention? What to work on?
 
 During work:
   claude --agent product-gate     # Should I build this?
   claude --agent architect        # How should I build this?
   claude --agent implementer      # Build it
   claude --agent eval-runner      # Did I build it well?
-  /todofocus                      # Am I still on track?
+  /todofocus                      # Am I on track? Scope drifting?
   /smart-commit                   # Commit with context
 
 Weekly:
   claude --agent money-scout      # What's trending?
   claude --agent strategist       # Am I building the right thing?
 
-Overnight (automated):
-  night-watch runs diagnostics and knowledge updates
+When things feel broken:
+  claude --agent codebase-doctor  # Diagnose, then fix
 ```
 
 ## Installation Details
@@ -164,6 +157,30 @@ See [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md) for full guide.
 - macOS (for LaunchAgents) or Linux (use cron instead)
 - `jq` for config merging: `brew install jq`
 - `gh` CLI for GitHub integration (optional): `brew install gh`
+
+## Honest Limitations
+
+This section exists because a system that evaluates everything should evaluate itself first.
+
+**It's markdown files pretending to be an operating system.** There is no kernel, no process manager, no scheduler. It's prompt engineering in a trenchcoat. `install.sh` creates symlinks — that's the entire "runtime."
+
+**The 4-agent pipeline is heavy.** product-gate → architect → implementer → eval-runner before you write a line of code. For a solo founder who preaches velocity, that's ceremony. The "quick fix — just do it" escape hatch will become your default, and that's fine. Use the pipeline for features that matter, skip it for everything else.
+
+**"Self-improving knowledge system" is a generous description of empty markdown files.** No code enforces that agents read before they write. No validation. No database. An LLM parsing its own previous markdown output is not a knowledge graph — it's a game of telephone with itself.
+
+**Budget caps are vibes, not enforcement.** The prompt says "$2.00 max." Nothing actually tracks spend. Claude cannot read its own API meter. You'll find out what it cost on your Anthropic dashboard.
+
+**The automation is fragile.** LaunchAgents calling `claude` CLI headlessly assumes non-interactive auth, no rate limits, and stable CLI behavior across updates. All three assumptions can break.
+
+**`install.sh` does a shallow jq merge.** Nested hook configs can get clobbered. The "preserves your settings" promise is approximately true, which in software means false.
+
+**Knowledge files are gitignored.** The most valuable part — accumulated intelligence — doesn't survive a machine wipe, isn't backed up, and can't be shared. The disposable parts are version-controlled. The irreplaceable parts aren't.
+
+**This is one person's workflow exported as if it's a product.** The agent prompts encode specific opinions (3x rule, Christensen disruption test, kill criteria) useful for one founder's context. You'll need to rewrite prompts to match your situation.
+
+**The supreme irony:** A system built to prevent premature infrastructure is itself premature infrastructure. It has zero users, no tests, and was built instead of shipping the product it's supposed to help ship.
+
+Steal the parts that work for you. Don't mistake the map for the territory.
 
 ## Credits
 

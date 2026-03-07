@@ -239,7 +239,8 @@ fi
 
 echo ""
 echo "What's installed:"
-echo "  - 13 agents (11 core + morning-sweep + night-watch)"
+echo "  - 8 agents (strategist, product-gate, architect, implementer,"
+echo "    eval-runner, codebase-doctor, money-scout, morning-sweep)"
 echo "  - 3 skills (smart-commit, todofocus, product-2026)"
 echo "  - 2 rules (quality-bar, product-reasoning)"
 echo "  - 1 hook (enforce_ideation_readonly)"

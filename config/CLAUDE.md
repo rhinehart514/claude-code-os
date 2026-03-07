@@ -49,16 +49,14 @@ The end is: user opens this → gets value → feels delighted → tells someone
 
 ## How To Invoke Agents
 Say "use [agent name]" or "run [agent name]" or just describe the need:
-- "what should I work on?" → strategist
+- "what should I work on?" → strategist / morning-sweep
 - "should we build this?" → product-gate
 - "plan this feature" → architect
 - "implement task 1" → implementer
-- "am I on track?" → scope-guard / /todofocus
+- "am I on track?" → /todofocus
 - "run evals" → eval-runner
-- "this feels slow" → codebase-doctor
-- "fix the debt" → debt-collector
-- "stress test this" → perspective-runner
-- "what's next?" → todo-planner
+- "this feels slow" / "fix the debt" → codebase-doctor
+- "what's trending?" → money-scout
 
 ## After Compaction
 Re-read: (1) your task plan, (2) relevant files to the current task. Do not continue from memory alone.
