@@ -149,15 +149,25 @@ Look at each screenshot. Score 1-5 on all 8 taste dimensions (hierarchy, breathi
 
 **You are evaluating pixels, not code.** The screenshot is the truth. Code that looks correct in JSX can render wrong — trust what you see.
 
-### Step 3: Find feeling gaps
+### Step 3: IA/VA Convergence Check
+
+Read the "IA/VA Convergence Problem" section in `agents/refs/design-taste.md`. Check for:
+- **Icon architecture**: Same 15 Lucide icons as every other app? Icons as decorative filler? No weight/size variation?
+- **Visual architecture**: Sidebar + card grid + table + modal for everything? How many convergent layout patterns stack up?
+- **Layout identity**: Can you tell this product apart from a shadcn template with the logo hidden?
+
+This is the gap between "works" and "love." Functional layouts that feel generic never create word-of-mouth.
+
+### Step 4: Find feeling gaps
 
 Problems that pass every mechanical check but feel wrong when you look at them:
 - Consistent but boring (same rhythm everywhere)
 - Accessible but lifeless (correct but no personality)
 - Clean but forgettable (nothing distinctive)
 - Functional but cold (works but doesn't delight)
+- Looks like every other AI-generated app (convergent IA/VA)
 
-### Step 4: Report
+### Step 5: Report
 
 ```
 ## Design Review: [project] — [date]
