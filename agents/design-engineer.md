@@ -71,15 +71,36 @@ Run this once per project. Creates the design decisions file that all future ses
 
 ## Audit Mode: Diagnose Design Health
 
-Read `agents/refs/design-checks.md` for the full diagnostic commands. Run all 5 checks:
+Two passes — code analysis + live accessibility testing.
+
+### Pass 1: Code Analysis
+Read `agents/refs/design-checks.md` for diagnostic commands. Run all 5:
 
 1. **Token consistency** — hardcoded colors, arbitrary spacing, font size sprawl, shadow/radius variants
 2. **State coverage** — loading, error, empty, success states per route/page
-3. **Accessibility** — alt text, focus indicators, ARIA labels, contrast, touch targets
+3. **Accessibility (code)** — alt text, focus indicators, ARIA labels, contrast, touch targets
 4. **Component consistency** — how many button/card/modal/nav variants exist (should be 1 each)
-5. **Visual craft** — read worst files, check for mixed styling, dead-end screens, dev terminology exposed to users
+5. **Visual craft** — read worst files, check for mixed styling, dead-end screens, dev terminology
 
-Cross-check every finding against `system.md`. If the project has decided on `rounded-lg`, every `rounded-md` and `rounded-xl` is a violation.
+Cross-check every finding against `system.md`.
+
+### Pass 2: Live Accessibility (if dev server available)
+Start the app and run axe-core via Playwright for real WCAG testing:
+
+```bash
+npm run dev &
+```
+
+Then use Playwright to navigate each page and run:
+```javascript
+// Inject axe-core and run accessibility audit
+await page.addScriptTag({ url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.0/axe.min.js' });
+const results = await page.evaluate(() => axe.run());
+```
+
+This catches the 70% of WCAG issues that grep misses: actual color contrast ratios, keyboard navigation, screen reader compatibility, ARIA role correctness.
+
+If axe-core isn't available or dev server won't start, fall back to code-only analysis.
 
 ### Report
 
@@ -105,26 +126,51 @@ Append to `~/.claude/knowledge/design-engineer/audit-history.jsonl`:
 
 ## Review Mode: Subjective Visual Eval (the taste layer)
 
-Not grep. Not WCAG. You read components and evaluate whether the UI *feels* right.
+Not grep. You LOOK at the actual UI and evaluate whether it *feels* right.
 
 Read `agents/refs/design-taste.md` for the 8 taste dimensions and scoring criteria.
 
-1. **Glob for pages**: `**/app/**/page.{tsx,jsx}`, `**/pages/**/*.{tsx,jsx}`, `**/routes/**/*.svelte`. Read each + layout files.
-2. **Score each page** 1-5 on all 8 dimensions (hierarchy, breathing room, contrast, polish, tone, density, flow, distinctiveness)
-3. **Find feeling gaps** — problems that pass mechanical checks but feel wrong: consistent-but-boring, accessible-but-lifeless, clean-but-forgettable
-4. **Report:**
+### Step 1: Start the app and screenshot every page
+
+```bash
+# Start dev server (detect the right command)
+npm run dev &    # or: npx next dev / npm start / etc.
+```
+
+Wait for the server to start, then use Playwright to:
+1. Navigate to each route
+2. Take a screenshot of each page (desktop width: 1280px)
+3. Take a screenshot at mobile width (375px) for key pages
+4. If dark mode exists, screenshot that too
+
+### Step 2: Evaluate what you SEE
+
+Look at each screenshot. Score 1-5 on all 8 taste dimensions (hierarchy, breathing room, contrast, polish, tone, density, flow, distinctiveness).
+
+**You are evaluating pixels, not code.** The screenshot is the truth. Code that looks correct in JSX can render wrong — trust what you see.
+
+### Step 3: Find feeling gaps
+
+Problems that pass every mechanical check but feel wrong when you look at them:
+- Consistent but boring (same rhythm everywhere)
+- Accessible but lifeless (correct but no personality)
+- Clean but forgettable (nothing distinctive)
+- Functional but cold (works but doesn't delight)
+
+### Step 4: Report
 
 ```
 ## Design Review: [project] — [date]
-Overall: [2-3 sentences — how does this FEEL?]
+Overall: [2-3 sentences — how does this FEEL based on what you saw?]
 
 | Dimension | Score | Note |
 [all 8 dimensions]
 Average: X/5
 
-What's Working: [2-3 specifics]
-What Feels Off: [ranked by perception impact, not technical severity]
-The Upgrade: [single level-up. Not a bug fix — a tier change. Be specific.]
+What's Working: [2-3 specifics from screenshots]
+What Feels Off: [ranked by perception impact]
+The Upgrade: [single level-up — a tier change, not a bug fix. Be specific.]
+Responsive: [how does mobile feel vs desktop?]
 ```
 
 Append to `audit-history.jsonl` with `"type":"review"`.
@@ -166,6 +212,15 @@ Read `agents/refs/design-tiers.md` for the full tier definitions.
 - **Tier 2 (read first):** Loading states, empty states, error boundaries, form validation, responsive gaps, dark mode gaps. Read the component, understand context, then fix.
 - **Tier 3 (ask first):** Design token file, shared components, layout shell, reusable empty/loading/error components.
 
+### Visual verification (before/after)
+
+If the dev server is running:
+1. **Before making changes**: screenshot the pages you're about to modify
+2. **After changes**: screenshot the same pages
+3. **Compare**: verify the changes improved the UI. If something looks wrong, revert.
+
+This catches regressions that build/lint won't: layout shifts, color changes that looked right in code but wrong on screen, spacing that collapsed.
+
 ### After every change
 ```bash
 npm run build 2>&1 | tail -20
@@ -173,7 +228,7 @@ npx tsc --noEmit 2>&1 | tail -20
 ```
 
 ### Update system.md
-If you made new design decisions (added a component pattern, standardized a token), add them to `system.md`. Next session enforces them.
+New design decisions → add to `system.md`. Next session enforces them.
 
 ### Report
 ```
@@ -182,6 +237,7 @@ Changes: [N files, N fixes]
 - [file] — [what changed]
 Components generated: [list or none]
 Build: PASS/FAIL
+Visual verification: [confirmed improvements / noted regressions]
 Remaining debt: [top 3]
 ```
 
