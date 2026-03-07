@@ -1,6 +1,6 @@
 # Dispatch Taxonomy
 
-The dispatch taxonomy classifies every action into one of four categories based on risk and reversibility. Used by `morning-sweep` and applicable to any automated agent.
+The dispatch taxonomy classifies every action into one of four categories based on risk and reversibility. Used by `sweep` and applicable to any automated agent.
 
 ## The Four Categories
 
@@ -10,8 +10,8 @@ The dispatch taxonomy classifies every action into one of four categories based 
 | Action | Why it's GREEN |
 |--------|---------------|
 | Run test suites | Read-only, no side effects |
-| Run codebase-doctor | Diagnostic, produces report only |
-| Run money-scout | Creates knowledge files, no external communication |
+| Run builder "doctor" | Diagnostic, produces report only |
+| Run scout | Creates knowledge files, no external communication |
 | Generate eval reports | Write-safe, creates files only |
 | Check dependency versions | Read-only |
 | Run linters | Read-only diagnostic |
@@ -52,7 +52,7 @@ The dispatch taxonomy classifies every action into one of four categories based 
 
 | Information | Why it's GRAY |
 |-------------|--------------|
-| Market trends from money-scout | Background intelligence |
+| Market trends from scout | Background intelligence |
 | Competitor launches | Awareness, no immediate action |
 | Community discussions | Informational |
 | Stats and metrics summaries | Context for decision-making |
@@ -92,17 +92,17 @@ Is this just information?
 
 ## Examples
 
-**Morning sweep finds outdated patch dependencies:**
+**Sweep finds outdated patch dependencies:**
 - Check what's outdated → GREEN
 - Update patch versions → YELLOW
 - Update major versions → RED
 
-**Night watch finds failing tests:**
+**Automated agent finds failing tests:**
 - Report the failure → GREEN (informational)
 - Attempt to fix the test → RED (modifies code with judgment)
 - Disable the failing test → RED (changes behavior)
 
-**Money scout finds a TIME-SENSITIVE opportunity:**
+**Scout finds a TIME-SENSITIVE opportunity:**
 - Log it to knowledge base → GREEN
 - Draft a tweet about it → GREEN (creates file, doesn't send)
 - Actually post the tweet → RED (external communication)

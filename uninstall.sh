@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# uninstall.sh — Remove claude-code-os symlinks from ~/.claude/
+# uninstall.sh — Remove rhino-os symlinks from ~/.claude/
 #
 # What this does:
 # 1. Removes symlinks that point back to this repo
@@ -36,7 +36,7 @@ for arg in "$@"; do
     esac
 done
 
-echo "=== claude-code-os uninstaller ==="
+echo "=== rhino-os uninstaller ==="
 echo ""
 
 remove_if_symlink_to_repo() {

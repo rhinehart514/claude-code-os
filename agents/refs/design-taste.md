@@ -136,6 +136,64 @@ When suggesting improvements, match these to the product type:
 
 ---
 
+## The IA/VA Convergence Problem (2025-2026)
+
+AI-generated UIs converge on the same information architecture and visual architecture because the training data is the same. The result: every app looks like it was built by the same junior designer who just discovered shadcn.
+
+### Icon Architecture (IA) — "The Lucide Problem"
+Every AI-assisted project defaults to the same icon set (Lucide/Heroicons). The icons are fine — they're just the same icons on every product. This creates sameness at the atomic level.
+
+**Detection:**
+- Check `package.json` for icon libraries — is it just `lucide-react`?
+- Count unique icons used vs total available — most projects use <20 from a set of 1000+
+- Are icons doing actual work (wayfinding, status) or decorative filler?
+
+**What to flag:**
+- Same 15 icons as every other SaaS (Settings gear, Bell, Search, Home, User, ChevronRight, Plus, X, Check, ArrowLeft, Menu, Star, Heart, Mail, Calendar)
+- Icons as filler — stuck next to labels that don't need them
+- No icon customization (weight, size variation, fill vs stroke inconsistency)
+
+**What to recommend:**
+- If Lucide fits: use it intentionally — fewer icons, larger, with consistent weight. Remove decorative clutter.
+- For distinction: custom icon set (even 10-15 key icons), Phosphor (more personality), or illustrated icons for empty/feature states
+- Mix approaches: system icons (Lucide) for chrome, custom/illustrated for product identity moments
+
+### Visual Architecture (VA) — "The Layout Problem"
+AI generates the same layout patterns because they're the most common in training data. Functional ≠ memorable.
+
+**The convergent patterns (flag when you see them all in one product):**
+- Sidebar + main content (every dashboard ever)
+- Card grid with equal sizing (Pinterest killed this in 2012, everyone else brought it back)
+- Hero → features grid → testimonials → CTA (every landing page)
+- Settings page = stacked form sections
+- Table with action column on the right
+- Modal for everything that could be inline
+
+**These aren't wrong.** They're just the default. A product using ALL of them has zero visual identity.
+
+**What to recommend:**
+- Break one major layout expectation per product:
+  - Command palette instead of sidebar nav
+  - Bento grid (varied sizes) instead of uniform cards
+  - Inline expansion instead of modals
+  - Kanban/timeline/spatial layouts where appropriate
+  - Split pane for detail views instead of navigate-away
+- Information density should match user intent:
+  - Power users: dense, keyboard-driven, data-forward
+  - New users: spacious, guided, progressive disclosure
+  - Campus users (students): mobile-first, thumb-zone nav, snackable content, social proof patterns
+
+### Taste vs Function Matrix
+```
+              Functional    Not Functional
+Tasteful      GOAL          Redesign needed
+Tasteless     Ship it       Kill it
+```
+
+"Functional but tasteless" still ships — but it won't create love. The design-engineer's job is to push toward the top-left quadrant without sacrificing function.
+
+---
+
 ## Anti-Slop Checklist
 
 Score 0 (bad) or 1 (good) for each. Total < 5 = high slop risk.
@@ -150,3 +208,6 @@ Score 0 (bad) or 1 (good) for each. Total < 5 = high slop risk.
 - [ ] Error states give guidance (not just "Something went wrong")
 - [ ] Loading states match content shape (not a generic spinner)
 - [ ] The product would be recognizable with the logo hidden
+- [ ] Icon usage is intentional (not decorative filler on every label)
+- [ ] At least one layout breaks the sidebar+cards+table pattern
+- [ ] Navigation pattern matches the user's context (mobile thumb zone, power user density, etc.)

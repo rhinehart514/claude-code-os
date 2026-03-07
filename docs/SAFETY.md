@@ -1,6 +1,6 @@
 # Safety
 
-How claude-code-os prevents autonomous agents from causing harm.
+How rhino-os prevents autonomous agents from causing harm.
 
 ## Core Principles
 
@@ -15,30 +15,16 @@ How claude-code-os prevents autonomous agents from causing harm.
 | Agent | Sends External? | Modifies Code? | Budget Cap | Human Required? |
 |-------|-----------------|----------------|------------|-----------------|
 | strategist | No | No | None | No (read-only) |
-| product-gate | No | No | None | Yes (approval gate) |
-| architect | No | No | None | Yes (ADR approval) |
-| implementer | No | Yes | None | Yes (task approval) |
-| eval-runner | No | No | None | No (diagnostic) |
-| codebase-doctor | No | Yes (fix mode) | None | Yes (tier 2+ fixes) |
-| money-scout | No | Yes (knowledge only) | $2.00 | No |
-| morning-sweep | No | No | $2.00 | Yes (RED items) |
+| builder (gate) | No | No | None | Yes (approval gate) |
+| builder (plan) | No | No | None | Yes (ADR approval) |
+| builder (build) | No | Yes | None | Yes (task approval) |
+| builder (doctor) | No | Yes (fix mode) | None | Yes (tier 2+ fixes) |
+| design-engineer | No | Yes (build mode) | None | Yes (build mode) |
+| scout | No | Yes (knowledge only) | $2.00 | No |
+| sweep | No | No | $2.00 | Yes (RED items) |
 
-## Specific Safeguards
+## Hooks
 
-### Morning Sweep
-- Classifies all items using [DISPATCH-TAXONOMY.md](DISPATCH-TAXONOMY.md)
-- GREEN items auto-dispatch (safe, reversible)
-- YELLOW items dispatch with summary (low-risk, human notified)
-- RED items NEVER auto-dispatch (requires explicit human approval)
-- Total GREEN + YELLOW budget capped at $2.00
-
-### Money Scout
-- Never posts, sends, or communicates externally
-- Draft artifacts are saved to files, never sent
-- Knowledge updates are append-only (never deletes existing knowledge)
-- Budget naturally limited by search/fetch operations
-
-### Hooks
 - `enforce_ideation_readonly.sh` — blocks Edit/Write/Bash in ideation output mode
 - Prevents accidental code changes during brainstorming sessions
 
@@ -47,19 +33,16 @@ How claude-code-os prevents autonomous agents from causing harm.
 | Risk | Mitigation |
 |------|------------|
 | Agent sends a message | No agent has email/Slack/social media tools |
-| Agent deploys bad code | No agent has deploy permissions; implementer needs approval |
+| Agent deploys bad code | No agent has deploy permissions; builder needs approval |
 | Agent spends too much | Budget caps on automated agents; manual agents are interactive |
-| Agent deletes files | night-watch explicitly cannot delete; install.sh backs up |
+| Agent deletes files | install.sh backs up; no agent has rm permissions by default |
 | Agent leaks secrets | .gitignore excludes personal data; templates use placeholders |
-| Agent runs indefinitely | LaunchAgents don't restart on failure; --max-turns limits |
+| Agent runs indefinitely | LaunchAgents don't restart on failure |
 
 ## Adding New Agents Safely
-
-When creating new agents:
 
 1. **Define tool access explicitly** — list only the tools the agent needs
 2. **Default to read-only** — start with Read/Grep/Glob, add Write/Bash only if needed
 3. **Add budget caps** — if the agent runs autonomously
 4. **Classify all actions** — use the dispatch taxonomy
-5. **Create an eval rubric** — so bad sessions are caught and corrected
-6. **Test interactively first** — run manually before automating
+5. **Test interactively first** — run manually before automating

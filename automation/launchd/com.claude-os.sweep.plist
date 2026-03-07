@@ -9,7 +9,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>$HOME/claude-code-os/automation/scripts/morning-sweep.sh</string>
+        <string>$HOME/bin/rhino sweep</string>
     </array>
 
     <!-- Run daily at 8:00 AM -->

@@ -1,4 +1,4 @@
-# Money Scout — Eval Rubric
+# Scout — Eval Rubric
 
 Run after every scouting session. Grade the output, then grade the knowledge base.
 
@@ -82,7 +82,7 @@ After each session, answer these YES/NO:
 ## Eval Report Template
 
 ```markdown
-## Money Scout Eval — [date]
+## Scout Eval — [date]
 
 ### Session Stats
 - Finds this session: N

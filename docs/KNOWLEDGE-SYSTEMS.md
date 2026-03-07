@@ -1,6 +1,6 @@
 # Knowledge Systems
 
-How learning agents work in claude-code-os.
+How learning agents work in rhino-os.
 
 ## The Problem
 
@@ -84,9 +84,9 @@ Session N+1:
 4. **Write the rubric** — create `evals/rubrics/[agent-name]-rubric.md`
 5. **Run it** — `claude --agent [agent-name]`
 
-## Reference Implementation: Money Scout
+## Reference Implementation: Scout
 
-The money-scout agent is the canonical example:
+The scout agent is the canonical example:
 
 - **Domain:** Business opportunities and tech trends
 - **Search:** Scans Twitter, HN, Reddit, Product Hunt, tech news
@@ -95,12 +95,35 @@ The money-scout agent is the canonical example:
 - **Adaptation:** Updates search strategy based on what yields high-signal results
 - **Feedback:** Tracks which opportunities were acted on and outcomes
 
-After 4+ sessions, the money-scout:
+After 4+ sessions, the scout:
 - Skips confirmed patterns (doesn't waste time rediscovering them)
 - Avoids dead ends (explicitly marked, never revisited)
 - Focuses search on gaps (areas with WEAK confidence)
 - Uses proven search queries (HIGH-YIELD from previous sessions)
 - Has accumulated pricing data, pattern evidence, and trend history
+
+## Auto-Capture (Post-Session Hook)
+
+The `capture_knowledge.sh` hook fires on session Stop events. It automatically:
+
+1. Checks if the session was substantial (>5 tool uses in last 30 minutes)
+2. Runs a lightweight `claude -p` summarization ($0.25 budget cap)
+3. Appends key decisions and patterns to `~/.claude/knowledge/sessions/[project].md`
+4. Prunes entries older than 60 days
+
+This closes the biggest gap in the knowledge system — manual curation. Sessions now self-document without intervention.
+
+**Skipped for:** trivial sessions (<5 tool uses), concurrent captures (lock file prevents overlap).
+
+## MCP Access
+
+Agents can read/write knowledge via MCP tools instead of direct file access:
+
+- `rhino_query_knowledge(agent, file, confidence)` — read with filters
+- `rhino_update_knowledge(agent, file, content, mode)` — append or replace
+- `rhino_backup_knowledge()` — snapshot all knowledge
+
+These tools read/write the same files, so MCP and direct access are interchangeable.
 
 ## Anti-Patterns
 

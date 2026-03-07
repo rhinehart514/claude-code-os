@@ -20,8 +20,8 @@ For each changed file not in the plan:
 ## Rules
 - If working on something NOT in the current task → flag it and recommend stopping
 - If the current task is done → suggest the next task from the plan
-- If no plan exists → suggest creating one with the architect agent
-- If all tasks are done → suggest running eval-runner
+- If no plan exists → suggest creating one with builder in plan mode
+- If all tasks are done → suggest running `/eval`
 - If scope is growing beyond the plan → recommend re-scoping with architect
 
 ## Output Format
