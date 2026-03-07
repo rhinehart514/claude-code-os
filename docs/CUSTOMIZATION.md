@@ -1,6 +1,6 @@
 # Customization Guide
 
-How to make claude-code-os yours.
+How to make rhino-os yours.
 
 ## First Steps After Install
 
@@ -21,7 +21,7 @@ Edit `~/.claude/settings.json` to add:
 
 ## Adding a New Agent
 
-1. Create a file in `~/claude-code-os/agents/[name].md`:
+1. Create a file in `~/rhino-os/agents/[name].md`:
 
 ```markdown
 ---
@@ -48,7 +48,7 @@ Your agent prompt here. Be specific about:
 
 ## Adding a New Skill
 
-1. Create a directory: `~/claude-code-os/skills/[name]/`
+1. Create a directory: `~/rhino-os/skills/[name]/`
 2. Create `SKILL.md`:
 
 ```markdown
@@ -68,7 +68,7 @@ Steps for the skill to follow...
 
 ## Adding a New Rule
 
-1. Create a file in `~/claude-code-os/rules/[name].md`:
+1. Create a file in `~/rhino-os/rules/[name].md`:
 
 ```markdown
 ---
@@ -107,15 +107,15 @@ Quick version:
 Add to crontab:
 ```bash
 # Daily morning sweep at 8am
-0 8 * * * $HOME/claude-code-os/automation/scripts/morning-sweep.sh
+0 8 * * * $HOME/rhino-os/automation/scripts/sweep.sh
 
 # Weekly scout on Mondays at 6am
-0 6 * * 1 $HOME/claude-code-os/automation/scripts/run-scout.sh
+0 6 * * 1 $HOME/rhino-os/automation/scripts/run-scout.sh
 ```
 
 ## Customizing the Dispatch Taxonomy
 
-Edit the morning-sweep agent to adjust which actions are GREEN/YELLOW/RED:
+Edit the sweep agent to adjust which actions are GREEN/YELLOW/RED:
 - Make your own actions GREEN if they're truly safe for your workflow
 - Escalate anything you're uncomfortable automating to RED
 
@@ -130,7 +130,7 @@ The install script symlinks individual files, not directories, so project-specif
 ## Keeping Up to Date
 
 ```bash
-cd ~/claude-code-os
+cd ~/rhino-os
 git pull
 ./install.sh  # re-run to pick up new agents, skills, etc.
 ```
@@ -141,7 +141,7 @@ The installer is idempotent — safe to re-run. It only overwrites symlinks poin
 
 Don't want an agent? Delete its symlink:
 ```bash
-rm ~/.claude/agents/night-watch.md
+rm ~/.claude/agents/scout.md
 ```
 
 Or remove it from the repo and re-run `./install.sh`.

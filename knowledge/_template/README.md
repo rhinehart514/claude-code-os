@@ -80,13 +80,13 @@ The knowledge base only compounds if:
 
 Without all 5, you have a search wrapper, not a learning system.
 
-## Example: Money Scout
+## Example: Scout
 
-The `money-scout` agent is the reference implementation of this pattern:
+The `scout` agent is the reference implementation of this pattern:
 - Scans for business opportunities across multiple platforms
 - Builds a knowledge base of patterns, trends, and price points
 - Self-evaluates each session against a rubric
 - Adapts its search strategy based on what yields high-signal results
 - Tracks which opportunities were acted on and what happened
 
-See `knowledge/money-scout/` and `agents/money-scout.md` for the full implementation.
+See `knowledge/scout/` and `agents/scout.md` for the full implementation.

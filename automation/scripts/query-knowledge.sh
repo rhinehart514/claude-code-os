@@ -23,7 +23,7 @@ if [[ -z "$AGENT" || -z "$CMD" ]]; then
     echo "  eval-trend   — show eval scores over time"
     echo "  stale [N]    — entries not updated in N days (default 30)"
     echo ""
-    echo "Example: ./query-knowledge.sh money-scout confirmed"
+    echo "Example: ./query-knowledge.sh scout confirmed"
     exit 0
 fi
 

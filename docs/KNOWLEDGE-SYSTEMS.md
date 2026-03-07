@@ -1,6 +1,6 @@
 # Knowledge Systems
 
-How learning agents work in claude-code-os.
+How learning agents work in rhino-os.
 
 ## The Problem
 
@@ -84,9 +84,9 @@ Session N+1:
 4. **Write the rubric** — create `evals/rubrics/[agent-name]-rubric.md`
 5. **Run it** — `claude --agent [agent-name]`
 
-## Reference Implementation: Money Scout
+## Reference Implementation: Scout
 
-The money-scout agent is the canonical example:
+The scout agent is the canonical example:
 
 - **Domain:** Business opportunities and tech trends
 - **Search:** Scans Twitter, HN, Reddit, Product Hunt, tech news
@@ -95,7 +95,7 @@ The money-scout agent is the canonical example:
 - **Adaptation:** Updates search strategy based on what yields high-signal results
 - **Feedback:** Tracks which opportunities were acted on and outcomes
 
-After 4+ sessions, the money-scout:
+After 4+ sessions, the scout:
 - Skips confirmed patterns (doesn't waste time rediscovering them)
 - Avoids dead ends (explicitly marked, never revisited)
 - Focuses search on gaps (areas with WEAK confidence)

@@ -2,87 +2,71 @@
 
 ## System Overview
 
-claude-code-os is an operating system layer for Claude Code. It transforms a collection of loose agent definitions, skills, and rules into a coherent, version-controlled system that compounds knowledge over time.
+rhino-os is an operating system layer for Claude Code. It transforms loose agent definitions, skills, and rules into a coherent, version-controlled system.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    CLAUDE CODE CLI                       │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
-│  │   Agents     │  │   Skills    │  │   Rules         │ │
-│  │             │  │             │  │                 │ │
-│  │ strategist  │  │ smart-commit│  │ quality-bar     │ │
-│  │ product-gate│  │ todofocus   │  │ product-        │ │
-│  │ architect   │  │ product-2026│  │ reasoning       │ │
-│  │ implementer │  │             │  │                 │ │
-│  │ eval-runner │  └─────────────┘  └─────────────────┘ │
-│  │ codebase-   │                                        │
-│  │ doctor      │  ┌─────────────┐  ┌─────────────────┐ │
-│  │ money-scout │  │   Hooks     │  │   Evals         │ │
-│  │ morning-    │  │             │  │                 │ │
-│  │ sweep       │  │ ideation    │  │ money-scout     │ │
-│  │             │  │ readonly    │  │ rubric          │ │
-│  │             │  │             │  │ agent-session   │ │
-│  │             │  └─────────────┘  │ rubric          │ │
-│  └─────────────┘                    └─────────────────┘ │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              Knowledge System                     │   │
-│  │                                                  │   │
-│  │  knowledge.md ←→ confidence-scores.md            │   │
-│  │       ↕                    ↕                     │   │
-│  │  search-strategy.md ←→ eval-history.md           │   │
-│  │       ↕                                          │   │
-│  │  acted-on.md (closes the feedback loop)          │   │
-│  └──────────────────────────────────────────────────┘   │
-│                                                         │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │              Automation                           │   │
-│  │                                                  │   │
-│  │  morning-sweep.sh  →  LaunchAgent (daily 8am)    │   │
-│  │  run-scout.sh      →  LaunchAgent (weekly Mon)   │   │
-│  └──────────────────────────────────────────────────┘   │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
++-----------------------------------------------------------+
+|                    CLAUDE CODE CLI                          |
++-----------------------------------------------------------+
+|                                                            |
+|  +-------------+  +---------------+  +-----------------+  |
+|  |   Agents    |  |   Skills      |  |   Rules         |  |
+|  |             |  |               |  |                 |  |
+|  | strategist  |  | todofocus     |  | quality-bar     |  |
+|  | builder     |  | smart-commit  |  | product-        |  |
+|  | design-     |  | eval          |  | reasoning       |  |
+|  |  engineer   |  | product-2026  |  |                 |  |
+|  | scout       |  +---------------+  +-----------------+  |
+|  | sweep       |                                           |
+|  +-------------+  +---------------+  +-----------------+  |
+|                    |   Hooks       |  |   Knowledge     |  |
+|                    |               |  |                 |  |
+|                    | ideation      |  | scout/          |  |
+|                    | readonly      |  | design-engineer/|  |
+|                    +---------------+  +-----------------+  |
+|                                                            |
++-----------------------------------------------------------+
 ```
 
 ## Design Principles
 
-### 1. Earn Existence via Evals
-Every agent has evaluation criteria. If an agent session doesn't pass its rubric, the agent's approach needs updating. No agent gets to exist just because it was created — it must prove value session over session.
+### 1. Momentum Over Process
+One agent (builder) handles gate → plan → build → doctor. No 4-agent pipeline. Skip modes you don't need.
 
-### 2. Knowledge Compounds
-The knowledge system is the core innovation. Unlike stateless agents that start fresh each session, learning agents (like money-scout) read their accumulated knowledge before acting, grade their output after acting, and adapt their strategy based on what worked. Each session makes the next one better.
+### 2. Earn Existence
+Every agent has evaluation criteria. If it doesn't produce value above its API cost, it gets revised or killed.
 
-### 3. Safety by Default
-- Morning sweep requires human approval for RED items
-- Night watch is budget-capped ($2.00) and never sends anything external
+### 3. Knowledge Compounds
+Learning agents (scout, design-engineer) read accumulated knowledge before acting, grade output after, and adapt.
+
+### 4. Safety by Default
+- Sweep requires human approval for RED items
+- Budget-capped automated agents
 - Hooks enforce ideation-mode readonly
 - No agent auto-deploys or communicates externally
-
-### 4. Human in the Loop
-The system amplifies a solo founder, it doesn't replace them. RED items always need approval. Features always go through product-gate → architect → implementer → eval-runner with human checkpoints.
 
 ## Agent Dispatch Flow
 
 ```
 User intent
-    │
-    ├─ "what should I build?" ──→ strategist
-    │
-    ├─ "what needs attention?" ──→ morning-sweep (daily triage)
-    │
-    ├─ "build this feature" ──→ product-gate ──→ architect ──→ implementer ──→ eval-runner
-    │                              (approve)      (plan)       (build)         (verify)
-    │
-    ├─ "fix this bug" ──→ (just do it — quick fix path)
-    │
-    ├─ "this feels slow" ──→ codebase-doctor (diagnose → fix in one agent)
-    │
-    ├─ "am I on track?" ──→ /todofocus (skill, not an agent)
-    │
-    └─ "what's trending?" ──→ money-scout
+    |
+    +-- "what should I build?" --> strategist
+    |
+    +-- "what needs attention?" --> sweep (daily triage)
+    |
+    +-- "build this feature" --> builder (auto: gate -> plan -> build)
+    |
+    +-- "fix this bug" --> (just do it -- quick fix path)
+    |
+    +-- "this feels slow" --> builder "doctor"
+    |
+    +-- "am I on track?" --> /todofocus (skill)
+    |
+    +-- "ready to ship?" --> /eval (skill)
+    |
+    +-- "what's trending?" --> scout
+    |
+    +-- "how does my UI feel?" --> design-engineer
 ```
 
 ## File Layout
@@ -90,37 +74,13 @@ User intent
 The repo mirrors `~/.claude/` structure. `install.sh` creates individual file symlinks (not directory symlinks) so you can have project-specific agents alongside OS agents.
 
 ```
-~/claude-code-os/          →  ~/.claude/
-├── agents/*.md            →  agents/*.md (symlinked)
-├── skills/*/SKILL.md      →  skills/*/SKILL.md (symlinked)
-├── rules/*.md             →  rules/*.md (symlinked)
-├── hooks/*                →  hooks/* (symlinked)
-├── evals/rubrics/*.md     →  evals/rubrics/*.md (symlinked)
-├── config/CLAUDE.md       →  CLAUDE.md (symlinked, unless user has their own)
-├── config/settings.json   →  settings.json (merged, not replaced)
-├── config/config.json     →  config.json (merged, not replaced)
-└── knowledge/_template/   →  knowledge/ (seeded, not symlinked — user data)
+~/rhino-os/                -->  ~/.claude/
+  agents/*.md              -->  agents/*.md (symlinked)
+  skills/*/SKILL.md        -->  skills/*/SKILL.md (symlinked)
+  rules/*.md               -->  rules/*.md (symlinked)
+  hooks/*                  -->  hooks/* (symlinked)
+  config/CLAUDE.md         -->  CLAUDE.md (symlinked, unless user has their own)
+  config/settings.json     -->  settings.json (merged, not replaced)
+  config/config.json       -->  config.json (merged, not replaced)
+  knowledge/_template/     -->  knowledge/ (seeded, not symlinked -- user data)
 ```
-
-## Knowledge System Architecture
-
-See [KNOWLEDGE-SYSTEMS.md](KNOWLEDGE-SYSTEMS.md) for deep dive.
-
-The knowledge system follows a 5-file pattern:
-
-1. **knowledge.md** — accumulated insights (read-first, write-after)
-2. **confidence-scores.md** — tracks pattern confidence across sessions
-3. **eval-history.md** — session scores over time
-4. **search-strategy.md** — self-adapting search approach
-5. **acted-on.md** — feedback loop closure
-
-This pattern is reusable. Copy `knowledge/_template/` to create new learning agents.
-
-## Automation Architecture
-
-Two agents can run on schedules via macOS LaunchAgents:
-
-- **morning-sweep** (daily, 8am) — triage with dispatch taxonomy
-- **money-scout** (weekly, Monday 6am) — trend scanning
-
-Both are budget-capped and write-safe. See [SAFETY.md](SAFETY.md) for constraints. Note: headless automation is fragile — running these manually is more reliable.

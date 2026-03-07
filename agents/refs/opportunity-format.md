@@ -15,7 +15,7 @@
 Target: average >= 2.0 across session.
 
 ## Draft Artifacts (Score-3 only)
-Save to ~/.claude/knowledge/money-scout/drafts/[YYYY-MM-DD]-[slug].md:
+Save to ~/.claude/knowledge/scout/drafts/[YYYY-MM-DD]-[slug].md:
 1. 3-tweet thread
 2. LinkedIn post (150-250 words)
 3. DM template (if applicable)

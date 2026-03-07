@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# install.sh — Install claude-code-os into ~/.claude/
+# install.sh — Install rhino-os into ~/.claude/
 #
 # What this does:
 # 1. Backs up existing files before overwriting
@@ -36,7 +36,7 @@ for arg in "$@"; do
     esac
 done
 
-echo "=== claude-code-os installer ==="
+echo "=== rhino-os installer ==="
 echo "Source: $SCRIPT_DIR"
 echo "Target: $CLAUDE_DIR"
 echo ""
@@ -168,63 +168,53 @@ fi
 
 # --- 9. Seed knowledge directories ---
 echo "Seeding knowledge directories..."
-mkdir -p "$CLAUDE_DIR/knowledge/money-scout"
 
-# Seed JSONL template files
-for template_file in "$SCRIPT_DIR"/knowledge/_template/*.jsonl; do
-    [[ ! -f "$template_file" ]] && continue
-    name="$(basename "$template_file")"
-    target="$CLAUDE_DIR/knowledge/money-scout/$name"
-    if [[ ! -f "$target" ]]; then
-        cp "$template_file" "$target"
-        echo "  seeded: money-scout/$name"
-    else
-        echo "  exists: money-scout/$name (preserved)"
+seed_knowledge_dir() {
+    local agent_name="$1"
+    local display_name="$2"
+    mkdir -p "$CLAUDE_DIR/knowledge/$agent_name"
+
+    # Seed from agent-specific knowledge if it exists
+    if [[ -d "$SCRIPT_DIR/knowledge/$agent_name" ]]; then
+        for seed_file in "$SCRIPT_DIR"/knowledge/"$agent_name"/*; do
+            [[ ! -f "$seed_file" ]] && continue
+            name="$(basename "$seed_file")"
+            target="$CLAUDE_DIR/knowledge/$agent_name/$name"
+            if [[ ! -f "$target" ]]; then
+                cp "$seed_file" "$target"
+                echo "  seeded: $agent_name/$name"
+            else
+                echo "  exists: $agent_name/$name (preserved)"
+            fi
+        done
     fi
-done
 
-# Seed markdown template files (knowledge.md, search-strategy.md)
-for template_file in "$SCRIPT_DIR"/knowledge/_template/*.md; do
-    name="$(basename "$template_file")"
-    [[ "$name" == "README.md" ]] && continue
-    target="$CLAUDE_DIR/knowledge/money-scout/$name"
-    if [[ ! -f "$target" ]]; then
-        cp "$template_file" "$target"
-        if command -v sed &> /dev/null; then
-            sed -i '' "s/\[Agent Name\]/Money Scout/g" "$target" 2>/dev/null || \
-            sed -i "s/\[Agent Name\]/Money Scout/g" "$target" 2>/dev/null || true
+    # Seed from template if agent-specific doesn't exist
+    for template_file in "$SCRIPT_DIR"/knowledge/_template/*.md; do
+        [[ ! -f "$template_file" ]] && continue
+        name="$(basename "$template_file")"
+        [[ "$name" == "README.md" ]] && continue
+        target="$CLAUDE_DIR/knowledge/$agent_name/$name"
+        if [[ ! -f "$target" ]]; then
+            cp "$template_file" "$target"
+            if command -v sed &> /dev/null; then
+                sed -i '' "s/\[Agent Name\]/$display_name/g" "$target" 2>/dev/null || \
+                sed -i "s/\[Agent Name\]/$display_name/g" "$target" 2>/dev/null || true
+            fi
+            echo "  seeded: $agent_name/$name"
+        else
+            echo "  exists: $agent_name/$name (preserved)"
         fi
-        echo "  seeded: money-scout/$name"
-    else
-        echo "  exists: money-scout/$name (preserved)"
-    fi
-done
+    done
+}
 
-# Seed design-engineer knowledge
-echo "Seeding design-engineer knowledge..."
-mkdir -p "$CLAUDE_DIR/knowledge/design-engineer"
-for seed_file in "$SCRIPT_DIR"/knowledge/design-engineer/*; do
-    [[ ! -f "$seed_file" ]] && continue
-    name="$(basename "$seed_file")"
-    target="$CLAUDE_DIR/knowledge/design-engineer/$name"
-    if [[ ! -f "$target" ]]; then
-        cp "$seed_file" "$target"
-        echo "  seeded: design-engineer/$name"
-    else
-        echo "  exists: design-engineer/$name (preserved)"
-    fi
-done
+seed_knowledge_dir "scout" "Scout"
+seed_knowledge_dir "design-engineer" "Design Engineer"
 
-# Copy the knowledge template README
-symlink_file "$SCRIPT_DIR/knowledge/_template/README.md" "$CLAUDE_DIR/knowledge/_template-README.md"
-
-# Copy seed knowledge if it doesn't exist
-if [[ -f "$SCRIPT_DIR/knowledge/money-scout/knowledge.md" ]]; then
-    target="$CLAUDE_DIR/knowledge/money-scout/knowledge.md"
-    if [[ ! -f "$target" ]]; then
-        cp "$SCRIPT_DIR/knowledge/money-scout/knowledge.md" "$target"
-        echo "  seeded: money-scout/knowledge.md"
-    fi
+# Migrate old money-scout knowledge → scout
+if [[ -d "$CLAUDE_DIR/knowledge/money-scout" && ! -d "$CLAUDE_DIR/knowledge/scout" ]]; then
+    mv "$CLAUDE_DIR/knowledge/money-scout" "$CLAUDE_DIR/knowledge/scout"
+    echo "  migrated: money-scout → scout"
 fi
 
 # --- 10. Make scripts executable ---
@@ -266,16 +256,12 @@ fi
 
 echo ""
 echo "What's installed:"
-echo "  - 10 agents (strategist, product-gate, architect, implementer,"
-echo "    eval-runner, codebase-doctor, money-scout, morning-sweep, self-audit, design-engineer)"
-echo "  - 3 skills (smart-commit, todofocus, product-2026)"
+echo "  - 5 agents (strategist, builder, design-engineer, scout, sweep)"
+echo "  - 4 skills (todofocus, smart-commit, eval, product-2026)"
 echo "  - 2 rules (quality-bar, product-reasoning)"
 echo "  - 2 hooks (enforce_ideation_readonly, track_usage)"
-echo "  - 2 eval rubrics"
-echo "  - Knowledge system template (JSONL-backed)"
-echo "  - Usage instrumentation (logs to ~/.claude/logs/usage.jsonl)"
 echo ""
 echo "Next steps:"
 echo "  1. Edit ~/.claude/CLAUDE.md with your identity and project info"
-echo "  2. Run: claude --agent morning-sweep"
-echo "  3. Read docs/CUSTOMIZATION.md to add your own agents"
+echo "  2. Run: claude --agent sweep"
+echo "  3. Run: claude --agent builder"
