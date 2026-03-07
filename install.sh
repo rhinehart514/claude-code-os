@@ -131,21 +131,44 @@ else
     symlink_file "$SCRIPT_DIR/config/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
 fi
 
-# --- 7. Settings.json (merge, don't overwrite) ---
+# --- 7. Settings.json (merge hooks additively, don't overwrite) ---
 echo "Merging settings.json..."
 if [[ -f "$CLAUDE_DIR/settings.json" ]]; then
-    # Merge: repo settings as base, user settings override
     if command -v jq &> /dev/null; then
         backup_if_exists "$CLAUDE_DIR/settings.json"
 
-        # Deep merge: user's settings take priority
-        # But add any new keys from the template
-        jq -s '.[0] * .[1]' \
-            "$SCRIPT_DIR/config/settings.json" \
-            "$CLAUDE_DIR/settings.json" \
-            > "$CLAUDE_DIR/settings.json.tmp"
+        # Additive merge: add template hooks that don't exist in user config
+        # For each hook in template, check if command already exists in user config
+        jq -s '
+          # Start with user config
+          .[1] as $user | .[0] as $template |
+          $user |
+          # For each hook type (PreToolUse, PostToolUse, Stop), add missing hooks
+          .hooks.PreToolUse |= (
+            . as $existing |
+            ($existing | map(.hooks // [] | map(.command // "")) | flatten) as $cmds |
+            ($template.hooks.PreToolUse // [] | map(
+              select(.hooks as $h | $cmds | any(. == ($h[0].command // "")) | not)
+            )) as $new |
+            $existing + $new
+          ) |
+          .hooks.PostToolUse |= (
+            . as $existing |
+            ($existing | map(.hooks // [] | map(.command // "")) | flatten) as $cmds |
+            ($template.hooks.PostToolUse // [] | map(
+              select(.hooks as $h | $cmds | any(. == ($h[0].command // "")) | not)
+            )) as $new |
+            $existing + $new
+          ) |
+          # Merge non-hooks keys from template (add missing, dont overwrite existing)
+          ($template | del(.hooks)) as $tmpl_base |
+          ($tmpl_base * (. | del(.hooks))) as $merged_base |
+          $merged_base + {hooks: .hooks}
+        ' "$SCRIPT_DIR/config/settings.json" \
+          "$CLAUDE_DIR/settings.json" \
+          > "$CLAUDE_DIR/settings.json.tmp"
         mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-        echo "  merged settings.json (your settings preserved, new defaults added)"
+        echo "  merged settings.json (hooks added additively, existing preserved)"
     else
         echo "  WARNING: jq not installed. Skipping settings merge."
         echo "  Install jq: brew install jq"
@@ -161,12 +184,13 @@ echo "Merging config.json..."
 if [[ -f "$CLAUDE_DIR/config.json" ]]; then
     if command -v jq &> /dev/null; then
         backup_if_exists "$CLAUDE_DIR/config.json"
-        jq -s '.[0] * .[1]' \
+        # Additive merge: template MCP servers + user MCP servers (user wins on conflict)
+        jq -s '.[0].mcpServers as $tmpl | .[1] | .mcpServers = ($tmpl + .mcpServers)' \
             "$SCRIPT_DIR/config/config.json" \
             "$CLAUDE_DIR/config.json" \
             > "$CLAUDE_DIR/config.json.tmp"
         mv "$CLAUDE_DIR/config.json.tmp" "$CLAUDE_DIR/config.json"
-        echo "  merged config.json (your MCP servers preserved)"
+        echo "  merged config.json (MCP servers added additively, yours preserved)"
     else
         echo "  WARNING: jq not installed. Skipping config merge."
     fi

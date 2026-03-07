@@ -5,7 +5,12 @@ set -euo pipefail
 # Unifies agent invocation, state inspection, knowledge backup, and system health.
 
 VERSION="1.0.0"
-RHINO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Follow symlink to find real rhino-os directory
+_RHINO_SOURCE="${BASH_SOURCE[0]}"
+if [[ -L "$_RHINO_SOURCE" ]]; then
+    _RHINO_SOURCE="$(readlink "$_RHINO_SOURCE")"
+fi
+RHINO_DIR="$(cd "$(dirname "$_RHINO_SOURCE")/.." && pwd)"
 CLAUDE_DIR="$HOME/.claude"
 LOG_DIR="$CLAUDE_DIR/logs"
 STATE_DIR="$CLAUDE_DIR/state"
