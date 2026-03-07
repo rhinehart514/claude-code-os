@@ -6,7 +6,7 @@ An operating system for Claude Code. Agents, skills, rules, and a self-improving
 ┌──────────────────────────────────────────────────────────┐
 │  claude-code-os                                          │
 │                                                          │
-│  8 Agents  ·  3 Skills  ·  2 Rules  ·  1 Hook           │
+│  9 Agents  ·  3 Skills  ·  2 Rules  ·  2 Hooks          │
 │  Knowledge Systems  ·  Automated Orchestration           │
 │                                                          │
 │  git clone → ./install.sh → you have an OS               │
@@ -55,8 +55,9 @@ The system amplifies you, it doesn't replace you. Critical decisions (deploy, me
 | **codebase-doctor** | Health diagnostics + mechanical debt fixes | "This feels slow" or "clean this up" |
 | **money-scout** | Trend scanning, opportunity intelligence | Weekly (automated or manual) |
 | **morning-sweep** | Daily triage with dispatch taxonomy | Start of day (automated or manual) |
+| **self-audit** | System health: usage stats, prompt costs, stale knowledge | Periodically, to keep the system lean |
 
-**Consolidated from 13 → 8.** Perspective-runner merged into eval-runner. Debt-collector merged into codebase-doctor (two modes: diagnose/fix). Scope-guard merged into `/todofocus` skill. Todo-planner absorbed by morning-sweep. Night-watch cut (aspirational automation that doesn't reliably work).
+**Consolidated from 13 → 9.** Perspective-runner merged into eval-runner. Debt-collector merged into codebase-doctor (two modes: diagnose/fix). Scope-guard merged into `/todofocus` skill. Todo-planner absorbed by morning-sweep. Night-watch cut (aspirational automation that doesn't reliably work). Self-audit added for system introspection.
 
 ## Dispatch Taxonomy
 
@@ -77,11 +78,18 @@ The secret sauce. Learning agents maintain persistent knowledge across sessions:
 
 ```
 knowledge/[agent-name]/
-├── knowledge.md          # Accumulated insights
-├── confidence-scores.md  # Pattern confidence tracking
-├── eval-history.md       # Session quality over time
-├── search-strategy.md    # Self-adapting approach
-└── acted-on.md           # Feedback loop closure
+├── knowledge.md              # Accumulated insights (markdown)
+├── confidence-scores.jsonl   # Pattern confidence tracking (queryable)
+├── eval-history.jsonl        # Session quality over time (queryable)
+├── search-strategy.md        # Self-adapting approach (markdown)
+└── acted-on.jsonl            # Feedback loop closure (queryable)
+```
+
+Structured data uses JSONL for machine-readable querying:
+```bash
+# Query knowledge via included script
+./automation/scripts/query-knowledge.sh my-agent confirmed
+./automation/scripts/query-knowledge.sh my-agent stale 30
 ```
 
 Create your own learning agents using the template:
@@ -111,6 +119,9 @@ Weekly:
 
 When things feel broken:
   claude --agent codebase-doctor  # Diagnose, then fix
+
+Periodically:
+  claude --agent self-audit       # Is the system itself healthy?
 ```
 
 ## Installation Details

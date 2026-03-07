@@ -13,7 +13,7 @@ The end is: user opens this → gets value → feels delighted → tells someone
 ## Before Everything
 - If unsure what to work on: use `strategist` agent (scouts each project, then strategizes — one invocation)
 - If codebase feels slow or broken: use `codebase-doctor` agent (diagnose health)
-- If mechanical debt needs fixing: use `debt-collector` agent (batch safe fixes)
+- If mechanical debt needs fixing: use `codebase-doctor` agent in fix mode
 
 ## Before Coding
 - If this is a non-trivial feature: use the `product-gate` agent first
@@ -24,7 +24,7 @@ The end is: user opens this → gets value → feels delighted → tells someone
 - Read `.claude/plans/active-plan.md` if it exists — that's your contract
 - Before creating any file: grep for existing patterns and match them exactly
 - Before creating any component: check shared packages first
-- If you feel lost or scope is growing: use `scope-guard` agent
+- If you feel lost or scope is growing: use `/todofocus`
 - If your task is done: use `/todofocus` to confirm and get next task
 
 ## After Implementation
@@ -57,6 +57,7 @@ Say "use [agent name]" or "run [agent name]" or just describe the need:
 - "run evals" → eval-runner
 - "this feels slow" / "fix the debt" → codebase-doctor
 - "what's trending?" → money-scout
+- "audit the system" → self-audit
 
 ## After Compaction
 Re-read: (1) your task plan, (2) relevant files to the current task. Do not continue from memory alone.

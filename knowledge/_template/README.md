@@ -12,13 +12,53 @@ A learning agent has:
 
 ## Files in This Template
 
-| File | Purpose |
-|------|---------|
-| `knowledge.md` | Accumulated pattern-level insights. The "what do we know?" file. |
-| `confidence-scores.md` | Track confidence in each pattern: WEAK → STRONG → CONFIRMED → DISPROVEN |
-| `eval-history.md` | Score tracking across sessions. Enables trend detection in agent quality. |
-| `search-strategy.md` | Living document of what searches work and which don't. Self-adapts. |
-| `acted-on.md` | Closes the loop: did acting on knowledge lead to results? |
+| File | Format | Purpose |
+|------|--------|---------|
+| `knowledge.md` | Markdown | Accumulated pattern-level insights. The "what do we know?" file. |
+| `confidence-scores.jsonl` | JSONL | Track confidence in each pattern: WEAK → STRONG → CONFIRMED → DISPROVEN |
+| `eval-history.jsonl` | JSONL | Score tracking across sessions. Enables trend detection in agent quality. |
+| `search-strategy.md` | Markdown | Living document of what searches work and which don't. Self-adapts. |
+| `acted-on.jsonl` | JSONL | Closes the loop: did acting on knowledge lead to results? |
+
+### JSONL Format
+
+Structured data uses [JSONL](https://jsonlines.org/) (one JSON object per line) instead of markdown tables. This enables:
+- Machine-readable querying via `jq`
+- Appending without parsing
+- Deterministic updates
+
+**confidence-scores.jsonl** — one entry per pattern:
+```json
+{"pattern":"example-pattern","confidence":"WEAK","updated":"2026-01-01","evidence_count":1,"notes":"seed entry"}
+```
+Confidence levels: `WEAK` → `STRONG` → `CONFIRMED` → `DISPROVEN`
+
+**eval-history.jsonl** — one entry per eval session:
+```json
+{"date":"2026-01-01","session":0,"score":0,"finding":"seed entry","adjustment":"none"}
+```
+
+**acted-on.jsonl** — one entry per acted-on item:
+```json
+{"date_acted":"2026-01-01","item":"example","action":"tested","outcome":"pending","revenue":"none"}
+```
+
+### Querying Knowledge
+
+Use the included query script:
+```bash
+# List confirmed patterns
+./automation/scripts/query-knowledge.sh my-agent confirmed
+
+# List weak patterns needing more evidence
+./automation/scripts/query-knowledge.sh my-agent weak
+
+# Show eval score trend
+./automation/scripts/query-knowledge.sh my-agent eval-trend
+
+# Find stale entries (not updated in 30+ days)
+./automation/scripts/query-knowledge.sh my-agent stale 30
+```
 
 ## How to Create a New Learning Agent
 
@@ -36,7 +76,7 @@ The knowledge base only compounds if:
 2. Confidence scores are UPDATED each session (not just added)
 3. Dead ends are EXPLICITLY marked so the agent doesn't revisit them
 4. The search strategy EVOLVES based on what's working
-5. `acted-on.md` closes the loop: "did acting on this knowledge lead to results?"
+5. `acted-on.jsonl` closes the loop: "did acting on this knowledge lead to results?"
 
 Without all 5, you have a search wrapper, not a learning system.
 

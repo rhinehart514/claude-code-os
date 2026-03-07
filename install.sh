@@ -168,16 +168,28 @@ fi
 
 # --- 9. Seed knowledge directories ---
 echo "Seeding knowledge directories..."
+mkdir -p "$CLAUDE_DIR/knowledge/money-scout"
+
+# Seed JSONL template files
+for template_file in "$SCRIPT_DIR"/knowledge/_template/*.jsonl; do
+    [[ ! -f "$template_file" ]] && continue
+    name="$(basename "$template_file")"
+    target="$CLAUDE_DIR/knowledge/money-scout/$name"
+    if [[ ! -f "$target" ]]; then
+        cp "$template_file" "$target"
+        echo "  seeded: money-scout/$name"
+    else
+        echo "  exists: money-scout/$name (preserved)"
+    fi
+done
+
+# Seed markdown template files (knowledge.md, search-strategy.md)
 for template_file in "$SCRIPT_DIR"/knowledge/_template/*.md; do
     name="$(basename "$template_file")"
     [[ "$name" == "README.md" ]] && continue
-
-    # Only copy if the target doesn't exist (don't overwrite user data)
     target="$CLAUDE_DIR/knowledge/money-scout/$name"
-    mkdir -p "$CLAUDE_DIR/knowledge/money-scout"
     if [[ ! -f "$target" ]]; then
         cp "$template_file" "$target"
-        # Replace placeholder with agent name
         if command -v sed &> /dev/null; then
             sed -i '' "s/\[Agent Name\]/Money Scout/g" "$target" 2>/dev/null || \
             sed -i "s/\[Agent Name\]/Money Scout/g" "$target" 2>/dev/null || true
@@ -239,13 +251,14 @@ fi
 
 echo ""
 echo "What's installed:"
-echo "  - 8 agents (strategist, product-gate, architect, implementer,"
-echo "    eval-runner, codebase-doctor, money-scout, morning-sweep)"
+echo "  - 9 agents (strategist, product-gate, architect, implementer,"
+echo "    eval-runner, codebase-doctor, money-scout, morning-sweep, self-audit)"
 echo "  - 3 skills (smart-commit, todofocus, product-2026)"
 echo "  - 2 rules (quality-bar, product-reasoning)"
-echo "  - 1 hook (enforce_ideation_readonly)"
+echo "  - 2 hooks (enforce_ideation_readonly, track_usage)"
 echo "  - 2 eval rubrics"
-echo "  - Knowledge system template"
+echo "  - Knowledge system template (JSONL-backed)"
+echo "  - Usage instrumentation (logs to ~/.claude/logs/usage.jsonl)"
 echo ""
 echo "Next steps:"
 echo "  1. Edit ~/.claude/CLAUDE.md with your identity and project info"
