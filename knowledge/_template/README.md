@@ -80,6 +80,20 @@ The knowledge base only compounds if:
 
 Without all 5, you have a search wrapper, not a learning system.
 
+## Size Limits (enforced by agents at write time)
+
+| File | Max Lines | Pruning Rule |
+|------|-----------|-------------|
+| `knowledge.md` | 150 | Drop DISPROVEN entries. Merge CONFIRMED patterns into summaries. Remove entries >60 days old without confirmation. |
+| `search-strategy.md` | 80 | Drop EXHAUSTED entries older than 30 days. Merge HIGH-YIELD entries with similar queries. |
+| `confidence-scores.jsonl` | 200 entries | Drop DISPROVEN entries >30 days old. |
+| `eval-history.jsonl` | 50 entries | Keep last 50 only. Older entries summarized in knowledge.md if trend is notable. |
+| `acted-on.jsonl` | 100 entries | Archive to knowledge.md as a summary pattern, then prune. |
+
+**Why:** Knowledge files that grow unbounded eat agent context and degrade performance. An agent spending 30% of its context reading stale knowledge is worse than one that reads 50 lines of current, pruned intelligence.
+
+**How:** Every agent with a knowledge directory MUST check file sizes at the end of each session. If over limit, prune before writing. The agent is responsible for its own hygiene.
+
 ## Example: Scout
 
 The `scout` agent is the reference implementation of this pattern:

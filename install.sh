@@ -42,7 +42,7 @@ echo "Target: $CLAUDE_DIR"
 echo ""
 
 # Ensure target directories exist
-mkdir -p "$CLAUDE_DIR"/{agents,skills,rules,hooks,evals/rubrics,evals/reports,knowledge,logs}
+mkdir -p "$CLAUDE_DIR"/{agents/refs,skills,rules,hooks,evals/rubrics,evals/reports,knowledge,logs,state,plans}
 
 # --- Helper functions ---
 
@@ -79,6 +79,15 @@ for agent in "$SCRIPT_DIR"/agents/*.md; do
     name="$(basename "$agent")"
     symlink_file "$agent" "$CLAUDE_DIR/agents/$name"
 done
+
+# Agent refs (reference docs agents depend on)
+if [[ -d "$SCRIPT_DIR/agents/refs" ]]; then
+    mkdir -p "$CLAUDE_DIR/agents/refs"
+    for ref in "$SCRIPT_DIR"/agents/refs/*.md; do
+        name="$(basename "$ref")"
+        symlink_file "$ref" "$CLAUDE_DIR/agents/refs/$name"
+    done
+fi
 
 # --- 2. Skills ---
 echo "Installing skills..."
