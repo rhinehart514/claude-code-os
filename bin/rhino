@@ -236,13 +236,17 @@ cmd_status() {
         if [[ -n "$week_ago" ]]; then
             # Count edits per project in last 7 days
             local drift_data
-            drift_data=$(awk -v cutoff="$week_ago" '
+            drift_data=$(grep -E '"tool":"(Edit|Write)"' "$usage_file" | \
+                awk -F'"' -v cutoff="$week_ago" '
                 {
-                    if (match($0, /"ts":"([^"]+)"/, ts) && match($0, /"tool":"(Edit|Write)"/) && match($0, /"project":"([^"]*)"/, proj)) {
-                        if (ts[1] >= cutoff && proj[1] != "") {
-                            counts[proj[1]]++
-                            total++
-                        }
+                    ts=""; proj=""
+                    for (i=1; i<=NF; i++) {
+                        if ($i == "ts") ts = $(i+2)
+                        if ($i == "project") proj = $(i+2)
+                    }
+                    if (ts >= cutoff && proj != "") {
+                        counts[proj]++
+                        total++
                     }
                 }
                 END {
@@ -253,7 +257,7 @@ cmd_status() {
                         }
                     }
                 }
-            ' "$usage_file")
+            ' 2>/dev/null)
 
             if [[ -n "$drift_data" ]]; then
                 echo -e "${BOLD}Focus allocation (7d):${NC}"
