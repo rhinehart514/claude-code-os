@@ -58,7 +58,7 @@ Say "use [agent name]" or "run [agent name]" or just describe the need:
 - "this feels slow" / "fix the debt" → codebase-doctor
 - "what's trending?" → money-scout
 - "audit the system" → self-audit
-- "what's hot in design?" → design-scout
+- "make this look good" / "audit my UI" / "fix the design" → design-engineer
 
 ## After Compaction
 Re-read: (1) your task plan, (2) relevant files to the current task. Do not continue from memory alone.
