@@ -189,13 +189,16 @@ if [[ -f "$CLAUDE_DIR/config.json" ]]; then
             "$SCRIPT_DIR/config/config.json" \
             "$CLAUDE_DIR/config.json" \
             > "$CLAUDE_DIR/config.json.tmp"
-        mv "$CLAUDE_DIR/config.json.tmp" "$CLAUDE_DIR/config.json"
+        # Expand $HOME in paths (MCP server args use $HOME)
+        sed "s|\$HOME|$HOME|g" "$CLAUDE_DIR/config.json.tmp" > "$CLAUDE_DIR/config.json.tmp2"
+        mv "$CLAUDE_DIR/config.json.tmp2" "$CLAUDE_DIR/config.json"
+        rm -f "$CLAUDE_DIR/config.json.tmp"
         echo "  merged config.json (MCP servers added additively, yours preserved)"
     else
         echo "  WARNING: jq not installed. Skipping config merge."
     fi
 else
-    cp "$SCRIPT_DIR/config/config.json" "$CLAUDE_DIR/config.json"
+    sed "s|\$HOME|$HOME|g" "$SCRIPT_DIR/config/config.json" > "$CLAUDE_DIR/config.json"
     echo "  created config.json from template"
 fi
 

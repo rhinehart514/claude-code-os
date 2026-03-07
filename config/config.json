@@ -11,7 +11,7 @@
     "rhino-state": {
       "type": "stdio",
       "command": "npx",
-      "args": ["tsx", "~/rhino-os/src/mcp-server/index.ts"]
+      "args": ["tsx", "$HOME/rhino-os/src/mcp-server/index.ts"]
     }
   }
 }
