@@ -200,6 +200,21 @@ for template_file in "$SCRIPT_DIR"/knowledge/_template/*.md; do
     fi
 done
 
+# Seed design-scout knowledge
+echo "Seeding design-scout knowledge..."
+mkdir -p "$CLAUDE_DIR/knowledge/design-scout"
+for seed_file in "$SCRIPT_DIR"/knowledge/design-scout/*; do
+    [[ ! -f "$seed_file" ]] && continue
+    name="$(basename "$seed_file")"
+    target="$CLAUDE_DIR/knowledge/design-scout/$name"
+    if [[ ! -f "$target" ]]; then
+        cp "$seed_file" "$target"
+        echo "  seeded: design-scout/$name"
+    else
+        echo "  exists: design-scout/$name (preserved)"
+    fi
+done
+
 # Copy the knowledge template README
 symlink_file "$SCRIPT_DIR/knowledge/_template/README.md" "$CLAUDE_DIR/knowledge/_template-README.md"
 
@@ -251,8 +266,8 @@ fi
 
 echo ""
 echo "What's installed:"
-echo "  - 9 agents (strategist, product-gate, architect, implementer,"
-echo "    eval-runner, codebase-doctor, money-scout, morning-sweep, self-audit)"
+echo "  - 10 agents (strategist, product-gate, architect, implementer,"
+echo "    eval-runner, codebase-doctor, money-scout, morning-sweep, self-audit, design-scout)"
 echo "  - 3 skills (smart-commit, todofocus, product-2026)"
 echo "  - 2 rules (quality-bar, product-reasoning)"
 echo "  - 2 hooks (enforce_ideation_readonly, track_usage)"

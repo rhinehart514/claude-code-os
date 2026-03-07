@@ -6,7 +6,7 @@ An operating system for Claude Code. Agents, skills, rules, and a self-improving
 ┌──────────────────────────────────────────────────────────┐
 │  claude-code-os                                          │
 │                                                          │
-│  9 Agents  ·  3 Skills  ·  2 Rules  ·  2 Hooks          │
+│  10 Agents  ·  3 Skills  ·  2 Rules  ·  2 Hooks         │
 │  Knowledge Systems  ·  Automated Orchestration           │
 │                                                          │
 │  git clone → ./install.sh → you have an OS               │
@@ -56,8 +56,9 @@ The system amplifies you, it doesn't replace you. Critical decisions (deploy, me
 | **money-scout** | Trend scanning, opportunity intelligence | Weekly (automated or manual) |
 | **morning-sweep** | Daily triage with dispatch taxonomy | Start of day (automated or manual) |
 | **self-audit** | System health: usage stats, prompt costs, stale knowledge | Periodically, to keep the system lean |
+| **design-scout** | Design intelligence: UI kits, UX trends, graphic design tools, visual strategy | Weekly (like money-scout but for design) |
 
-**Consolidated from 13 → 9.** Perspective-runner merged into eval-runner. Debt-collector merged into codebase-doctor (two modes: diagnose/fix). Scope-guard merged into `/todofocus` skill. Todo-planner absorbed by morning-sweep. Night-watch cut (aspirational automation that doesn't reliably work). Self-audit added for system introspection.
+**Consolidated from 13 → 10.** Perspective-runner merged into eval-runner. Debt-collector merged into codebase-doctor (two modes: diagnose/fix). Scope-guard merged into `/todofocus` skill. Todo-planner absorbed by morning-sweep. Night-watch cut (aspirational automation that doesn't reliably work). Self-audit added for system introspection.
 
 ## Dispatch Taxonomy
 
@@ -122,6 +123,9 @@ When things feel broken:
 
 Periodically:
   claude --agent self-audit       # Is the system itself healthy?
+
+Weekly:
+  claude --agent design-scout     # What's hot in UI/UX?
 ```
 
 ## Installation Details
