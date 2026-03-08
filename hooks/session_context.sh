@@ -141,6 +141,36 @@ Gaps: $top_gaps"
     fi
 fi
 
+# 7. Active experiments — show branches and recent results
+EXP_BRANCHES=$(git -C "$PROJECT_DIR" branch 2>/dev/null | grep 'exp/' | sed 's/^[* ]*//' | head -5)
+if [[ -n "$EXP_BRANCHES" ]]; then
+    CONTEXT+="
+## Active Experiments"
+    while read -r branch; do
+        commit_count=$(git -C "$PROJECT_DIR" rev-list --count "main..$branch" 2>/dev/null || echo "?")
+        CONTEXT+="
+$branch ($commit_count commits)"
+    done <<< "$EXP_BRANCHES"
+    CONTEXT+="
+"
+fi
+
+# Check for experiment TSVs
+for exp_dir in "$PROJECT_DIR/.claude/experiments" "$PROJECT_DIR/docs/experiments"; do
+    if [[ -d "$exp_dir" ]]; then
+        for tsv in "$exp_dir"/*.tsv; do
+            [[ -f "$tsv" ]] || continue
+            ename=$(basename "$tsv" .tsv)
+            ekept=$(grep -c 'keep' "$tsv" 2>/dev/null || echo "0")
+            etotal=$(tail -n +2 "$tsv" | grep -cv '^---\|^$' 2>/dev/null || echo "0")
+            elast=$(tail -1 "$tsv" | cut -f4-5 2>/dev/null)
+            CONTEXT+="
+## Experiment: $ename — $ekept/$etotal kept, last: $elast"
+        done
+        break
+    fi
+done
+
 # Only output if we have meaningful context
 if [[ -n "$CONTEXT" ]]; then
     echo "--- rhino-os session context ---"
