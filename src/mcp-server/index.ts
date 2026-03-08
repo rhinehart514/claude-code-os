@@ -1059,7 +1059,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           if (entries.length > 0) {
             const lastEntry = entries[entries.length - 1].trim();
             const truncated = lastEntry.split("\n").slice(0, 10).join("\n");
-            sections.push(`## Last Session\n## ${truncated}`);
+            sections.push(`## Last Session\n${truncated}`);
           }
         }
       }
