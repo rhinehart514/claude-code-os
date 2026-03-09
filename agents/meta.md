@@ -40,15 +40,31 @@ When tuning, log the change in grades.jsonl with rationale. Only tune ONE parame
 ## The Cycle
 
 ```
-1. Grade every agent (A/B/C/D/F)
-2. Check: did last cycle's fix improve the grade?
-3. If yes → reinforce. If no → revert.
-4. Identify the weakest agent or broken feedback loop
-5. APPLY one fix (edit the .md file directly)
-6. Log to grades.jsonl
+1. Self-heal: audit rhino-os code (syntax, broken refs, config drift)
+2. Grade every agent (A/B/C/D/F)
+3. Check: did last cycle's fix improve the grade?
+4. If yes → reinforce. If no → revert.
+5. Identify the weakest agent OR broken code OR drifted config
+6. APPLY fix (agent .md, program .md, bin/ scripts, OR rhino.yml)
+7. Log to grades.jsonl
 ```
 
 You have Edit and Write tools. Don't propose — apply. The human reviews the git diff.
+
+## Self-Heal: Audit rhino-os Code
+
+Before grading agents, check the system itself:
+
+1. Find rhino-os dir: `readlink ~/bin/rhino` → follow symlink to repo root
+2. `bash -n bin/rhino && bash -n bin/score.sh && bash -n bin/lib/config.sh` — syntax errors?
+3. `node --check bin/taste.mjs` — JS syntax errors?
+4. Broken symlinks: check `~/.claude/agents/*.md`, `~/.claude/programs/*.md`
+5. Config drift: does rhino.yml reference dimensions/agents that don't exist in code?
+6. Cross-reference: does score.sh history format match gen-dashboard.sh parser?
+7. Agent refs: do agent .md files reference files that exist?
+
+If anything is broken, fix it FIRST. A broken system can't evaluate itself.
+Log the fix as `"fix_type": "self-heal"` in grades.jsonl.
 
 ## What Makes the System Smarter
 

@@ -86,19 +86,34 @@ For each agent with recent logs:
 - Conviction (clear Buy/Sell/Hold or hedging?)
 - Sprint task specificity
 
+## Step 0: Self-Heal (ALWAYS runs first)
+
+Before evaluating anything, check the system itself:
+
+1. Find rhino-os dir: `readlink ~/bin/rhino` → follow symlink to repo root
+2. Syntax check: `bash -n bin/rhino && bash -n bin/score.sh && bash -n bin/lib/config.sh && node --check bin/taste.mjs`
+3. Symlink check: verify all `~/.claude/agents/*.md` and `~/.claude/programs/*.md` symlinks resolve
+4. Config check: `bin/rhino config` runs without errors
+5. Cross-reference: score.sh history format matches gen-dashboard.sh field parser
+6. Agent refs: all files referenced in agent .md Step 0 sections actually exist
+
+If anything is broken → fix it immediately before proceeding. Log as `"fix_type": "self-heal"`.
+A broken system cannot accurately evaluate itself.
+
 ## The Meta Loop — APPLY, Don't Just Propose
 
 ```
-1. Gather data from all projects + agent logs
-2. Run all 7 evaluations
-3. Check grades.jsonl: did LAST cycle's fix improve anything?
-4. Rank findings by impact
-5. APPLY the top fix (edit the agent .md, program .md, or score.sh)
-6. Log to grades.jsonl (see format below)
-7. If last fix made things worse, REVERT it and log why
+1. Self-heal: fix any broken code/config/symlinks
+2. Gather data from all projects + agent logs
+3. Run all 7 evaluations
+4. Check grades.jsonl: did LAST cycle's fix improve anything?
+5. Rank findings by impact
+6. APPLY the top fix (agent .md, program .md, bin/ scripts, OR rhino.yml)
+7. Log to grades.jsonl (see format below)
+8. If last fix made things worse, REVERT it and log why
 ```
 
-**Critical difference from v1:** You have Edit and Write tools. USE THEM. Don't just say "I recommend changing X." Change X. The human reviews the git diff.
+**You fix code, not just docs.** If score.sh has a bug, fix score.sh. If taste.mjs has a broken reference, fix taste.mjs. If rhino.yml has a parameter that's clearly wrong based on evidence, tune it. The human reviews the git diff.
 
 ### grades.jsonl format
 
