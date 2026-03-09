@@ -1387,6 +1387,20 @@ YMLEOF
 }
 
 cmd_dashboard() {
+    # --html flag: generate visual HTML dashboard
+    local target_dir="${1:-.}"
+    for arg in "$@"; do
+        case "$arg" in
+            --html)
+                echo -e "${BOLD}Generating HTML dashboard...${NC}"
+                "$RHINO_DIR/bin/gen-dashboard.sh" "$target_dir"
+                return
+                ;;
+            -*) ;; # skip flags
+            *) target_dir="$arg" ;;
+        esac
+    done
+
     echo -e "${BOLD}=== rhino dashboard ===${NC}"
     echo ""
 
@@ -1554,6 +1568,7 @@ cmd_help() {
     echo "  taste history      View past taste evaluations"
     echo "  taste summary      View taste signals + patterns"
     echo "  dashboard          Score history, experiments, dimensions at a glance"
+    echo "  dashboard --html   Generate HTML dashboard with embedded project data"
     echo "  meta               Self-evaluation — rhino-os improves its own programs"
     echo "  capture            Extract session decisions/preferences to knowledge"
     echo "  backup             Snapshot knowledge to timestamped backup"
