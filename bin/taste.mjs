@@ -452,12 +452,18 @@ async function evaluateWithClaude(screenshots, routes, screenshotDir) {
 
 // --- Check if server is already running on a port ---
 async function isPortActive(portNum) {
-  try {
-    const resp = await fetch(`http://localhost:${portNum}`, { signal: AbortSignal.timeout(cfg("taste.timeouts.port_check", 5000)) });
-    return resp.ok || resp.status < 500;
-  } catch {
-    return false;
-  }
+  const check = async () => {
+    try {
+      const resp = await fetch(`http://localhost:${portNum}`, { signal: AbortSignal.timeout(cfg("taste.timeouts.port_check", 5000)) });
+      return resp.ok || resp.status < 500;
+    } catch {
+      return false;
+    }
+  };
+  // Double-check with a gap to avoid false positives (e.g. server shutting down)
+  if (!await check()) return false;
+  await new Promise(r => setTimeout(r, 500));
+  return check();
 }
 
 // --- Start dev server ---
@@ -601,6 +607,10 @@ async function main() {
     stopSpinner(`captured ${screenshots.length} screenshots`);
 
     await browser.close();
+
+    if (screenshots.length === 0) {
+      throw new Error("No screenshots captured — dev server may have died. Check that `npm run dev` works and try again.");
+    }
 
     // Save screenshots and evaluate with Claude via CLI (OAuth)
     const screenshotDir = join(projectDir, ".claude", "evals", "screenshots");
