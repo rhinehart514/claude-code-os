@@ -90,8 +90,9 @@ targets:
   agents_operational: 5
   avg_agent_grade: "A-"
   artifact_failures: 0
-  hive_product_eval: 0.70
-  hive_day3_return: 0.50
-  hive_design_audit: 75
   landscape_positions: 15
   scout_unknowns_per_run: 10
+  meta_cycles_completed: 5
+  taste_signals_captured: 20
+  avg_agent_cost_usd: 1.00
+  knowledge_files: 20

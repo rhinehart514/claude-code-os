@@ -339,7 +339,7 @@
   <div class="chart-grid">
     <div class="chart-card wide">
       <h3>System health targets</h3>
-      <div class="chart-sub">rhino-os is the tool. HIVE is the product. Both must improve.</div>
+      <div class="chart-sub">Metrics that define whether rhino-os is working as infrastructure.</div>
       <table class="target-table">
         <tr>
           <th>Metric</th><th>Current</th><th>Target</th><th class="bar-cell">Progress</th>
@@ -369,30 +369,6 @@
           <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 100%; background: var(--green);"></div></div></td>
         </tr>
         <tr>
-          <td>HIVE product eval</td>
-          <td class="current">0.35/1.0</td>
-          <td class="target">0.70</td>
-          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 50%; background: var(--accent);"></div></div></td>
-        </tr>
-        <tr>
-          <td>HIVE day3 return</td>
-          <td class="current">0.2</td>
-          <td class="target">0.5</td>
-          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 40%; background: var(--red);"></div></div></td>
-        </tr>
-        <tr>
-          <td>HIVE design audit</td>
-          <td class="current">58/100</td>
-          <td class="target">75</td>
-          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 77%; background: var(--accent);"></div></div></td>
-        </tr>
-        <tr>
-          <td>HIVE taste score</td>
-          <td class="current">40/100</td>
-          <td class="target">65</td>
-          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 62%; background: var(--accent);"></div></div></td>
-        </tr>
-        <tr>
           <td>Landscape positions</td>
           <td class="current">11</td>
           <td class="target">15+</td>
@@ -404,14 +380,38 @@
           <td class="target">10+ per run</td>
           <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 100%; background: var(--green);"></div></div></td>
         </tr>
+        <tr>
+          <td>Knowledge files</td>
+          <td class="current">18</td>
+          <td class="target">20+</td>
+          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 90%; background: var(--green);"></div></div></td>
+        </tr>
+        <tr>
+          <td>Meta cycles completed</td>
+          <td class="current">3</td>
+          <td class="target">5+</td>
+          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 60%; background: var(--accent);"></div></div></td>
+        </tr>
+        <tr>
+          <td>Avg agent cost</td>
+          <td class="current">$0.65</td>
+          <td class="target">&lt;$1.00</td>
+          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 100%; background: var(--green);"></div></div></td>
+        </tr>
+        <tr>
+          <td>Taste signals captured</td>
+          <td class="current">3</td>
+          <td class="target">20+</td>
+          <td class="bar-cell"><div class="target-bar"><div class="target-fill" style="width: 15%; background: var(--red);"></div></div></td>
+        </tr>
       </table>
     </div>
 
-    <!-- HIVE sprint progress -->
+    <!-- Agent runs today -->
     <div class="chart-card">
-      <h3>HIVE sprint: Ship the Return Loop</h3>
-      <div class="chart-sub">Tasks completed / total. Target: day3_return 0.2 &rarr; 0.5</div>
-      <canvas id="sprintChart" height="240"></canvas>
+      <h3>Agent runs (2026-03-09)</h3>
+      <div class="chart-sub">How many times each agent ran today</div>
+      <canvas id="runsChart" height="240"></canvas>
     </div>
 
     <!-- Codebase composition -->
@@ -684,9 +684,9 @@ function drawBudget() {
   });
 }
 
-// === SPRINT CHART ===
-function drawSprint() {
-  const canvas = document.getElementById('sprintChart');
+// === AGENT RUNS CHART ===
+function drawRuns() {
+  const canvas = document.getElementById('runsChart');
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
   canvas.width = rect.width * dpr;
@@ -694,56 +694,49 @@ function drawSprint() {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   const w = rect.width, h = rect.height;
-  const pad = { top: 20, right: 20, bottom: 50, left: 20 };
+  const pad = { top: 20, right: 20, bottom: 40, left: 80 };
 
-  const tasks = [
-    { name: 'Social-proof\npush', done: false },
-    { name: 'Landing\n/build', done: false },
-    { name: 'Space OG\ntags', done: false },
-    { name: 'Push\nopt-in', done: false },
+  const agents = [
+    { name: 'sweep', runs: 4, color: '#f59e0b' },
+    { name: 'strategist', runs: 3, color: '#fbbf24' },
+    { name: 'scout', runs: 2, color: '#60a5fa' },
+    { name: 'builder', runs: 2, color: '#22c55e' },
+    { name: 'design', runs: 2, color: '#f472b6' },
+    { name: 'meta', runs: 1, color: '#a78bfa' },
   ];
 
-  const barW = 50;
-  const gap = (w - pad.left - pad.right - barW * tasks.length) / (tasks.length + 1);
+  const maxRuns = Math.max(...agents.map(a => a.runs));
+  const barH = 24;
+  const gap = 10;
 
-  tasks.forEach((t, i) => {
-    const x = pad.left + gap + i * (barW + gap);
-    const fullH = h - pad.top - pad.bottom;
-    const barH = t.done ? fullH : 12;
-    const y = h - pad.bottom - barH;
+  agents.forEach((a, i) => {
+    const y = pad.top + i * (barH + gap);
+    const barW = (a.runs / maxRuns) * (w - pad.left - pad.right);
 
-    // Background
-    ctx.fillStyle = '#1a1a1a';
+    ctx.fillStyle = a.color;
+    ctx.globalAlpha = 0.7;
     ctx.beginPath();
-    ctx.roundRect(x, pad.top, barW, fullH, [4, 4, 0, 0]);
+    ctx.roundRect(pad.left, y, barW, barH, [0, 4, 4, 0]);
     ctx.fill();
+    ctx.globalAlpha = 1;
 
-    // Fill
-    ctx.fillStyle = t.done ? '#22c55e' : '#333';
-    ctx.beginPath();
-    ctx.roundRect(x, y, barW, barH, [4, 4, 0, 0]);
-    ctx.fill();
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(a.name, pad.left - 8, y + barH / 2);
 
-    // Label
-    ctx.fillStyle = '#888';
-    ctx.font = '10px monospace';
-    ctx.textAlign = 'center';
-    const lines = t.name.split('\n');
-    lines.forEach((line, li) => {
-      ctx.fillText(line, x + barW / 2, h - pad.bottom + 14 + li * 14);
-    });
-
-    // Status
-    ctx.fillStyle = t.done ? '#22c55e' : '#555';
-    ctx.font = '16px monospace';
-    ctx.fillText(t.done ? '\u2713' : '\u2013', x + barW / 2, pad.top + fullH / 2);
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${a.runs} runs`, pad.left + barW + 8, y + barH / 2);
   });
 
-  // Progress label
-  ctx.fillStyle = '#f59e0b';
-  ctx.font = 'bold 14px monospace';
+  // Total
+  const total = agents.reduce((s, a) => s + a.runs, 0);
+  ctx.fillStyle = '#555';
+  ctx.font = '10px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('0 / 4 tasks', w / 2, pad.top + 10);
+  ctx.fillText(`${total} total runs`, w / 2, h - pad.bottom + 16);
 }
 
 // === COMPOSITION ===
@@ -800,13 +793,13 @@ function drawComposition() {
 window.addEventListener('load', () => {
   drawGrades();
   drawBudget();
-  drawSprint();
+  drawRuns();
   drawComposition();
 });
 window.addEventListener('resize', () => {
   drawGrades();
   drawBudget();
-  drawSprint();
+  drawRuns();
   drawComposition();
 });
 </script>
