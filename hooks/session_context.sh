@@ -42,16 +42,48 @@ $LAST_SESSION
     fi
 fi
 
-# 2. Active plan
-PLAN_FILE="$CLAUDE_DIR/plans/active-plan.md"
-if [[ -f "$PLAN_FILE" ]]; then
+# 2. Active plan (check project-local first, then global)
+PLAN_FILE=""
+for plan_path in \
+    "$PROJECT_DIR/.claude/plans/active-plan.md" \
+    "$CLAUDE_DIR/plans/active-plan.md"; do
+    if [[ -f "$plan_path" ]]; then
+        PLAN_FILE="$plan_path"
+        break
+    fi
+done
+if [[ -n "$PLAN_FILE" ]]; then
     # First 5 lines of the plan for quick context
     PLAN_HEADER=$(head -5 "$PLAN_FILE")
     CONTEXT+="
 ## Active Plan
 $PLAN_HEADER
-(full plan at .claude/plans/active-plan.md)
+(full plan at $PLAN_FILE)
 "
+fi
+
+# 2b. Latest taste eval (visual product quality — feeds into builder)
+TASTE_REPORT=""
+for taste_dir in "$PROJECT_DIR/.claude/evals/reports" "$PROJECT_DIR/docs/evals/reports"; do
+    if [[ -d "$taste_dir" ]]; then
+        TASTE_REPORT=$(ls -t "$taste_dir"/taste-*.json 2>/dev/null | head -1)
+        [[ -n "$TASTE_REPORT" ]] && break
+    fi
+done
+if [[ -n "$TASTE_REPORT" ]] && command -v jq &>/dev/null; then
+    taste_score=$(jq -r '.score_100 // empty' "$TASTE_REPORT" 2>/dev/null)
+    taste_weakest=$(jq -r '.weakest_dimension // empty' "$TASTE_REPORT" 2>/dev/null)
+    taste_one_thing=$(jq -r '.one_thing // empty' "$TASTE_REPORT" 2>/dev/null)
+    taste_date=$(jq -r '.meta.timestamp // empty' "$TASTE_REPORT" 2>/dev/null | head -c10)
+    if [[ -n "$taste_score" ]]; then
+        CONTEXT+="
+## Taste Eval ($taste_date): ${taste_score}/100"
+        [[ -n "$taste_weakest" ]] && CONTEXT+=" · weakest: $taste_weakest"
+        [[ -n "$taste_one_thing" ]] && CONTEXT+="
+One thing: $taste_one_thing"
+        CONTEXT+="
+"
+    fi
 fi
 
 # 3. Taste profile summary (top signals by strength)

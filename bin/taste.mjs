@@ -632,6 +632,15 @@ async function main() {
     // Convert 1-5 to 0-100 for consistency with score.sh
     result.score_100 = Math.round((result.overall / 5) * 100);
 
+    // Add structured weakest_dimension for builder handoff (taste → builder)
+    if (result.dimensions) {
+      let minScore = 6, minDim = "";
+      for (const [dim, data] of Object.entries(result.dimensions)) {
+        if (data.score < minScore) { minScore = data.score; minDim = dim; }
+      }
+      if (minDim) result.weakest_dimension = minDim;
+    }
+
     // Save result
     mkdirSync(reportDir, { recursive: true });
     const reportPath = join(reportDir, `taste-${new Date().toISOString().slice(0, 10)}.json`);

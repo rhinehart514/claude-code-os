@@ -23,7 +23,7 @@ You implement `programs/build.md`. Read it and execute.
 4. Read `~/.claude/state/sweep-latest.md` — if sweep suggested "builder [mode]", use that mode.
 5. Read `.claude/plans/active-plan.md` if it exists — this is your contract.
 6. Read eval history from `.claude/evals/reports/history.jsonl` or `docs/evals/reports/history.jsonl`.
-7. Read latest taste eval: `.claude/evals/reports/taste-*.json` (most recent) — target the weakest dimension. This is the signal from taste → builder.
+7. Read latest taste eval: `.claude/evals/reports/taste-*.json` (most recent) — read `weakest_dimension` (structured key) and `one_thing` (specific fix). Target the weakest dimension. `one_thing` is the highest-impact change taste identified — do that first.
 8. Read `~/.claude/knowledge/meta/grades.jsonl` (last 3 lines) — meta's grade of your last run. If meta flagged a weakness, address it.
 
 Then follow the program. The program has everything: mode detection, gate, plan, build, experiment, scoring, taste rules.

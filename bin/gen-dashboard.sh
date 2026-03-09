@@ -70,7 +70,7 @@ EXP_DATA="[]"
 if [[ -d ".claude/experiments" ]]; then
     EXP_DATA=$(find .claude/experiments -name "*.tsv" -exec tail -n +2 {} \; 2>/dev/null | awk -F'\t' '{
         gsub(/"/, "\\\"", $0);
-        printf "{\"commit\":\"%s\",\"score\":%s,\"delta\":\"%s\",\"status\":\"%s\"},", $1, ($2 ~ /^[0-9]+$/ ? $2 : "0"), $4, $5
+        printf "{\"commit\":\"%s\",\"score\":%s,\"delta\":\"%s\",\"status\":\"%s\"},", $1, ($2 ~ /^[0-9]+$/ ? $2 : "0"), $3, $4
     }' | sed 's/,$//')
     EXP_DATA="[$EXP_DATA]"
 fi
@@ -121,7 +121,7 @@ cat > "$OUTPUT" <<'HTMLEOF'
   h2 { font-size: 16px; font-weight: 600; margin: 32px 0 8px; }
   h2 span { color: var(--dim); font-weight: 400; font-size: 13px; }
 
-  .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 24px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
   .stat-card {
     background: var(--surface); border: 1px solid var(--border);
     border-radius: 8px; padding: 16px; text-align: center;
@@ -186,9 +186,8 @@ cat > "$OUTPUT" <<'HTMLEOF'
     <div class="sub">Each line = one dimension. Track independently. The trend matters more than the number.</div>
     <canvas id="dimensionChart" height="220"></canvas>
     <div class="legend">
-      <div class="legend-item"><div class="legend-dot" style="background: var(--feat);"></div> structure</div>
-      <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> product</div>
-      <div class="legend-item"><div class="legend-dot" style="background: var(--blue);"></div> capabilities</div>
+      <div class="legend-item"><div class="legend-dot" style="background: var(--feat);"></div> build</div>
+      <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> structure</div>
       <div class="legend-item"><div class="legend-dot" style="background: var(--purple);"></div> hygiene</div>
     </div>
   </div>
@@ -237,9 +236,8 @@ const commitHistory = COMMIT_HISTORY_DATA;
 
 // === COLORS ===
 const dimColors = {
-  structure: '#22c55e',
-  product: '#f59e0b',
-  capabilities: '#60a5fa',
+  build: '#22c55e',
+  structure: '#f59e0b',
   hygiene: '#a78bfa',
 };
 const tasteColors = [
@@ -269,8 +267,6 @@ function renderCurrentScores() {
   const dims = [
     { key: 'build', label: 'build', gate: true },
     { key: 'structure', label: 'structure' },
-    { key: 'product', label: 'product' },
-    { key: 'capabilities', label: 'capabilities' },
     { key: 'hygiene', label: 'hygiene' },
   ];
   el.innerHTML = dims.map(d => {
@@ -309,7 +305,7 @@ function drawDimensionChart() {
   }
 
   // Lines
-  const keys = ['structure', 'product', 'capabilities', 'hygiene'];
+  const keys = ['build', 'structure', 'hygiene'];
   keys.forEach(key => {
     ctx.beginPath();
     ctx.strokeStyle = dimColors[key];
@@ -340,7 +336,7 @@ function drawWeakestChart() {
   const ch = h - pad.top - pad.bottom;
 
   const weakest = scoreHistory.map(d => {
-    const vals = [d.structure||0, d.product||0, d.capabilities||0, d.hygiene||0];
+    const vals = [d.build||0, d.structure||0, d.hygiene||0];
     return Math.min(...vals);
   });
 
@@ -385,7 +381,7 @@ function drawRadar() {
   const { ctx, w, h } = r;
   const cx = w / 2, cy = h / 2;
   const radius = Math.min(cx, cy) - 30;
-  const dims = ['structure', 'product', 'capabilities', 'hygiene'];
+  const dims = ['build', 'structure', 'hygiene'];
   const n = dims.length;
 
   // Grid rings

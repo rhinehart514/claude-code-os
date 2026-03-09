@@ -364,10 +364,10 @@ Verify different measurement sources agree directionally:
 #### 6. Log
 Append to `.claude/experiments/[dimension]-[date].tsv`:
 ```
-commit	rhino_score	taste_score	delta	status	description	evidence	cross_check
+commit	score	delta	status	description
 ```
-`rhino_score` is the computable number from `rhino score . --json`. `subjective_score` is your grounded judgment.
-The `cross_check` column records which hard metric confirmed the subjective score (e.g., "hardcoded_colors 15→12").
+Schema: 5 columns, tab-separated. `score` from `rhino score . --json`. `delta` = change from baseline. `status` = keep|discard|crash. `description` = what you changed + evidence.
+This schema must match `/skills/experiment/SKILL.md` and `gen-dashboard.sh` parser.
 
 #### 7. Next
 Go to step 1. Do not ask "should I continue?" You are autonomous. NEVER STOP.
