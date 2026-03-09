@@ -12,9 +12,26 @@ const STATE_DIR = path.join(CLAUDE_DIR, "state");
 const KNOWLEDGE_DIR = path.join(CLAUDE_DIR, "knowledge");
 const LOG_DIR = path.join(CLAUDE_DIR, "logs");
 const RUNS_DIR = path.join(CLAUDE_DIR, "state", "runs");
+const EVALS_DIR = path.join(CLAUDE_DIR, "evals", "reports");
+const HISTORY_FILE = path.join(EVALS_DIR, "history.jsonl");
+const RHINO_DIR = process.env.RHINO_DIR || path.join(os.homedir(), "rhino-os");
 
-for (const dir of [STATE_DIR, KNOWLEDGE_DIR, LOG_DIR, RUNS_DIR]) {
+for (const dir of [STATE_DIR, KNOWLEDGE_DIR, LOG_DIR, RUNS_DIR, EVALS_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+// Clean up stuck "running" state from previous crashes
+for (const file of fs.readdirSync(RUNS_DIR)) {
+  if (!file.endsWith(".json")) continue;
+  try {
+    const runPath = path.join(RUNS_DIR, file);
+    const run = JSON.parse(fs.readFileSync(runPath, "utf-8"));
+    if (run.status === "running") {
+      run.status = "failed";
+      run.completedAt = new Date().toISOString();
+      fs.writeFileSync(runPath, JSON.stringify(run, null, 2), "utf-8");
+    }
+  } catch { /* skip corrupt files */ }
 }
 
 // --- Run management ---
@@ -193,7 +210,7 @@ const httpServer = createServer(async (req, res) => {
   const url = req.url || "/";
 
   // CORS headers for local dev
-  res.setHeader("Access-Control-Allow-Origin", "http://localhost:*");
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
@@ -379,12 +396,100 @@ const httpServer = createServer(async (req, res) => {
     return json(res, { snapshotPath: backupDir, timestamp });
   }
 
+  // --- Eval endpoints ---
+
+  // GET /evals/history — all eval results
+  if (method === "GET" && url === "/evals/history") {
+    if (!fs.existsSync(HISTORY_FILE)) {
+      return json(res, { evals: [], count: 0 });
+    }
+    const lines = fs.readFileSync(HISTORY_FILE, "utf-8").trim().split("\n").filter(Boolean);
+    const evals = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+    return json(res, { evals, count: evals.length });
+  }
+
+  // GET /evals/summary — aggregated stats
+  if (method === "GET" && url === "/evals/summary") {
+    if (!fs.existsSync(HISTORY_FILE)) {
+      return json(res, { total: 0, ship: 0, fixes: 0, blocked: 0, ceilingAvg: 0, perspectivesAvg: 0, history: [] });
+    }
+    const lines = fs.readFileSync(HISTORY_FILE, "utf-8").trim().split("\n").filter(Boolean);
+    const evals = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+
+    let ship = 0, fixes = 0, blocked = 0;
+    let ceilingSum = 0, ceilingCount = 0;
+    let perspSum = 0, perspCount = 0;
+    const allGaps: Record<string, number> = {};
+
+    for (const e of evals) {
+      if (e.verdict === "SHIP") ship++;
+      else if (e.verdict === "SHIP WITH FIXES" || e.verdict === "SHIP_WITH_FIXES") fixes++;
+      else if (e.verdict === "BLOCKED") blocked++;
+      if (typeof e.ceiling === "number") { ceilingSum += e.ceiling; ceilingCount++; }
+      if (typeof e.perspectives === "number") { perspSum += e.perspectives; perspCount++; }
+      if (Array.isArray(e.ceiling_gaps)) {
+        for (const g of e.ceiling_gaps) { allGaps[g] = (allGaps[g] || 0) + 1; }
+      }
+    }
+
+    const topGaps = Object.entries(allGaps).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([gap, count]) => ({ gap, count }));
+
+    return json(res, {
+      total: evals.length,
+      ship,
+      fixes,
+      blocked,
+      shipRate: evals.length > 0 ? Math.round((ship / evals.length) * 100) : 0,
+      ceilingAvg: ceilingCount > 0 ? Math.round((ceilingSum / ceilingCount) * 100) / 100 : null,
+      perspectivesAvg: perspCount > 0 ? Math.round((perspSum / perspCount) * 100) / 100 : null,
+      topGaps,
+      history: evals.slice(-30),
+    });
+  }
+
+  // GET /evals/reports/:name — individual report
+  params = matchRoute(method, url, "GET /evals/reports/:name");
+  if (params) {
+    const reportFile = path.join(EVALS_DIR, path.basename(params.name));
+    if (!fs.existsSync(reportFile)) return notFound(res);
+    const content = fs.readFileSync(reportFile, "utf-8");
+    res.writeHead(200, { "Content-Type": "text/markdown" });
+    res.end(content);
+    return;
+  }
+
+  // --- Dashboard ---
+
+  // GET / or /dashboard — serve the dashboard HTML
+  if (method === "GET" && (url === "/" || url === "/dashboard")) {
+    const dashboardFile = path.join(RHINO_DIR, "src", "api-server", "dashboard.html");
+    if (fs.existsSync(dashboardFile)) {
+      const html = fs.readFileSync(dashboardFile, "utf-8");
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(html);
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end("<html><body><h1>rhino-os</h1><p>Dashboard not found. Reinstall rhino-os.</p></body></html>");
+    return;
+  }
+
   // GET /health
   if (method === "GET" && url === "/health") {
     return json(res, { status: "ok", version: "1.0.0" });
   }
 
   return notFound(res);
+});
+
+httpServer.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use.`);
+    console.error(`Kill the existing process: lsof -ti :${PORT} | xargs kill`);
+    console.error(`Or use a different port: RHINO_PORT=7891 rhino serve`);
+    process.exit(1);
+  }
+  throw err;
 });
 
 httpServer.listen(PORT, "127.0.0.1", () => {

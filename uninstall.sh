@@ -17,12 +17,11 @@ CLAUDE_DIR="$HOME/.claude"
 RESTORE_DIR=""
 
 # Parse args
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --restore-backup)
             shift
             RESTORE_DIR="$1"
-            shift
             ;;
         --help|-h)
             echo "Usage: ./uninstall.sh [--restore-backup BACKUP_DIR]"
@@ -34,6 +33,7 @@ for arg in "$@"; do
             exit 0
             ;;
     esac
+    shift
 done
 
 echo "=== rhino-os uninstaller ==="

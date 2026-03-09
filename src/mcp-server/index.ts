@@ -301,22 +301,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "rhino_taste",
       description:
-        "Record or query taste signals. Taste entries are observations about the founder's preferences learned from their decisions — what they accept, reject, change, or consistently choose. Agents write here when they observe a preference pattern. Strategist and other agents read to align with founder's judgment.",
+        "Record, query, or export taste signals. Taste entries are observations about the founder's preferences learned from their decisions — what they accept, reject, change, or consistently choose. Agents write here when they observe a preference pattern. Strategist and other agents read to align with founder's judgment.",
       inputSchema: {
         type: "object" as const,
         properties: {
           action: {
             type: "string",
-            description: '"read" returns all taste entries. "record" adds a new observation. "query" filters by domain.',
-            enum: ["read", "record", "query"],
+            description: '"read" returns all taste entries. "record" adds a new observation. "query" filters by domain. "export" returns a portable taste profile.',
+            enum: ["read", "record", "query", "export"],
           },
           domain: {
             type: "string",
-            description: 'Category: "product", "design", "strategy", "technical", "communication". Used for record and query.',
+            description: 'Category: "product", "design", "strategy", "technical", "market", "risk", "user_instinct", "communication". Used for record and query.',
           },
           signal: {
             type: "string",
-            description: 'The observed preference (for record). e.g., "Prefers dense data layouts over whitespace", "Rejects onboarding flows — wants users dropped into value immediately"',
+            description: 'The observed JUDGMENT preference (for record). NOT code formatting. e.g., "Kills features aggressively when no user signal", "Prefers shipping speed over architectural correctness", "Trusts campus market despite competition", "Rejects onboarding flows — wants users dropped into value immediately"',
           },
           evidence: {
             type: "string",
@@ -327,8 +327,35 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description: '"strong" (seen 3+ times), "moderate" (seen twice), "weak" (seen once). Defaults to "weak".',
             enum: ["strong", "moderate", "weak"],
           },
+          landscape_id: {
+            type: "string",
+            description: "Optional landscape position ID this taste signal aligns with. Links decisions to strategic positions.",
+          },
+          polarity: {
+            type: "string",
+            description: '"positive" (founder chose/accepted this) or "negative" (founder rejected/overrode this). Defaults to "positive". NEGATIVE signals are the most valuable — they capture what the founder explicitly pushes back on.',
+            enum: ["positive", "negative"],
+          },
         },
         required: ["action"],
+      },
+    },
+    {
+      name: "rhino_agent_context",
+      description:
+        "Returns a curated context briefing for the current agent session. Assembles: taste signals (macro judgment preferences — NOT code formatting), portfolio focus + drift detection, strong landscape positions, and last session summary. Call this FIRST to align with the founder's judgment before doing anything.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          project: {
+            type: "string",
+            description: "Project name to focus context on. If omitted, returns general context.",
+          },
+          domain: {
+            type: "string",
+            description: 'Filter taste signals by domain: "product", "design", "strategy", "technical", "market", "risk". If omitted, returns all strong+moderate signals.',
+          },
+        },
       },
     },
   ],
@@ -755,6 +782,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const signal = args?.signal as string | undefined;
       const evidence = args?.evidence as string | undefined;
       const strength = (args?.strength as string) || "weak";
+      const landscapeId = args?.landscape_id as string | undefined;
+      const polarity = (args?.polarity as string) || "positive";
 
       switch (action) {
         case "record": {
@@ -784,6 +813,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               existing.strength = newStrength;
               existing.ts = new Date().toISOString();
               if (evidence) existing.evidence = evidence;
+              if (landscapeId) existing.landscape_id = landscapeId;
 
               // Rewrite file with updated entry
               const updatedLines = entries.map((e: object) => JSON.stringify(e)).join("\n") + "\n";
@@ -792,15 +822,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             }
           }
 
-          const entry = {
+          const entry: Record<string, string> = {
             ts: new Date().toISOString(),
             domain,
             signal,
             evidence: evidence || "",
             strength,
+            polarity,
           };
+          if (landscapeId) entry.landscape_id = landscapeId;
           fs.appendFileSync(TASTE_FILE, JSON.stringify(entry) + "\n", "utf-8");
-          return { content: [{ type: "text", text: `Taste recorded: [${domain}] ${signal}` }] };
+          const polarityLabel = polarity === "negative" ? " REJECTED" : "";
+          return { content: [{ type: "text", text: `Taste recorded:${polarityLabel} [${domain}] ${signal}${landscapeId ? ` (linked to: ${landscapeId})` : ""}` }] };
         }
         case "read": {
           if (!fs.existsSync(TASTE_FILE)) {
@@ -817,8 +850,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
 
           const output = Object.entries(byDomain).map(([d, items]) =>
-            `## ${d}\n` + items.map((i: { strength: string; signal: string; evidence: string }) =>
-              `  [${i.strength}] ${i.signal}${i.evidence ? ` (from: ${i.evidence})` : ""}`
+            `## ${d}\n` + items.map((i: { strength: string; signal: string; evidence: string; polarity?: string }) =>
+              `  [${i.strength}]${i.polarity === "negative" ? " REJECTS:" : ""} ${i.signal}${i.evidence ? ` (from: ${i.evidence})` : ""}`
             ).join("\n")
           ).join("\n\n");
 
@@ -845,9 +878,197 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ).join("\n");
           return { content: [{ type: "text", text: `## ${domain}\n${output}` }] };
         }
+        case "export": {
+          if (!fs.existsSync(TASTE_FILE)) {
+            return { content: [{ type: "text", text: "No taste signals to export." }] };
+          }
+          const lines = fs.readFileSync(TASTE_FILE, "utf-8").trim().split("\n").filter(Boolean);
+          const entries = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+
+          // Build portable taste profile
+          const profile: Record<string, { signals: Array<{ signal: string; strength: string; evidence: string; landscape_id?: string }> }> = {};
+          for (const e of entries) {
+            if (!profile[e.domain]) profile[e.domain] = { signals: [] };
+            profile[e.domain].signals.push({
+              signal: e.signal,
+              strength: e.strength,
+              evidence: e.evidence,
+              ...(e.landscape_id ? { landscape_id: e.landscape_id } : {}),
+            });
+          }
+
+          // Add code style analysis if available (separate from taste — formatting, not judgment)
+          let codeStyle: Record<string, number> | null = null;
+          const codeStyleFile = path.join(LOG_DIR, "code-style.jsonl");
+          if (fs.existsSync(codeStyleFile)) {
+            const styleLines = fs.readFileSync(codeStyleFile, "utf-8").trim().split("\n").filter(Boolean);
+            const tallies: Record<string, number> = {};
+            for (const sl of styleLines) {
+              try {
+                const se = JSON.parse(sl);
+                for (const p of (se.s || [])) {
+                  tallies[p] = (tallies[p] || 0) + 1;
+                }
+              } catch { /* skip */ }
+            }
+            if (Object.keys(tallies).length > 0) codeStyle = tallies;
+          }
+
+          const exportData = {
+            version: "1.0",
+            exported: new Date().toISOString(),
+            taste_signals: profile,
+            ...(codeStyle ? { code_style: codeStyle } : {}),
+          };
+
+          return { content: [{ type: "text", text: JSON.stringify(exportData, null, 2) }] };
+        }
         default:
           return { content: [{ type: "text", text: `Unknown taste action: ${action}` }], isError: true };
       }
+    }
+
+    case "rhino_agent_context": {
+      const project = args?.project as string | undefined;
+      const ctxDomain = args?.domain as string | undefined;
+      const sections: string[] = [];
+
+      // 1. Taste signals — MACRO JUDGMENT, not code formatting
+      // These are decisions about what to build, kill, prioritize, and how to approach work
+      if (fs.existsSync(TASTE_FILE)) {
+        const lines = fs.readFileSync(TASTE_FILE, "utf-8").trim().split("\n").filter(Boolean);
+        const entries = lines.map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean);
+        const relevant = entries.filter((e: { strength: string; domain: string }) => {
+          if (ctxDomain && e.domain !== ctxDomain) return false;
+          return e.strength === "strong" || e.strength === "moderate";
+        });
+        if (relevant.length > 0) {
+          // Separate positive preferences from rejections — rejections are highest-signal
+          const rejections = relevant.filter((e: { polarity?: string }) => e.polarity === "negative");
+          const preferences = relevant.filter((e: { polarity?: string }) => e.polarity !== "negative");
+
+          const lines: string[] = [];
+          if (rejections.length > 0) {
+            lines.push("REJECTS (highest-signal — do NOT do these):");
+            for (const e of rejections as Array<{ strength: string; domain: string; signal: string; landscape_id?: string }>) {
+              lines.push(`  [${e.strength}/${e.domain}] ${e.signal}${e.landscape_id ? ` (linked: ${e.landscape_id})` : ""}`);
+            }
+          }
+          if (preferences.length > 0) {
+            if (rejections.length > 0) lines.push("");
+            lines.push("PREFERS:");
+            for (const e of preferences as Array<{ strength: string; domain: string; signal: string; landscape_id?: string }>) {
+              lines.push(`  [${e.strength}/${e.domain}] ${e.signal}${e.landscape_id ? ` (linked: ${e.landscape_id})` : ""}`);
+            }
+          }
+          sections.push(`## Founder Judgment Profile\nMacro decisions (what to build, kill, prioritize) — NOT code formatting:\n${lines.join("\n")}`);
+        }
+      }
+
+      // 2. Portfolio focus + project status
+      const portfolio = loadPortfolio();
+      if (portfolio.projects.length > 0) {
+        let focusSection = "## Portfolio";
+        if (portfolio.focus.primary) focusSection += `\nPrimary focus: ${portfolio.focus.primary}`;
+        if (portfolio.focus.secondary) focusSection += ` | Secondary: ${portfolio.focus.secondary}`;
+        if (portfolio.focus.kill && portfolio.focus.kill.length > 0) focusSection += `\nKill list: ${portfolio.focus.kill.join(", ")}`;
+        focusSection += `\nActive projects: ${portfolio.projects.filter(p => p.stage !== "killed" && p.stage !== "paused").length}`;
+
+        if (project) {
+          const proj = portfolio.projects.find(p => p.name === project);
+          if (proj) {
+            focusSection += `\n\n${project}: ${proj.stage} | ${proj.users} users | MRR: $${proj.revenue_monthly} | Core loop: ${proj.core_loop.complete ? "complete" : "INCOMPLETE"}`;
+            if (proj.moat === "none") focusSection += " | NO MOAT";
+          }
+        }
+        sections.push(focusSection);
+      }
+
+      // 3. Landscape positions with DECAY WARNINGS
+      const landscape = loadLandscape();
+      if (landscape.positions.length > 0) {
+        const now = Date.now();
+        const thirtyDaysMs = 30 * 86400000;
+        const sixtyDaysMs = 60 * 86400000;
+
+        const positionLines: string[] = [];
+        const stalePositions: string[] = [];
+
+        for (const p of landscape.positions) {
+          const ageMs = now - new Date(p.updated).getTime();
+          const ageLabel = ageMs > sixtyDaysMs ? " STALE" : ageMs > thirtyDaysMs ? " aging" : "";
+          if (p.confidence === "strong" || p.confidence === "moderate") {
+            positionLines.push(`  [${p.confidence}${ageLabel}] ${p.position}`);
+          }
+          if (ageMs > sixtyDaysMs) {
+            stalePositions.push(p.id || p.position.slice(0, 40));
+          }
+        }
+
+        if (positionLines.length > 0) {
+          let landscapeSection = `## Landscape Positions\n${positionLines.join("\n")}`;
+          if (stalePositions.length > 0) {
+            landscapeSection += `\n\nSTALE POSITIONS (>60d, need scout review): ${stalePositions.join(", ")}`;
+          }
+          sections.push(landscapeSection);
+        }
+      }
+
+      // 4. Drift detection
+      if (project) {
+        const usagePath = path.join(LOG_DIR, "usage.jsonl");
+        if (fs.existsSync(usagePath)) {
+          const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+          const usageLines = fs.readFileSync(usagePath, "utf-8").trim().split("\n").filter(Boolean);
+          const projectCounts: Record<string, number> = {};
+          let totalEdits = 0;
+          for (const ul of usageLines) {
+            try {
+              const ue = JSON.parse(ul);
+              if (ue.ts >= weekAgo && (ue.tool === "Edit" || ue.tool === "Write") && ue.project) {
+                projectCounts[ue.project] = (projectCounts[ue.project] || 0) + 1;
+                totalEdits++;
+              }
+            } catch { /* skip */ }
+          }
+          if (totalEdits > 10) {
+            const projectEdits = projectCounts[project] || 0;
+            const projectPct = Math.round((projectEdits / totalEdits) * 100);
+            const otherProjects = Object.entries(projectCounts)
+              .filter(([p]) => p !== project)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 3)
+              .map(([p, c]) => `${p}: ${Math.round((c / totalEdits) * 100)}%`);
+
+            let driftNote = `## Focus Allocation (last 7d)\n  ${project}: ${projectPct}% of edits`;
+            if (otherProjects.length > 0) driftNote += `\n  Other: ${otherProjects.join(", ")}`;
+            if (portfolio.focus.primary === project && projectPct < 50) {
+              driftNote += `\n  DRIFT WARNING: ${project} is your stated primary but only ${projectPct}% of actual work`;
+            }
+            sections.push(driftNote);
+          }
+        }
+      }
+
+      // 5. Last session context
+      if (project) {
+        const sessionFile = path.join(KNOWLEDGE_DIR, "sessions", `${project}.md`);
+        if (fs.existsSync(sessionFile)) {
+          const sessionContent = fs.readFileSync(sessionFile, "utf-8");
+          const entries = sessionContent.split(/^## /m).filter(Boolean);
+          if (entries.length > 0) {
+            const lastEntry = entries[entries.length - 1].trim();
+            const truncated = lastEntry.split("\n").slice(0, 10).join("\n");
+            sections.push(`## Last Session\n${truncated}`);
+          }
+        }
+      }
+
+      if (sections.length === 0) {
+        return { content: [{ type: "text", text: "No context available yet. Run rhino strategy to populate portfolio, rhino scout for landscape, and use agents to build up taste signals from your decisions." }] };
+      }
+
+      return { content: [{ type: "text", text: sections.join("\n\n") }] };
     }
 
     default:

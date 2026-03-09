@@ -73,7 +73,15 @@ symlink_file() {
     echo "  linked: $(basename "$target")"
 }
 
-# --- 1. Agents ---
+# --- 1. Programs (the core of rhino-os) ---
+echo "Installing programs..."
+mkdir -p "$CLAUDE_DIR/programs"
+for program in "$SCRIPT_DIR"/programs/*.md; do
+    name="$(basename "$program")"
+    symlink_file "$program" "$CLAUDE_DIR/programs/$name"
+done
+
+# --- 2. Agents (legacy, still functional) ---
 echo "Installing agents..."
 for agent in "$SCRIPT_DIR"/agents/*.md; do
     name="$(basename "$agent")"
@@ -89,7 +97,7 @@ if [[ -d "$SCRIPT_DIR/agents/refs" ]]; then
     done
 fi
 
-# --- 2. Skills ---
+# --- 3. Skills ---
 echo "Installing skills..."
 for skill_dir in "$SCRIPT_DIR"/skills/*/; do
     skill_name="$(basename "$skill_dir")"
@@ -131,21 +139,44 @@ else
     symlink_file "$SCRIPT_DIR/config/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
 fi
 
-# --- 7. Settings.json (merge, don't overwrite) ---
+# --- 7. Settings.json (merge hooks additively, don't overwrite) ---
 echo "Merging settings.json..."
 if [[ -f "$CLAUDE_DIR/settings.json" ]]; then
-    # Merge: repo settings as base, user settings override
     if command -v jq &> /dev/null; then
         backup_if_exists "$CLAUDE_DIR/settings.json"
 
-        # Deep merge: user's settings take priority
-        # But add any new keys from the template
-        jq -s '.[0] * .[1]' \
-            "$SCRIPT_DIR/config/settings.json" \
-            "$CLAUDE_DIR/settings.json" \
-            > "$CLAUDE_DIR/settings.json.tmp"
+        # Additive merge: add template hooks that don't exist in user config
+        # For each hook in template, check if command already exists in user config
+        jq -s '
+          # Start with user config
+          .[1] as $user | .[0] as $template |
+          $user |
+          # For each hook type (PreToolUse, PostToolUse, Stop), add missing hooks
+          .hooks.PreToolUse |= (
+            . as $existing |
+            ($existing | map(.hooks // [] | map(.command // "")) | flatten) as $cmds |
+            ($template.hooks.PreToolUse // [] | map(
+              select(.hooks as $h | $cmds | any(. == ($h[0].command // "")) | not)
+            )) as $new |
+            $existing + $new
+          ) |
+          .hooks.PostToolUse |= (
+            . as $existing |
+            ($existing | map(.hooks // [] | map(.command // "")) | flatten) as $cmds |
+            ($template.hooks.PostToolUse // [] | map(
+              select(.hooks as $h | $cmds | any(. == ($h[0].command // "")) | not)
+            )) as $new |
+            $existing + $new
+          ) |
+          # Merge non-hooks keys from template (add missing, dont overwrite existing)
+          ($template | del(.hooks)) as $tmpl_base |
+          ($tmpl_base * (. | del(.hooks))) as $merged_base |
+          $merged_base + {hooks: .hooks}
+        ' "$SCRIPT_DIR/config/settings.json" \
+          "$CLAUDE_DIR/settings.json" \
+          > "$CLAUDE_DIR/settings.json.tmp"
         mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-        echo "  merged settings.json (your settings preserved, new defaults added)"
+        echo "  merged settings.json (hooks added additively, existing preserved)"
     else
         echo "  WARNING: jq not installed. Skipping settings merge."
         echo "  Install jq: brew install jq"
@@ -161,17 +192,21 @@ echo "Merging config.json..."
 if [[ -f "$CLAUDE_DIR/config.json" ]]; then
     if command -v jq &> /dev/null; then
         backup_if_exists "$CLAUDE_DIR/config.json"
-        jq -s '.[0] * .[1]' \
+        # Additive merge: template MCP servers + user MCP servers (user wins on conflict)
+        jq -s '.[0].mcpServers as $tmpl | .[1] | .mcpServers = ($tmpl + .mcpServers)' \
             "$SCRIPT_DIR/config/config.json" \
             "$CLAUDE_DIR/config.json" \
             > "$CLAUDE_DIR/config.json.tmp"
-        mv "$CLAUDE_DIR/config.json.tmp" "$CLAUDE_DIR/config.json"
-        echo "  merged config.json (your MCP servers preserved)"
+        # Expand $HOME in paths (MCP server args use $HOME)
+        sed "s|\$HOME|$HOME|g" "$CLAUDE_DIR/config.json.tmp" > "$CLAUDE_DIR/config.json.tmp2"
+        mv "$CLAUDE_DIR/config.json.tmp2" "$CLAUDE_DIR/config.json"
+        rm -f "$CLAUDE_DIR/config.json.tmp"
+        echo "  merged config.json (MCP servers added additively, yours preserved)"
     else
         echo "  WARNING: jq not installed. Skipping config merge."
     fi
 else
-    cp "$SCRIPT_DIR/config/config.json" "$CLAUDE_DIR/config.json"
+    sed "s|\$HOME|$HOME|g" "$SCRIPT_DIR/config/config.json" > "$CLAUDE_DIR/config.json"
     echo "  created config.json from template"
 fi
 
@@ -247,8 +282,13 @@ if ls "$SCRIPT_DIR"/automation/scripts/*.sh &>/dev/null; then
     echo "  automation scripts marked executable"
 fi
 
-# Install rhino CLI
+# Install rhino CLI + taste evaluator deps
 chmod +x "$SCRIPT_DIR/bin/rhino"
+if [[ -f "$SCRIPT_DIR/bin/package.json" ]]; then
+    (cd "$SCRIPT_DIR/bin" && npm install --silent 2>/dev/null) && \
+        echo "  taste evaluator dependencies installed" || \
+        echo "  WARNING: taste deps install failed (run manually: cd bin && npm install)"
+fi
 RHINO_BIN_TARGET="$HOME/bin/rhino"
 mkdir -p "$HOME/bin"
 ln -sf "$SCRIPT_DIR/bin/rhino" "$RHINO_BIN_TARGET"
@@ -307,15 +347,16 @@ fi
 
 echo ""
 echo "What's installed:"
-echo "  - 5 agents (strategist, builder, design-engineer, scout, sweep)"
-echo "  - 4 skills (todofocus, smart-commit, eval, product-2026)"
-echo "  - 2 rules (quality-bar, product-reasoning)"
-echo "  - 3 hooks (enforce_ideation_readonly, track_usage, capture_knowledge)"
-echo "  - 1 MCP server (rhino-state)"
+echo "  - 3 programs (strategy.md, build.md, meta.md) — the brain (autoresearch pattern)"
+echo "  - 5 agents (strategist, builder = thin wrappers; scout, sweep, design-engineer = standalone)"
+echo "  - 6 skills (eval, experiment, product-eval, smart-commit, todofocus, product-2026)"
+echo "  - 4 hooks (session_context, track_usage, capture_knowledge, enforce_ideation)"
 echo "  - 1 CLI (rhino)"
 echo ""
-echo "Next steps:"
-echo "  1. Edit ~/.claude/CLAUDE.md with your identity and project info"
-echo "  2. Run: rhino doctor    # verify installation"
-echo "  3. Run: rhino sweep     # daily triage"
-echo "  4. Run: rhino build     # start building"
+echo "How to use:"
+echo "  cd your-project && rhino init .  — bootstrap project (baseline score, dirs, test template)"
+echo "  \"run strategy\"                   — decide what to build"
+echo "  \"let's build\"                    — build it, score it, keep/discard"
+echo "  rhino score .                    — training loss (cheap, every commit)"
+echo "  rhino taste eval                 — eval loss (Playwright + Claude vision)"
+echo "  rhino dashboard                  — score history, experiments, dimensions"
