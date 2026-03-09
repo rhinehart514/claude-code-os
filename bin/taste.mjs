@@ -77,11 +77,48 @@ for (let i = 0; i < args.length; i++) {
 
 projectDir = resolve(projectDir);
 
+// --- Load taste.yml config (route selection) ---
+function loadTasteConfig() {
+  const configPaths = [
+    join(projectDir, ".claude", "taste.yml"),
+    join(projectDir, ".claude", "taste.yaml"),
+  ];
+
+  for (const p of configPaths) {
+    if (existsSync(p)) {
+      try {
+        const content = readFileSync(p, "utf-8");
+        // Simple YAML parser for our flat structure
+        const config = { routes: [], mobile: [] };
+        let currentKey = null;
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("#") || !trimmed) continue;
+          if (trimmed === "routes:") { currentKey = "routes"; continue; }
+          if (trimmed === "mobile:") { currentKey = "mobile"; continue; }
+          if (currentKey && trimmed.startsWith("- ")) {
+            const val = trimmed.slice(2).trim().replace(/#.*/, "").trim();
+            if (val) config[currentKey].push(val);
+          }
+        }
+        if (config.routes.length > 0) return config;
+      } catch {}
+    }
+  }
+  return null;
+}
+
 // --- Detect routes ---
 function detectRoutes(srcDir) {
-  const routes = [];
+  // Check for taste.yml config first
+  const config = loadTasteConfig();
+  if (config) {
+    return { routes: config.routes, mobileOnly: config.mobile || [] };
+  }
 
-  // Next.js app router
+  // Auto-detect: find all routes, then pick the most important ones
+  const allRoutes = [];
+
   function walkDir(dir, prefix = "") {
     if (!existsSync(dir)) return;
     const entries = readdirSync(dir, { withFileTypes: true });
@@ -91,16 +128,14 @@ function detectRoutes(srcDir) {
 
       const fullPath = join(dir, entry.name);
       if (entry.isDirectory()) {
-        // Dynamic routes: [id] → skip for now (need real data)
         if (entry.name.startsWith("[")) continue;
         walkDir(fullPath, `${prefix}/${entry.name}`);
       } else if (entry.name === "page.tsx" || entry.name === "page.jsx" || entry.name === "page.ts") {
-        routes.push(prefix || "/");
+        allRoutes.push(prefix || "/");
       }
     }
   }
 
-  // Find app directory
   const appDirs = [
     join(srcDir, "app"),
     join(projectDir, "apps/web/src/app"),
@@ -115,43 +150,60 @@ function detectRoutes(srcDir) {
     }
   }
 
-  // Always include root
-  if (!routes.includes("/")) routes.unshift("/");
+  if (!allRoutes.includes("/")) allRoutes.unshift("/");
 
-  return [...new Set(routes)];
+  // Smart selection: cap at 8 routes, prioritize key pages
+  const priorityKeywords = ["create", "new", "enter", "login", "sign", "onboard", "home", "dashboard", "profile", "settings", "about"];
+  const prioritized = [];
+  const rest = [];
+
+  for (const route of [...new Set(allRoutes)]) {
+    if (route === "/") { prioritized.unshift(route); continue; }
+    const lower = route.toLowerCase();
+    if (priorityKeywords.some(k => lower.includes(k))) {
+      prioritized.push(route);
+    } else {
+      rest.push(route);
+    }
+  }
+
+  // Take priority routes first, fill remaining with others, cap at 8
+  const selected = [...prioritized, ...rest].slice(0, 8);
+
+  return { routes: selected, mobileOnly: ["/"] };
 }
 
 // --- Screenshot routes ---
-async function screenshotRoutes(browser, url, routes) {
+async function screenshotRoutes(browser, url, routeConfig) {
   const screenshots = [];
   const page = await browser.newPage();
 
-  // Set viewport to common sizes
-  const viewports = [
-    { width: 1440, height: 900, name: "desktop" },
-    { width: 390, height: 844, name: "mobile" },
-  ];
+  const desktopVp = { width: 1440, height: 900, name: "desktop" };
+  const mobileVp = { width: 390, height: 844, name: "mobile" };
+  const { routes, mobileOnly = [] } = routeConfig;
 
   for (const route of routes) {
-    for (const vp of viewports) {
-      await page.setViewportSize({ width: vp.width, height: vp.height });
+    // Desktop for all routes
+    await page.setViewportSize({ width: desktopVp.width, height: desktopVp.height });
+    try {
+      await page.goto(`${url}${route}`, { waitUntil: "networkidle", timeout: 15000 });
+      await page.waitForTimeout(1000);
+      const buffer = await page.screenshot({ fullPage: true, type: "png" });
+      screenshots.push({ route, viewport: "desktop", dimensions: `${desktopVp.width}x${desktopVp.height}`, base64: buffer.toString("base64") });
+    } catch (err) {
+      console.error(`  Failed: ${route} (desktop): ${err.message}`);
+    }
 
+    // Mobile only for specified routes
+    if (mobileOnly.includes(route)) {
+      await page.setViewportSize({ width: mobileVp.width, height: mobileVp.height });
       try {
-        const fullUrl = `${url}${route}`;
-        await page.goto(fullUrl, { waitUntil: "networkidle", timeout: 15000 });
-
-        // Wait for content to render
+        await page.goto(`${url}${route}`, { waitUntil: "networkidle", timeout: 15000 });
         await page.waitForTimeout(1000);
-
         const buffer = await page.screenshot({ fullPage: true, type: "png" });
-        screenshots.push({
-          route,
-          viewport: vp.name,
-          dimensions: `${vp.width}x${vp.height}`,
-          base64: buffer.toString("base64"),
-        });
+        screenshots.push({ route, viewport: "mobile", dimensions: `${mobileVp.width}x${mobileVp.height}`, base64: buffer.toString("base64") });
       } catch (err) {
-        console.error(`  Failed to screenshot ${route} (${vp.name}): ${err.message}`);
+        console.error(`  Failed: ${route} (mobile): ${err.message}`);
       }
     }
   }
@@ -160,11 +212,85 @@ async function screenshotRoutes(browser, url, routes) {
   return screenshots;
 }
 
+// --- Load intelligence layers ---
+function loadContext() {
+  const ctx = { landscape: null, taste: null, product: null };
+
+  // Landscape positions (from scout)
+  const landscapePath = join(process.env.HOME, ".claude", "knowledge", "landscape.json");
+  if (existsSync(landscapePath)) {
+    try {
+      const data = JSON.parse(readFileSync(landscapePath, "utf-8"));
+      ctx.landscape = data.positions
+        ?.filter(p => p.confidence === "strong")
+        .map(p => p.position)
+        .join("\n- ") || null;
+    } catch {}
+  }
+
+  // Taste profile (accumulated preferences)
+  const tastePath = join(process.env.HOME, ".claude", "knowledge", "taste.jsonl");
+  if (existsSync(tastePath)) {
+    try {
+      const lines = readFileSync(tastePath, "utf-8").trim().split("\n").slice(-20);
+      const signals = lines.map(l => {
+        try { const j = JSON.parse(l); return `[${j.strength}] ${j.signal}`; } catch { return null; }
+      }).filter(Boolean);
+      if (signals.length) ctx.taste = signals.join("\n- ");
+    } catch {}
+  }
+
+  // Project CLAUDE.md (product context)
+  for (const p of [
+    join(projectDir, "CLAUDE.md"),
+    join(projectDir, ".claude", "CLAUDE.md"),
+  ]) {
+    if (existsSync(p)) {
+      try {
+        const content = readFileSync(p, "utf-8");
+        // Extract product section (first ~50 lines or until ## that isn't Product)
+        const lines = content.split("\n").slice(0, 80);
+        ctx.product = lines.join("\n");
+      } catch {}
+      break;
+    }
+  }
+
+  return ctx;
+}
+
 // --- Build taste rubric prompt ---
 function buildRubricPrompt(routes) {
-  return `You are a product taste evaluator. You judge products the way a user EXPERIENCES them, not how they're coded.
+  const ctx = loadContext();
 
-You are looking at screenshots of a web application. Score each dimension 1-5 based on what you SEE.
+  let marketSection = "";
+  if (ctx.landscape) {
+    marketSection = `\n## Market Context (from landscape intelligence)
+You know these things about the market. Use them to calibrate your judgment:
+- ${ctx.landscape}
+`;
+  }
+
+  let tasteSection = "";
+  if (ctx.taste) {
+    tasteSection = `\n## Founder's Taste Profile (accumulated preferences)
+This founder has shown these preferences. Weight your evaluation accordingly:
+- ${ctx.taste}
+`;
+  }
+
+  let productSection = "";
+  if (ctx.product) {
+    productSection = `\n## Product Context
+${ctx.product}
+`;
+  }
+
+  return `You are a product taste evaluator with market awareness. You judge products the way a REAL USER experiences them — not how they're coded, not as an abstract design exercise.
+
+You have context about this product, its market, and its founder's preferences. Use ALL of it.
+${productSection}${marketSection}${tasteSection}
+You are looking at screenshots of this application. Score each dimension 1-5 based on what you SEE, calibrated against what real users actually use daily (Instagram, Discord, Notion, Linear, Arc).
 
 ## Dimensions
 
@@ -188,10 +314,10 @@ You are looking at screenshots of a web application. Score each dimension 1-5 ba
    3 = Some polish but inconsistent
    1 = Dead clicks, jarring state changes, elements appear/disappear
 
-5. **EMOTIONAL_TONE** (does it match the product?)
-   5 = UI feels like THIS product's personality — recognizable
+5. **EMOTIONAL_TONE** (does it match the product's identity?)
+   5 = UI feels like THIS product — recognizable, matches the audience
    3 = Neutral, could be any product
-   1 = Mismatch (creative tool looks corporate, social app feels like enterprise)
+   1 = Mismatch (campus app looks like enterprise SaaS, social app feels like admin panel)
 
 6. **INFORMATION_DENSITY** (right amount per screen?)
    5 = Goldilocks — useful content, scannable, not overwhelming
@@ -211,9 +337,10 @@ You are looking at screenshots of a web application. Score each dimension 1-5 ba
 ## Rules
 - Score based on what you SEE, not what you imagine the code does
 - Cite specific visual evidence: "the hero text competes with the sidebar nav for attention"
-- Compare to products users actually use (Instagram, Discord, Notion, Linear) — that's the bar
-- A score of 3 is "fine." 5 means "this specific thing was clearly thought about." 1 means "this actively hurts."
-- Be honest. Most AI-generated UIs score 2-3 across the board. That's not failure, it's the starting point.
+- Calibrate against products users ACTUALLY use daily — that's the bar, not "good for an early product"
+- A score of 3 is "fine." 5 means "clearly thought about." 1 means "actively hurts."
+- Be honest. Most AI-generated UIs score 2-3. That's the starting point, not a failure.
+- Use the product context to judge FIT — does the UI serve THIS product's specific users and goals?
 
 ## Output Format (strict JSON)
 {
@@ -229,8 +356,8 @@ You are looking at screenshots of a web application. Score each dimension 1-5 ba
     "distinctiveness": { "score": <1-5>, "evidence": "<what you see>" }
   },
   "strongest": "<which dimension is best and why>",
-  "weakest": "<which dimension needs most work and why>",
-  "one_thing": "<the single highest-impact change to improve taste>"
+  "weakest": "<which dimension needs most work and specific evidence>",
+  "one_thing": "<the single highest-impact change — be specific, not generic>"
 }
 
 Routes screenshotted: ${routes.join(", ")}
@@ -241,7 +368,7 @@ Respond with ONLY the JSON object, no markdown fences.`;
 async function evaluateWithClaude(screenshots, routes, screenshotDir) {
   // Save screenshots to disk so claude CLI can read them
   const savedPaths = [];
-  const maxScreenshots = 20;
+  const maxScreenshots = 12; // 8 routes + ~4 mobile = 12 max from smart selection
   const selected = screenshots.slice(0, maxScreenshots);
 
   for (const ss of selected) {
@@ -407,8 +534,10 @@ async function main() {
 
   // Detect routes
   startSpinner("detecting routes...");
-  const routes = detectRoutes(srcDir);
-  stopSpinner(`found ${routes.length} routes: ${routes.join(", ")}`);
+  const routeConfig = detectRoutes(srcDir);
+  const { routes, mobileOnly } = routeConfig;
+  const mobileCount = routes.filter(r => mobileOnly.includes(r)).length;
+  stopSpinner(`${routes.length} routes (${mobileCount} with mobile): ${routes.join(", ")}`);
 
   // Start or connect to dev server
   let server = null;
@@ -426,9 +555,10 @@ async function main() {
     const browser = await chromium.launch({ headless: true });
     stopSpinner("browser ready");
 
-    // Screenshot all routes
-    startSpinner(`screenshotting ${routes.length} routes × 2 viewports...`);
-    const screenshots = await screenshotRoutes(browser, url, routes);
+    // Screenshot routes
+    const totalShots = routes.length + mobileCount;
+    startSpinner(`screenshotting ${totalShots} views (${routes.length} desktop + ${mobileCount} mobile)...`);
+    const screenshots = await screenshotRoutes(browser, url, routeConfig);
     stopSpinner(`captured ${screenshots.length} screenshots`);
 
     await browser.close();
