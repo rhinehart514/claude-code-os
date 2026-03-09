@@ -176,7 +176,10 @@ When you score a subjective dimension, you MUST cite the specific code that just
 One specific change. One hypothesis about which dimension it moves and why. Ideate freely — think about the user flow, what delights, what's missing. Then narrow to the smallest testable change.
 
 #### 2. Implement
-Smallest change that tests the hypothesis. One file, one component. Match existing patterns.
+Smallest change that tests the hypothesis. Match existing patterns.
+- **One hypothesis per experiment.** Don't stack 5 changes then measure.
+- **Minimize files touched.** Ideal: one file. Acceptable: 2-3 related files. If you're touching 5+ files, the experiment is too big — split it.
+- **If it takes more than 15 minutes to implement, it's not an experiment — it's a feature.** Use Build mode instead.
 Commit: `git commit -m "exp: [hypothesis in 10 words]"`
 
 #### 3. Measure
