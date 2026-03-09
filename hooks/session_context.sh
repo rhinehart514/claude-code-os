@@ -132,9 +132,9 @@ if [[ -d "$BRAINS_DIR" ]] && command -v jq &>/dev/null; then
     for brain_file in "$BRAINS_DIR"/*.json; do
         [[ ! -f "$brain_file" ]] && continue
         ba=$(jq -r '.agent // ""' "$brain_file" 2>/dev/null)
-        bp=$(jq -r '.next_move.priority // ""' "$brain_file" 2>/dev/null)
-        bc=$(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null)
-        baction=$(jq -r '.next_move.action // .next_move // ""' "$brain_file" 2>/dev/null)
+        bp=$(jq -r 'if .next_move | type == "object" then .next_move.priority // "" else "" end' "$brain_file" 2>/dev/null || true)
+        bc=$(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null || true)
+        baction=$(jq -r 'if .next_move | type == "object" then .next_move.action // "" elif .next_move then .next_move else "" end' "$brain_file" 2>/dev/null || true)
         if [[ "$bp" == "high" ]] && awk "BEGIN { exit !($bc > $TOP_CRED) }" 2>/dev/null; then
             TOP_AGENT="$ba"
             TOP_CRED="$bc"
@@ -148,13 +148,17 @@ $TOP_ACTION
 "
     fi
 
-    # Conflict count
+    # Conflict details (not just count)
     CONFLICTS_FILE="$STATE_DIR/conflicts.json"
     if [[ -f "$CONFLICTS_FILE" ]]; then
         CONFLICT_COUNT=$(jq '[.[] | select(.status == "open")] | length' "$CONFLICTS_FILE" 2>/dev/null || echo "0")
         if [[ "$CONFLICT_COUNT" -gt 0 ]]; then
+            CONFLICT_DETAILS=$(jq -r '[.[] | select(.status == "open")][:3] | .[] |
+                "#\(.id) [\(.domain)] \(.side_a.agent) (conv:\(.side_a.conviction)) vs \(.side_b.agent) (conv:\(.side_b.conviction)): \(.side_a.claim[:80])"
+            ' "$CONFLICTS_FILE" 2>/dev/null)
             CONTEXT+="
-## ${CONFLICT_COUNT} agent conflict(s) pending — run 'rhino council'
+## ${CONFLICT_COUNT} agent conflict(s) — run 'rhino council'
+${CONFLICT_DETAILS}
 "
         fi
     fi

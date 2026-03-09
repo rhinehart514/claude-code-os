@@ -80,7 +80,7 @@ _ensure_brain() {
 
 # Inject brain content into agent prompt
 # Usage: inject_brain "agent_name"
-# Outputs brain JSON block to stdout (caller appends to prompt)
+# Outputs brain JSON block + mechanical constraints to stdout
 inject_brain() {
     local agent="$1"
     _ensure_brain "$agent"
@@ -94,6 +94,101 @@ inject_brain() {
     local brain_content
     brain_content="$(cat "$brain_file")"
 
+    # Build mechanical constraints from brain data
+    local constraints=""
+
+    if command -v jq &>/dev/null; then
+        # Extract credibility
+        local cred
+        cred=$(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null)
+
+        # Extract pending lessons from meta
+        local lessons
+        lessons=$(jq -r '.memory.lessons[-1] // ""' "$brain_file" 2>/dev/null)
+
+        # Check calibration: conviction vs accuracy
+        local accuracy avg_conviction
+        accuracy=$(jq -r '.track_record.accuracy // 0' "$brain_file" 2>/dev/null)
+        avg_conviction=$(jq -r '
+            [.active_stances[]? | select(.status == "won" or .status == "lost") | .conviction // 0.5] |
+            if length > 0 then add / length else 0.5 end
+        ' "$brain_file" 2>/dev/null || echo "0.5")
+
+        # Build conviction constraint based on track record
+        local conviction_rule=""
+        local is_overconfident
+        is_overconfident=$(awk "BEGIN { print ($avg_conviction > 0.65 && $accuracy < 0.45) ? 1 : 0 }" 2>/dev/null || echo "0")
+        local is_underconfident
+        is_underconfident=$(awk "BEGIN { print ($avg_conviction < 0.40 && $accuracy > 0.65) ? 1 : 0 }" 2>/dev/null || echo "0")
+
+        if [[ "$is_overconfident" == "1" ]]; then
+            conviction_rule="CALIBRATION CONSTRAINT: You are overconfident (avg conviction: ${avg_conviction}, accuracy: ${accuracy}). Your new stances MUST have conviction <= 0.5 until accuracy improves."
+        elif [[ "$is_underconfident" == "1" ]]; then
+            conviction_rule="CALIBRATION NOTE: You are underconfident (avg conviction: ${avg_conviction}, accuracy: ${accuracy}). Trust your instincts more — consider conviction >= 0.6."
+        fi
+
+        # Check for open conflicts involving this agent
+        local conflict_constraints=""
+        if [[ -f "$CONFLICTS_FILE" ]]; then
+            local my_conflicts
+            my_conflicts=$(jq -c --arg agent "$agent" '
+                [.[] | select(.status == "open" and (.side_a.agent == $agent or .side_b.agent == $agent))]
+            ' "$CONFLICTS_FILE" 2>/dev/null)
+
+            local conflict_count
+            conflict_count=$(echo "$my_conflicts" | jq 'length' 2>/dev/null || echo "0")
+
+            if [[ "$conflict_count" -gt 0 ]]; then
+                conflict_constraints="ACTIVE CONFLICTS ($conflict_count): You have open disagreements with other agents.
+$(echo "$my_conflicts" | jq -r --arg agent "$agent" '.[] |
+    (if .side_a.agent == $agent then .side_b else .side_a end) as $opponent |
+    "  #\(.id) vs \($opponent.agent) [\(.domain)]: they claim \"\($opponent.claim)\" (conviction: \($opponent.conviction))"
+' 2>/dev/null)
+You MUST address each conflict: either strengthen your counter-evidence or withdraw your stance."
+            fi
+        fi
+
+        # Check other agents' high-credibility stances that affect this agent
+        local high_cred_warnings=""
+        for other_brain in "$BRAINS_DIR"/*.json; do
+            [[ ! -f "$other_brain" ]] && continue
+            local other_agent other_cred
+            other_agent=$(jq -r '.agent' "$other_brain" 2>/dev/null)
+            [[ "$other_agent" == "$agent" ]] && continue
+            other_cred=$(jq -r '.track_record.credibility // 0.50' "$other_brain" 2>/dev/null)
+
+            # Only surface stances from agents with cred >= 0.60
+            local is_credible
+            is_credible=$(awk "BEGIN { print ($other_cred >= 0.60) ? 1 : 0 }" 2>/dev/null || echo "0")
+            if [[ "$is_credible" == "1" ]]; then
+                local relevant_stances
+                relevant_stances=$(jq -r --arg agent "$agent" '
+                    [.active_stances[]? | select((.status == "pending" or .status == null) and .conviction >= 0.6)] |
+                    if length > 0 then
+                        map("    \(.claim) (conviction: \(.conviction))") | join("\n")
+                    else empty end
+                ' "$other_brain" 2>/dev/null)
+
+                if [[ -n "$relevant_stances" ]]; then
+                    high_cred_warnings+="
+  ${other_agent} (credibility: ${other_cred}) holds:
+${relevant_stances}"
+                fi
+            fi
+        done
+
+        if [[ -n "$high_cred_warnings" ]]; then
+            high_cred_warnings="HIGH-CREDIBILITY AGENT STANCES (these agents have earned their credibility — take seriously):${high_cred_warnings}
+If you disagree, you must set conflicts_with and provide counter-evidence."
+        fi
+
+        # Assemble constraints
+        [[ -n "$conviction_rule" ]] && constraints+="$conviction_rule"$'\n\n'
+        [[ -n "$conflict_constraints" ]] && constraints+="$conflict_constraints"$'\n\n'
+        [[ -n "$high_cred_warnings" ]] && constraints+="$high_cred_warnings"$'\n\n'
+        [[ -n "$lessons" && "$lessons" != "null" ]] && constraints+="LAST META LESSON: $lessons"$'\n\n'
+    fi
+
     cat <<BRAIN_EOF
 
 --- Your Brain (persistent memory) ---
@@ -104,7 +199,10 @@ This is YOUR persistent identity. It survives across runs. You MUST:
 4. Update beliefs, lessons, and next_move
 5. Write updated brain to $brain_file
 
-$brain_content
+Your credibility: $(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null)
+Your record: $(jq -r '"\(.track_record.won // 0)W/\(.track_record.lost // 0)L/\(.track_record.pending // 0)P"' "$brain_file" 2>/dev/null)
+
+${constraints}${brain_content}
 --- End Brain ---
 BRAIN_EOF
 }
@@ -378,6 +476,168 @@ recalculate_credibility() {
     ' "$brain_file" > "${brain_file}.tmp" && mv "${brain_file}.tmp" "$brain_file"
 }
 
+# Auto-resolve stances that have measurable outcomes
+# Called by catchup and after meta runs
+# Runs under set +e internally to avoid killing the main script
+auto_resolve_stances() {
+    command -v jq &>/dev/null || return 0
+    [[ -d "$BRAINS_DIR" ]] || return 0
+    # Guard against empty glob
+    local has_brains=false
+    for _bf in "$BRAINS_DIR"/*.json; do
+        [[ -f "$_bf" ]] && has_brains=true && break
+    done
+    $has_brains || return 0
+
+    # Disable exit-on-error inside this function (jq pipelines can fail on empty data)
+    local _old_e=""
+    [[ $- == *e* ]] && _old_e=1 && set +e
+
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    local resolved_count=0
+
+    for brain_file in "$BRAINS_DIR"/*.json; do
+        [[ ! -f "$brain_file" ]] && continue
+
+        local agent
+        agent=$(jq -r '.agent' "$brain_file" 2>/dev/null)
+
+        # Auto-resolve score-based claims (builder, design-engineer)
+        if [[ "$agent" == "builder" || "$agent" == "design-engineer" ]]; then
+            local auto_resolve
+            auto_resolve=$(cfg brains.auto_resolve_score_claims true)
+            [[ "$auto_resolve" != "true" ]] && continue
+
+            # Find stances that predict score changes
+            local score_stances
+            score_stances=$(jq -c '.active_stances[]? | select(
+                (.status == "pending" or .status == null) and
+                (.domain == "execution" or .domain == "quality") and
+                (.claim | test("score|Score|improve|Improve|increase|decrease"; "i") // false)
+            )' "$brain_file" 2>/dev/null)
+
+            while IFS= read -r stance; do
+                [[ -z "$stance" ]] && continue
+                local staked_date
+                staked_date=$(echo "$stance" | jq -r '.staked // ""' 2>/dev/null)
+                [[ -z "$staked_date" ]] && continue
+
+                # Check if falsifiable_by date has passed
+                local staked_epoch
+                staked_epoch=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$staked_date" +%s 2>/dev/null || date -d "$staked_date" +%s 2>/dev/null || echo "0")
+                local age_days=$(( ($(date +%s) - staked_epoch) / 86400 ))
+
+                # Auto-resolve after 7 days (enough time for scores to materialize)
+                if [[ "$age_days" -ge 7 ]]; then
+                    local claim_text
+                    claim_text=$(echo "$stance" | jq -r '.claim' 2>/dev/null)
+                    local conviction
+                    conviction=$(echo "$stance" | jq -r '.conviction // 0.5' 2>/dev/null)
+
+                    # Check experiment TSVs for evidence
+                    local found_improvement=false
+                    for exp_dir in "$PWD/.claude/experiments" "$HOME/Desktop"/*/.claude/experiments; do
+                        [[ ! -d "$exp_dir" ]] && continue
+                        for tsv in "$exp_dir"/*.tsv; do
+                            [[ ! -f "$tsv" ]] && continue
+                            # Look for kept experiments after the stance date
+                            if grep -q "keep" "$tsv" 2>/dev/null; then
+                                found_improvement=true
+                                break 2
+                            fi
+                        done
+                    done
+
+                    # Mark based on evidence
+                    local result="inconclusive"
+                    if $found_improvement; then
+                        result="won"
+                    fi
+
+                    jq --arg claim "$claim_text" --arg result "$result" --arg now "$now" '
+                        .active_stances = [.active_stances[] |
+                            if .claim == $claim and (.status == "pending" or .status == null)
+                            then .status = $result | .resolved = $now
+                            else . end
+                        ] |
+                        if $result == "won" then .track_record.won += 1 | .track_record.resolved += 1
+                        elif $result == "lost" then .track_record.lost += 1 | .track_record.resolved += 1
+                        else .track_record.withdrawn += 1 | .track_record.resolved += 1
+                        end |
+                        .updated = $now
+                    ' "$brain_file" > "${brain_file}.tmp" && mv "${brain_file}.tmp" "$brain_file"
+
+                    echo "{\"date\":\"$now\",\"agent\":\"$agent\",\"claim\":\"$claim_text\",\"result\":\"$result\",\"auto\":true}" >> "$RESOLUTIONS_FILE"
+                    ((resolved_count++))
+                fi
+            done <<< "$score_stances"
+        fi
+    done
+
+    # Auto-resolve old conflicts by credibility gap
+    if [[ -f "$CONFLICTS_FILE" ]]; then
+        local escalation_days
+        escalation_days=$(cfg brains.conflict_escalation_days 7)
+
+        local open_conflicts
+        open_conflicts=$(jq -c '.[] | select(.status == "open")' "$CONFLICTS_FILE" 2>/dev/null)
+
+        while IFS= read -r conflict; do
+            [[ -z "$conflict" ]] && continue
+
+            local surfaced conflict_id
+            surfaced=$(echo "$conflict" | jq -r '.surfaced' 2>/dev/null)
+            conflict_id=$(echo "$conflict" | jq -r '.id' 2>/dev/null)
+
+            local surfaced_epoch
+            surfaced_epoch=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$surfaced" +%s 2>/dev/null || date -d "$surfaced" +%s 2>/dev/null || echo "0")
+            local conflict_age_days=$(( ($(date +%s) - surfaced_epoch) / 86400 ))
+
+            if [[ "$conflict_age_days" -ge "$escalation_days" ]]; then
+                # Check credibility gap — auto-resolve if gap >= 0.15
+                local a_agent b_agent
+                a_agent=$(echo "$conflict" | jq -r '.side_a.agent' 2>/dev/null)
+                b_agent=$(echo "$conflict" | jq -r '.side_b.agent' 2>/dev/null)
+
+                local a_cred b_cred
+                a_cred=$(jq -r '.track_record.credibility // 0.50' "$BRAINS_DIR/${a_agent}.json" 2>/dev/null)
+                b_cred=$(jq -r '.track_record.credibility // 0.50' "$BRAINS_DIR/${b_agent}.json" 2>/dev/null)
+
+                local gap winner
+                gap=$(awk "BEGIN { g = $a_cred - $b_cred; print (g < 0 ? -g : g) }")
+                local should_resolve
+                should_resolve=$(awk "BEGIN { print ($gap >= 0.15) ? 1 : 0 }")
+
+                if [[ "$should_resolve" == "1" ]]; then
+                    if awk "BEGIN { exit !($a_cred > $b_cred) }" 2>/dev/null; then
+                        winner="$a_agent"
+                    else
+                        winner="$b_agent"
+                    fi
+                    echo -e "${DIM}  auto-resolving conflict #${conflict_id}: ${winner} wins (credibility gap: ${gap})${NC}" >&2
+                    resolve_conflict "$conflict_id" "$winner"
+                    ((resolved_count++))
+                fi
+            fi
+        done <<< "$open_conflicts"
+    fi
+
+    # Recalculate credibility for all agents with changes
+    if [[ "$resolved_count" -gt 0 ]]; then
+        for brain_file in "$BRAINS_DIR"/*.json; do
+            [[ ! -f "$brain_file" ]] && continue
+            local agent
+            agent=$(jq -r '.agent' "$brain_file" 2>/dev/null)
+            recalculate_credibility "$agent"
+        done
+        echo -e "${DIM}  auto-resolved $resolved_count stance(s)${NC}" >&2
+    fi
+
+    # Restore set -e if it was previously on
+    [[ -n "$_old_e" ]] && set -e
+}
+
 # Prune stances — expire old stances, cap active count
 prune_stances() {
     local agent="$1"
@@ -396,6 +656,16 @@ prune_stances() {
     local now_epoch
     now_epoch=$(date +%s)
     local cutoff_epoch=$((now_epoch - expiry_days * 86400))
+
+    # Count expired stances before pruning (for logging)
+    local expired_claims
+    expired_claims=$(jq -r --argjson cutoff "$cutoff_epoch" '
+        [.active_stances[]? |
+         select((.status == "pending" or .status == null) and
+                ((.staked // "") != "") and
+                ((.staked | fromdateiso8601 // 9999999999) < $cutoff)) |
+         .claim] | .[]
+    ' "$brain_file" 2>/dev/null)
 
     jq --argjson max "$max_stances" --argjson cutoff "$cutoff_epoch" '
         # Expire old pending stances
@@ -416,4 +686,14 @@ prune_stances() {
         .active_stances = [.active_stances[] | select(.status == "pending" or .status == null or .status == "won" or .status == "lost")] |
         .active_stances = .active_stances[:$max]
     ' "$brain_file" > "${brain_file}.tmp" && mv "${brain_file}.tmp" "$brain_file" 2>/dev/null
+
+    # Log expired stances to resolutions.jsonl for audit trail
+    if [[ -n "$expired_claims" ]]; then
+        local now_iso
+        now_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        while IFS= read -r claim; do
+            [[ -z "$claim" ]] && continue
+            echo "{\"date\":\"$now_iso\",\"agent\":\"$agent\",\"claim\":\"$claim\",\"result\":\"expired\",\"auto\":true}" >> "$RESOLUTIONS_FILE"
+        done <<< "$expired_claims"
+    fi
 }

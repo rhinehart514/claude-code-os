@@ -162,22 +162,26 @@ verify_artifacts() {
             ;;
     esac
 
-    # Check brain file was updated (all agents should update their brain)
+    # Check brain file was updated by THIS run (all agents must update their brain)
     local brain_file="$BRAINS_DIR/${agent}.json"
     if [[ -f "$brain_file" ]] && command -v jq &>/dev/null; then
         local brain_updated
         brain_updated=$(jq -r '.updated // ""' "$brain_file" 2>/dev/null)
         if [[ -z "$brain_updated" || "$brain_updated" == "null" ]]; then
-            missing+=("brain/${agent}.json (never updated)")
+            missing+=("brain/${agent}.json (never updated — agent didn't write brain)")
         else
-            local brain_age_hr
             local brain_epoch
             brain_epoch=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$brain_updated" +%s 2>/dev/null || date -d "$brain_updated" +%s 2>/dev/null || echo "0")
-            brain_age_hr=$(( ($(date +%s) - brain_epoch) / 3600 ))
-            if [[ "$brain_age_hr" -gt 1 && "$agent" != "meta" ]]; then
-                # Only warn if the agent just ran but didn't update brain
-                : # Brain staleness is acceptable between runs
+            local brain_age_hr=$(( ($(date +%s) - brain_epoch) / 3600 ))
+            if [[ "$brain_age_hr" -gt 1 ]]; then
+                missing+=("brain/${agent}.json (stale — ${brain_age_hr}h since last update)")
             fi
+        fi
+        # Check for at least 1 active stance (agents must stake claims)
+        local stance_count
+        stance_count=$(jq '[.active_stances[]? | select(.status == "pending" or .status == null)] | length' "$brain_file" 2>/dev/null || echo "0")
+        if [[ "$stance_count" -eq 0 ]]; then
+            missing+=("brain/${agent}.json (0 active stances — agent didn't stake claims)")
         fi
     fi
 
@@ -925,33 +929,35 @@ cmd_council() {
     local min_stances
     min_stances=$(cfg brains.min_stances_for_credibility 5)
 
-    {
-        for brain_file in "$BRAINS_DIR"/*.json; do
-            [[ ! -f "$brain_file" ]] && continue
-            has_brains=true
-            local agent cred resolved won lost pending accuracy
-            agent=$(jq -r '.agent' "$brain_file" 2>/dev/null)
-            cred=$(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null)
-            resolved=$(jq -r '.track_record.resolved // 0' "$brain_file" 2>/dev/null)
-            won=$(jq -r '.track_record.won // 0' "$brain_file" 2>/dev/null)
-            lost=$(jq -r '.track_record.lost // 0' "$brain_file" 2>/dev/null)
-            pending=$(jq -r '.active_stances | map(select(.status == "pending" or .status == null)) | length' "$brain_file" 2>/dev/null)
-            accuracy=$(jq -r '.track_record.accuracy // 0' "$brain_file" 2>/dev/null)
+    # Collect brain data, sort by credibility, display
+    local _brain_lines=""
+    for brain_file in "$BRAINS_DIR"/*.json; do
+        [[ ! -f "$brain_file" ]] && continue
+        has_brains=true
+        local agent cred resolved won lost pending
+        agent=$(jq -r '.agent' "$brain_file" 2>/dev/null || true)
+        cred=$(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null || echo "0.50")
+        resolved=$(jq -r '.track_record.resolved // 0' "$brain_file" 2>/dev/null || echo "0")
+        won=$(jq -r '.track_record.won // 0' "$brain_file" 2>/dev/null || echo "0")
+        lost=$(jq -r '.track_record.lost // 0' "$brain_file" 2>/dev/null || echo "0")
+        pending=$(jq '[.active_stances[]? | select(.status == "pending" or .status == null)] | length' "$brain_file" 2>/dev/null || echo "0")
 
-            local status_label=""
-            if [[ "$resolved" -lt "$min_stances" ]]; then
-                status_label=" ${DIM}(calibrating: ${resolved}/${min_stances})${NC}"
-            fi
+        _brain_lines+="${cred} ${agent} ${won} ${lost} ${pending} ${resolved}"$'\n'
+    done
 
-            echo "$cred $agent $won $lost $pending $accuracy $status_label"
-        done
-    } | sort -rn | while read -r cred agent won lost pending accuracy status_label; do
+    echo "$_brain_lines" | sort -rn | while read -r cred agent won lost pending resolved; do
+        [[ -z "$agent" ]] && continue
         local bar_len
         bar_len=$(awk "BEGIN { printf \"%d\", $cred * 20 }")
         local bar=""
         for ((b=0; b<bar_len; b++)); do bar+="█"; done
         for ((b=bar_len; b<20; b++)); do bar+="░"; done
-        printf "  %-16s %s  %.2f  W:%s L:%s P:%s%s\n" "$agent" "$bar" "$cred" "$won" "$lost" "$pending" "$status_label"
+
+        local cal_label=""
+        if [[ "$resolved" -lt "$min_stances" ]]; then
+            cal_label="  ${DIM}(calibrating: ${resolved}/${min_stances})${NC}"
+        fi
+        echo -e "  $(printf '%-16s' "$agent") ${bar}  ${cred}  W:${won} L:${lost} P:${pending}${cal_label}"
     done
 
     if ! $has_brains; then
@@ -1001,8 +1007,8 @@ cmd_council() {
         [[ ! -f "$brain_file" ]] && continue
         local agent next_move priority
         agent=$(jq -r '.agent' "$brain_file" 2>/dev/null)
-        next_move=$(jq -r '.next_move.action // .next_move // "none"' "$brain_file" 2>/dev/null)
-        priority=$(jq -r '.next_move.priority // ""' "$brain_file" 2>/dev/null)
+        next_move=$(jq -r 'if .next_move | type == "object" then .next_move.action // "none" elif .next_move then .next_move else "none" end' "$brain_file" 2>/dev/null || echo "none")
+        priority=$(jq -r 'if .next_move | type == "object" then .next_move.priority // "" else "" end' "$brain_file" 2>/dev/null || echo "")
         if [[ "$next_move" != "none" && "$next_move" != "null" ]]; then
             local prio_color="$DIM"
             [[ "$priority" == "high" ]] && prio_color="$YELLOW"
@@ -1123,6 +1129,17 @@ cmd_config() {
         "$(cfg knowledge.log_retention_days 30)"
     echo ""
 
+    echo -e "${BOLD}Brains:${NC}"
+    printf "  stance expiry: %sd  max stances: %s  credibility half-life: %sd\n" \
+        "$(cfg brains.stance_expiry_days 30)" \
+        "$(cfg brains.max_active_stances 5)" \
+        "$(cfg brains.credibility_half_life_days 30)"
+    printf "  min stances: %s  escalation: %sd  auto-resolve scores: %s\n" \
+        "$(cfg brains.min_stances_for_credibility 3)" \
+        "$(cfg brains.conflict_escalation_days 7)" \
+        "$(cfg brains.auto_resolve_score_claims true)"
+    echo ""
+
     echo -e "${BOLD}Experiment Targets:${NC}"
     printf "  keep rate: >%s  alpha rate: >%s  max files: %s\n" \
         "$(cfg experiments.keep_rate_target 0.40)" \
@@ -1188,13 +1205,16 @@ catchup() {
         echo "$now" > "$meta_marker"
     fi
 
+    # Auto-resolve stances with measurable outcomes (runs on every CLI use)
+    ( auto_resolve_stances ) 2>/dev/null || true
+
     # High-priority brain next_moves: agents with urgent recommendations that haven't run
     if [[ -d "$BRAINS_DIR" ]] && command -v jq &>/dev/null; then
         for brain_file in "$BRAINS_DIR"/*.json; do
             [[ ! -f "$brain_file" ]] && continue
             local ba bp
-            ba=$(jq -r '.agent // ""' "$brain_file" 2>/dev/null)
-            bp=$(jq -r '.next_move.priority // ""' "$brain_file" 2>/dev/null)
+            ba=$(jq -r '.agent // ""' "$brain_file" 2>/dev/null || true)
+            bp=$(jq -r 'if .next_move | type == "object" then .next_move.priority // "" else "" end' "$brain_file" 2>/dev/null || true)
             if [[ "$bp" == "high" ]]; then
                 local agent_marker="$marker_dir/.last-${ba}"
                 if [[ -f "$agent_marker" ]]; then
