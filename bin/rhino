@@ -1252,6 +1252,7 @@ case "${1:-help}" in
     init-eval)  shift; cmd_init_eval "$@" ;;
     report)     cmd_report ;;
     experiments|exp) shift; cmd_experiments "$@" ;;
+    score)      shift; "$RHINO_DIR/bin/score.sh" "${@:-.}" ;;
     help|--help|-h) cmd_help ;;
     version|--version|-v) echo "rhino v${VERSION}" ;;
     *)

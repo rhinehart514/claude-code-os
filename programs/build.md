@@ -129,7 +129,20 @@ The autoresearch pattern applied to product development. You run the loop. NEVER
 
 You score every change. Some scores come from running commands. Some come from reading code and judging. Both are valid. The key: every subjective score must be grounded in something observable.
 
-#### Hard metrics (run commands, get numbers)
+#### Computable score (your val_bpb)
+
+Run after EVERY commit:
+```bash
+rhino score .          # single number 0-100. Higher = better.
+rhino score . --json   # machine-readable for the TSV
+rhino score . --breakdown  # see what moved
+```
+
+This scores build health, structure (dead ends, empty states), product signals (share, notifications, OG tags, retention), and code hygiene (hardcoded colors, any types, console.logs). The number should never go down. If a commit lowers the score, discard it.
+
+Projects can add custom checks via `.claude/score.yml` (future).
+
+#### Hard metrics (when you need to dig deeper)
 
 ```bash
 # Build health
@@ -183,8 +196,8 @@ Smallest change that tests the hypothesis. Match existing patterns.
 Commit: `git commit -m "exp: [hypothesis in 10 words]"`
 
 #### 3. Measure
-Run hard metrics. Then score the target dimension with grounded evidence.
-Record both the numbers and the cited evidence.
+Run `rhino score .` — get the number. Then score the target dimension with grounded evidence.
+Record the computable score, the cited evidence, and which sub-scores moved.
 
 #### 4. Cross-check
 Verify hard metrics and subjective scores agree directionally:
@@ -195,17 +208,18 @@ Verify hard metrics and subjective scores agree directionally:
 If they disagree, do NOT keep. Re-read the code and re-score.
 
 #### 5. Decide
-- **Hard metrics pass AND subjective score improved AND cross-check passes** → KEEP
-- **Hard metrics fail** → DISCARD (broken code is never kept)
-- **Hard metrics pass BUT subjective score didn't improve** → DISCARD
+- **`rhino score` same or higher AND subjective score improved AND cross-check passes** → KEEP
+- **`rhino score` dropped** → DISCARD (score never goes backwards)
+- **`rhino score` same BUT subjective score didn't improve** → DISCARD
 - **Cross-check fails** → DISCARD
 - Discard = `git reset --hard HEAD~1`
 
 #### 6. Log
 Append to `.claude/experiments/[dimension]-[date].tsv`:
 ```
-commit	score	delta	status	description	evidence	cross_check
+commit	rhino_score	subjective_score	delta	status	description	evidence	cross_check
 ```
+`rhino_score` is the computable number from `rhino score . --json`. `subjective_score` is your grounded judgment.
 The `cross_check` column records which hard metric confirmed the subjective score (e.g., "hardcoded_colors 15→12").
 
 #### 7. Next
