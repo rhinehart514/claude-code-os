@@ -51,6 +51,40 @@ function stopSpinner(msg) {
   process.stderr.write(`\r  ${GREEN}✓${NC} ${msg}\n`);
 }
 
+// --- rhino.yml config reader ---
+function loadRhinoConfig() {
+  const configPath = join(import.meta.dirname, "..", "config", "rhino.yml");
+  if (!existsSync(configPath)) return {};
+  const content = readFileSync(configPath, "utf-8");
+  // Simple flat YAML parser — reads dotted paths
+  const values = {};
+  const stack = [];
+  for (const line of content.split("\n")) {
+    if (/^\s*#/.test(line) || !line.trim()) continue;
+    const indent = line.length - line.trimStart().length;
+    const match = line.trimStart().match(/^([a-zA-Z_][\w-]*):\s*(.*)/);
+    if (!match) continue;
+    const [, key, rawVal] = match;
+    const val = rawVal.replace(/#.*/, "").trim();
+    // Maintain indent stack for nesting
+    while (stack.length > 0 && stack[stack.length - 1].indent >= indent) stack.pop();
+    stack.push({ key, indent });
+    if (val && val !== "~") {
+      const fullKey = stack.map(s => s.key).join(".");
+      values[fullKey] = val;
+    }
+  }
+  return values;
+}
+
+const rhinoCfg = loadRhinoConfig();
+function cfg(key, defaultVal) {
+  const v = rhinoCfg[key];
+  if (v === undefined || v === "~") return defaultVal;
+  const num = Number(v);
+  return isNaN(num) ? v : num;
+}
+
 // --- Config ---
 const args = process.argv.slice(2);
 let projectDir = ".";
@@ -168,7 +202,8 @@ function detectRoutes(srcDir) {
   }
 
   // Take priority routes first, fill remaining with others, cap at 8
-  const selected = [...prioritized, ...rest].slice(0, 8);
+  const maxRoutes = cfg("taste.max_routes", 8);
+  const selected = [...prioritized, ...rest].slice(0, maxRoutes);
 
   return { routes: selected, mobileOnly: ["/"] };
 }
@@ -178,8 +213,8 @@ async function screenshotRoutes(browser, url, routeConfig) {
   const screenshots = [];
   const page = await browser.newPage();
 
-  const desktopVp = { width: 1440, height: 900, name: "desktop" };
-  const mobileVp = { width: 390, height: 844, name: "mobile" };
+  const desktopVp = { width: cfg("taste.viewports.desktop.width", 1440), height: cfg("taste.viewports.desktop.height", 900), name: "desktop" };
+  const mobileVp = { width: cfg("taste.viewports.mobile.width", 390), height: cfg("taste.viewports.mobile.height", 844), name: "mobile" };
   const { routes, mobileOnly = [] } = routeConfig;
 
   for (const route of routes) {
@@ -368,7 +403,7 @@ Respond with ONLY the JSON object, no markdown fences.`;
 async function evaluateWithClaude(screenshots, routes, screenshotDir) {
   // Save screenshots to disk so claude CLI can read them
   const savedPaths = [];
-  const maxScreenshots = 12; // 8 routes + ~4 mobile = 12 max from smart selection
+  const maxScreenshots = cfg("taste.max_screenshots", 12);
   const selected = screenshots.slice(0, maxScreenshots);
 
   for (const ss of selected) {
@@ -393,7 +428,7 @@ async function evaluateWithClaude(screenshots, routes, screenshotDir) {
       encoding: "utf-8",
       input: prompt,
       maxBuffer: 10 * 1024 * 1024,
-      timeout: 180000,
+      timeout: cfg("taste.timeouts.eval_timeout", 180000),
       shell: true,
     });
 
@@ -417,7 +452,7 @@ async function evaluateWithClaude(screenshots, routes, screenshotDir) {
 // --- Check if server is already running on a port ---
 async function isPortActive(portNum) {
   try {
-    const resp = await fetch(`http://localhost:${portNum}`, { signal: AbortSignal.timeout(5000) });
+    const resp = await fetch(`http://localhost:${portNum}`, { signal: AbortSignal.timeout(cfg("taste.timeouts.port_check", 5000)) });
     return resp.ok || resp.status < 500;
   } catch {
     return false;
@@ -498,7 +533,7 @@ async function main() {
 
   // --- Freshness check ---
   const reportDir = join(projectDir, ".claude", "evals", "reports");
-  const CACHE_MAX_AGE = 2 * 60 * 60 * 1000; // 2 hours
+  const CACHE_MAX_AGE = cfg("taste.cache_ttl", 7200) * 1000;
 
   if (!force && existsSync(reportDir)) {
     const today = new Date().toISOString().slice(0, 10);

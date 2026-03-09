@@ -44,6 +44,9 @@ done
 
 cd "$PROJECT_DIR"
 
+# --- Config ---
+source "$(dirname "$0")/lib/config.sh"
+
 # --- Spinner ---
 SPINNER_PID=""
 spin() {
@@ -87,7 +90,7 @@ trap cleanup_spinner EXIT
 # --- Cache ---
 CACHE_DIR=".claude/cache"
 CACHE_FILE="$CACHE_DIR/score-cache.json"
-CACHE_MAX_AGE=300
+CACHE_MAX_AGE=$(cfg scoring.cache_ttl 300)
 
 if [[ "$FORCE" != true && -f "$CACHE_FILE" ]]; then
     cache_age=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))
