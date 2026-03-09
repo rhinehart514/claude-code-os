@@ -28,6 +28,9 @@ NC='\033[0m'
 
 # --- Helpers ---
 
+# --- Config reader (rhino.yml) ---
+source "$RHINO_DIR/bin/lib/config.sh"
+
 log_start() {
     local agent="$1"
     local log_file="$LOG_DIR/${agent}-$(date +%Y-%m-%d).log"
@@ -82,29 +85,36 @@ run_agent() {
         args+=(--system-prompt "$(cat "$agent_md")")
     fi
 
+    # Read budget from config (RHINO_BUDGET env var overrides everything)
+    local cfg_key="agents.budgets.${agent}"
+    [[ "$agent" == "design-engineer" ]] && cfg_key="agents.budgets.design"
+    local cfg_budget
+    cfg_budget=$(cfg "$cfg_key" "")
+
     case "$agent" in
         sweep)
-            budget="${budget:-2.00}"
+            budget="${budget:-${cfg_budget:-2.00}}"
             [[ -z "$prompt" ]] && prompt="Run the sweep. Produce the brief. Classify all items. Do NOT auto-dispatch RED items — list them for human review."
             ;;
         scout)
-            budget="${budget:-2.00}"
+            budget="${budget:-${cfg_budget:-2.00}}"
             [[ -z "$prompt" ]] && prompt="Run a standard scouting session. Follow all steps in order."
             ;;
         builder)
+            if [[ -n "$cfg_budget" ]]; then budget="${budget:-$cfg_budget}"; fi
             [[ -z "$prompt" ]] && prompt="Auto-detect mode from context and proceed."
             ;;
         strategist)
-            budget="${budget:-2.00}"
+            budget="${budget:-${cfg_budget:-2.00}}"
             [[ -z "$prompt" ]] && prompt="Run a full strategy assessment."
             ;;
         design-engineer)
-            budget="${budget:-2.00}"
+            budget="${budget:-${cfg_budget:-2.00}}"
             [[ -z "$prompt" ]] && prompt="Auto-detect mode from context and proceed."
             ;;
         meta)
-            budget="${budget:-3.00}"
-            [[ -z "$prompt" ]] && prompt="Run the full meta-evaluation. Grade all agent outputs, score calibration, experiment efficiency, and propose concrete improvements. Be honest — if nothing needs changing, say so."
+            budget="${budget:-${cfg_budget:-3.00}}"
+            [[ -z "$prompt" ]] && prompt="Run the full meta-evaluation. Grade all agent outputs, apply the highest-impact fix, track whether last fix worked. Be honest — if nothing needs changing, say so."
             ;;
     esac
 
@@ -819,32 +829,90 @@ cmd_help() {
     echo ""
     echo -e "${BOLD}Usage:${NC} rhino <command> [args...]"
     echo ""
-    echo -e "${BOLD}Agents:${NC}"
+    echo -e "${BOLD}Agents:${NC}  ${DIM}(run Claude with specialized agent prompts)${NC}"
     echo "  sweep              Daily triage + system health"
     echo "  scout              Landscape scanning + positions"
-    echo "  build [prompt]     Builder agent (auto-detects mode)"
+    echo "  build [prompt]     Builder agent (auto-detects scope)"
     echo "  strategy [prompt]  Portfolio strategy + sprint planning"
     echo "  design [prompt]    Design engineer (audit, review, build)"
     echo ""
-    echo -e "${BOLD}Inspect:${NC}"
+    echo -e "${BOLD}Inspect:${NC}  ${DIM}(cheap, fast, local — no Claude calls)${NC}"
     echo "  status             System health + knowledge + activity"
-    echo "  score [dir]        Product score (cheap, every commit)"
-    echo "  dashboard [--html] Score + experiments + evals + report"
+    echo "  score [dir]        Structural lint score (training loss)"
+    echo "  dashboard [--html] Score + experiments + evals"
     echo ""
-    echo -e "${BOLD}Operate:${NC}"
-    echo "  taste              Visual eval (Playwright + Claude vision)"
+    echo -e "${BOLD}Operate:${NC}  ${DIM}(on-demand tools)${NC}"
+    echo "  taste [dir]        Visual product eval (eval loss — Claude vision)"
     echo "  visuals [dir]      Generate SVG badges for GitHub"
     echo "  init [dir]         Bootstrap a project for rhino-os"
-    echo "  meta               Self-evaluation (rhino-os improves itself)"
+    echo "  meta               Self-evaluation — grades agents, applies fixes"
+    echo "  config             Show current configuration (rhino.yml)"
     echo ""
-    echo -e "${BOLD}Environment:${NC}"
-    echo "  RHINO_BUDGET       Budget cap (e.g., RHINO_BUDGET=5.00 rhino sweep)"
+    echo -e "${BOLD}The Loop:${NC}"
+    echo -e "  ${DIM}strategy → sprint plan → build (change → score → keep/discard) → taste → strategy${NC}"
     echo ""
-    echo -e "${BOLD}Examples:${NC}"
-    echo "  rhino sweep                    # daily triage"
-    echo "  rhino build \"implement task 3\" # build specific task"
-    echo "  rhino dashboard                # see everything"
-    echo "  rhino taste                    # visual product eval"
+    echo -e "${BOLD}Autonomous:${NC}"
+    echo -e "  ${DIM}sweep (daily 8am) → scout (weekly mon) → meta (monthly) — all via LaunchAgents${NC}"
+    echo ""
+    echo -e "${BOLD}Config:${NC} $RHINO_DIR/config/rhino.yml"
+    echo -e "${BOLD}Override:${NC} RHINO_BUDGET=5.00 rhino scout"
+}
+
+cmd_config() {
+    echo -e "${BOLD}=== rhino config ===${NC}"
+    echo -e "${DIM}Source: $RHINO_DIR/config/rhino.yml${NC}"
+    echo ""
+
+    if [[ ! -f "$RHINO_DIR/config/rhino.yml" ]]; then
+        echo -e "${RED}No rhino.yml found${NC}"
+        return 1
+    fi
+
+    # Show key parameters grouped
+    echo -e "${BOLD}Agent Budgets:${NC}"
+    printf "  sweep: \$%s  scout: \$%s  strategist: \$%s  design: \$%s  meta: \$%s\n" \
+        "$(cfg agents.budgets.sweep 2.00)" \
+        "$(cfg agents.budgets.scout 2.00)" \
+        "$(cfg agents.budgets.strategist 2.00)" \
+        "$(cfg agents.budgets.design 2.00)" \
+        "$(cfg agents.budgets.meta 3.00)"
+    echo ""
+
+    echo -e "${BOLD}Scoring:${NC}"
+    printf "  cache: %ss  build gate: %s  taste stale: %sd\n" \
+        "$(cfg scoring.cache_ttl 300)" \
+        "$(cfg scoring.build.gate_threshold 70)" \
+        "$(cfg taste.stale_warning_days 7)"
+    echo ""
+
+    echo -e "${BOLD}Taste:${NC}"
+    printf "  routes: %s  screenshots: %s  cache: %ss\n" \
+        "$(cfg taste.max_routes 8)" \
+        "$(cfg taste.max_screenshots 12)" \
+        "$(cfg taste.cache_ttl 7200)"
+    printf "  desktop: %sx%s  mobile: %sx%s\n" \
+        "$(cfg taste.viewports.desktop.width 1440)" \
+        "$(cfg taste.viewports.desktop.height 900)" \
+        "$(cfg taste.viewports.mobile.width 390)" \
+        "$(cfg taste.viewports.mobile.height 844)"
+    echo ""
+
+    echo -e "${BOLD}Knowledge Decay:${NC}"
+    printf "  positions: %sd  knowledge: %sd  logs: %sd\n" \
+        "$(cfg knowledge.position_decay_days 60)" \
+        "$(cfg knowledge.knowledge_stale_days 90)" \
+        "$(cfg knowledge.log_retention_days 30)"
+    echo ""
+
+    echo -e "${BOLD}Experiment Targets:${NC}"
+    printf "  keep rate: >%s  alpha rate: >%s  max files: %s\n" \
+        "$(cfg experiments.keep_rate_target 0.40)" \
+        "$(cfg experiments.alpha_rate_target 0.50)" \
+        "$(cfg experiments.max_files_per_experiment 3)"
+    echo ""
+
+    echo -e "${DIM}Edit: $RHINO_DIR/config/rhino.yml${NC}"
+    echo -e "${DIM}Meta tunes these automatically. Human overrides with RHINO_BUDGET env.${NC}"
 }
 
 # ============================================================
@@ -867,6 +935,7 @@ case "${1:-help}" in
     visuals)    shift; cmd_visuals "$@" ;;
     init)       shift; cmd_init "$@" ;;
     meta)       shift; cmd_meta "$@" ;;
+    config)     cmd_config ;;
     # Meta
     help|--help|-h) cmd_help ;;
     version|--version|-v) echo "rhino v${VERSION}" ;;
