@@ -1347,14 +1347,14 @@ TESTEOF
 # Add custom grep patterns that matter for YOUR product.
 #
 # custom_checks:
-#   - name: "campus-specific copy"
-#     pattern: "UB|Buffalo|campus|dorm"
+#   - name: "product-specific copy"
+#     pattern: "YourBrand|your-feature|product-term"
 #     files: "*.tsx"
 #     direction: "higher_is_better"
 #     weight: 5
 #
 #   - name: "creation entry points"
-#     pattern: "CreateButton|create-button|new-shell"
+#     pattern: "CreateButton|create-button|new-post"
 #     files: "*.tsx"
 #     direction: "higher_is_better"
 #     weight: 10
@@ -1513,6 +1513,28 @@ cmd_dashboard() {
     fi
 }
 
+cmd_meta() {
+    echo -e "${BOLD}=== rhino meta — self-evaluation ===${NC}"
+    echo ""
+
+    check_claude
+
+    local budget="${RHINO_BUDGET:-2.00}"
+    local log_file
+    log_file=$(log_start "meta")
+
+    echo -e "${BLUE}Running meta-evaluation across all projects...${NC}"
+    echo -e "${DIM}Budget: \$$budget | Log: $log_file${NC}"
+    echo ""
+
+    claude -p "Read ~/.claude/programs/meta.md and execute it. You are rhino-os evaluating yourself. Gather experiment data from any projects with .claude/experiments/ directories, run all 6 evaluations, and propose concrete improvements. Be honest — if nothing needs changing, say so." \
+        --max-turns 30 \
+        --budget "$budget" \
+        2>&1 | tee -a "$log_file"
+
+    log_end "meta"
+}
+
 cmd_help() {
     echo -e "${BOLD}rhino${NC} v${VERSION} — CLI for rhino-os"
     echo ""
@@ -1532,6 +1554,7 @@ cmd_help() {
     echo "  taste history      View past taste evaluations"
     echo "  taste summary      View taste signals + patterns"
     echo "  dashboard          Score history, experiments, dimensions at a glance"
+    echo "  meta               Self-evaluation — rhino-os improves its own programs"
     echo "  capture            Extract session decisions/preferences to knowledge"
     echo "  backup             Snapshot knowledge to timestamped backup"
     echo "  doctor             Check system health (symlinks, MCP, launchd, state)"
@@ -1574,6 +1597,7 @@ case "${1:-help}" in
     experiments|exp) shift; cmd_experiments "$@" ;;
     score)      shift; "$RHINO_DIR/bin/score.sh" "${@:-.}" ;;
     dashboard|dash) shift; cmd_dashboard "$@" ;;
+    meta)       shift; cmd_meta "$@" ;;
     init)       shift; cmd_init "$@" ;;
     help|--help|-h) cmd_help ;;
     version|--version|-v) echo "rhino v${VERSION}" ;;

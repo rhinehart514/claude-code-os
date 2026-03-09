@@ -347,7 +347,7 @@ fi
 
 echo ""
 echo "What's installed:"
-echo "  - 2 programs (strategy.md, build.md) — the brain (autoresearch pattern)"
+echo "  - 3 programs (strategy.md, build.md, meta.md) — the brain (autoresearch pattern)"
 echo "  - 5 agents (strategist, builder = thin wrappers; scout, sweep, design-engineer = standalone)"
 echo "  - 6 skills (eval, experiment, product-eval, smart-commit, todofocus, product-2026)"
 echo "  - 4 hooks (session_context, track_usage, capture_knowledge, enforce_ideation)"
