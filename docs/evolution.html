@@ -21,6 +21,16 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  nav {
+    position: fixed; top: 0; width: 100%;
+    background: rgba(10,10,10,0.9); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border); z-index: 100;
+    padding: 12px 40px; display: flex; align-items: center; gap: 32px;
+  }
+  nav .logo { font-weight: 700; font-size: 15px; color: var(--accent); text-decoration: none; }
+  nav a { color: var(--dim); text-decoration: none; font-size: 12px; }
+  nav a:hover, nav a.active { color: var(--text); }
+
   body {
     background: var(--bg);
     color: var(--text);
@@ -430,7 +440,16 @@
 </head>
 <body>
 
-<div class="hero">
+<nav>
+  <a href="index.html" class="logo">rhino-os</a>
+  <a href="index.html">overview</a>
+  <a href="architecture.html">architecture</a>
+  <a href="scoring.html">scoring</a>
+  <a href="graphs.html">graphs</a>
+  <a href="evolution.html" class="active">evolution</a>
+</nav>
+
+<div class="hero" style="padding-top: 100px;">
   <h1>rhino-os <span>evolution</span></h1>
   <p>
     How autonomous AI development shaped a codebase in 48 hours.
