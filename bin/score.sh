@@ -4,14 +4,17 @@ set -euo pipefail
 # score.sh — Computable product score. Your val_bpb.
 #
 # Outputs a single score (0-100) computed from:
-#   1. Build health    — does it compile? (gate — binary)
-#   2. Structure       — dead ends, empty states, navigation (subtractive)
-#   3. Product signals — share, push, OG, retention, realtime (additive + depth)
-#   4. Capabilities    — how many user-facing features exist? (additive)
-#   5. Code hygiene    — hardcoded values, any types, console.logs (subtractive)
+#   1. Build health    — does it compile? (gate)
+#   2. Structure       — dead ends, empty states (subtractive)
+#   3. Product signals — share, push, OG, retention, social (additive + depth)
+#   4. Capabilities    — features, routes, auth, search, media (additive)
+#   5. Taste (IA+VA)   — identity, motion, feedback, polish, contextual UI (additive)
+#   6. Code hygiene    — hardcoded values, any types, console.logs (subtractive)
 #
-# Key design: new features INCREASE the score. Cleaning up debt INCREASES the score.
-# Both creation and optimization move the number.
+# Key design: Taste has 20% weight — same as capabilities.
+# The AI is pressured to build distinctiveness, not just functionality.
+# Adding an animation, a branded component, a contextual empty state,
+# a design token — all move the score up. Generic code doesn't.
 #
 # Usage:
 #   score.sh [project-dir]              # single number
@@ -301,18 +304,95 @@ score_hygiene() {
     echo "$score"
 }
 
+# --- 6. Taste / IA+VA (0-100, additive) ---
+# Measures resistance to AI convergence. Does the product have identity?
+# Not perfect — but creates pressure toward distinctiveness.
+score_taste() {
+    [[ -z "$SRC_DIR" ]] && echo "0" && return
+
+    local score=0
+
+    # --- INFORMATION ARCHITECTURE ---
+
+    # Custom navigation patterns (not just sidebar + header)
+    local nav_patterns=0
+    grep -rn "BottomNav\|TabBar\|CommandPalette\|SpotlightSearch\|Dock\|FloatingAction\|Drawer\|mobile.*nav\|bottom.*bar" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | while read -r f; do nav_patterns=$((nav_patterns + 1)); done
+    nav_patterns=$(grep -rn "BottomNav\|TabBar\|CommandPalette\|SpotlightSearch\|Dock\|FloatingAction\|Drawer\|mobile.*nav\|bottom.*bar" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    # Multiple navigation patterns = richer IA (not just sidebar-for-everything)
+    [[ "$nav_patterns" -ge 1 ]] && score=$((score + 5))
+    [[ "$nav_patterns" -ge 3 ]] && score=$((score + 5))
+
+    # Contextual/smart UI (shows different things based on state)
+    local contextual
+    contextual=$(grep -rn "isFirstVisit\|isNewUser\|hasContent\|isEmpty.*?\|onboarding\|getStarted\|firstTime\|showTutorial" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$contextual" -ge 1 ]] && score=$((score + 5))
+    [[ "$contextual" -ge 3 ]] && score=$((score + 5))
+
+    # Dynamic content ordering (not static lists)
+    local dynamic_order
+    dynamic_order=$(grep -rn "sort\|trending\|popular\|recommended\|personalized\|forYou\|suggested" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$dynamic_order" -ge 1 ]] && score=$((score + 5))
+    [[ "$dynamic_order" -ge 3 ]] && score=$((score + 5))
+
+    # --- VISUAL ARCHITECTURE ---
+
+    # Design tokens exist and are used (not inline values)
+    local token_files
+    token_files=$(find "$SRC_DIR" -name "*token*" -o -name "*theme*" -o -name "*design-system*" 2>/dev/null | grep -v node_modules | wc -l | tr -d ' ')
+    local token_usage
+    token_usage=$(grep -rn "tokens\.\|theme\.\|designSystem\.\|--color-\|--spacing-\|--font-" --include="*.$COMP_EXT" --include="*.css" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$token_files" -ge 1 ]] && score=$((score + 5))
+    [[ "$token_usage" -ge 5 ]] && score=$((score + 5))
+
+    # Custom/branded components (not just raw shadcn/defaults)
+    local branded
+    branded=$(grep -rn "brand\|logo\|mascot\|custom.*icon\|illustration\|signature" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$branded" -ge 1 ]] && score=$((score + 5))
+    [[ "$branded" -ge 3 ]] && score=$((score + 5))
+
+    # Animations / transitions (not static)
+    local animations
+    animations=$(grep -rn "animate\|transition\|motion\|framer\|spring\|keyframes\|useSpring\|AnimatePresence" --include="*.$COMP_EXT" --include="*.css" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$animations" -ge 1 ]] && score=$((score + 5))
+    [[ "$animations" -ge 5 ]] && score=$((score + 5))
+
+    # Feedback patterns (not silent actions)
+    local feedback
+    feedback=$(grep -rn "toast\|Snackbar\|notification\|success.*message\|useToast\|sonner\|confetti\|haptic" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$feedback" -ge 1 ]] && score=$((score + 5))
+    [[ "$feedback" -ge 3 ]] && score=$((score + 5))
+
+    # Loading/skeleton states (polish, not blank screens)
+    local loading_states
+    loading_states=$(grep -rn "Skeleton\|skeleton\|Shimmer\|loading.*state\|isLoading.*?\|Spinner\|Placeholder" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$loading_states" -ge 1 ]] && score=$((score + 5))
+    [[ "$loading_states" -ge 5 ]] && score=$((score + 5))
+
+    # Responsive / mobile-specific UI (not just desktop shrunk)
+    local mobile_specific
+    mobile_specific=$(grep -rn "useMediaQuery\|useMobile\|isMobile\|md:\|lg:\|mobile.*layout\|MobileNav\|touch.*target" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
+    [[ "$mobile_specific" -ge 1 ]] && score=$((score + 5))
+    [[ "$mobile_specific" -ge 5 ]] && score=$((score + 5))
+
+    [[ "$score" -gt 100 ]] && score=100
+    echo "$score"
+}
+
 # --- Compute all scores ---
 BUILD=$(score_build_health)
 STRUCTURE=$(score_structure)
 PRODUCT=$(score_product)
 CAPABILITIES=$(score_capabilities)
 HYGIENE=$(score_hygiene)
+TASTE=$(score_taste)
 
 # --- Weighted total ---
-# Product + Capabilities = 50% (rewards building new things)
-# Structure + Hygiene = 30% (rewards quality)
-# Build = 20% (gate)
-TOTAL=$(awk "BEGIN { printf \"%d\", ($BUILD * 0.15) + ($STRUCTURE * 0.15) + ($PRODUCT * 0.25) + ($CAPABILITIES * 0.25) + ($HYGIENE * 0.20) }")
+# Taste gets real weight — it's the thing AI coding misses.
+# Product + Capabilities = 40% (rewards building)
+# Taste = 20% (rewards distinctiveness)
+# Structure + Hygiene = 25% (rewards quality)
+# Build = 15% (gate)
+TOTAL=$(awk "BEGIN { printf \"%d\", ($BUILD * 0.10) + ($STRUCTURE * 0.10) + ($PRODUCT * 0.20) + ($CAPABILITIES * 0.20) + ($TASTE * 0.20) + ($HYGIENE * 0.20) }")
 
 # --- Output ---
 case "$OUTPUT_MODE" in
@@ -321,22 +401,23 @@ case "$OUTPUT_MODE" in
         ;;
     json)
         cat <<EOF
-{"score":$TOTAL,"build":$BUILD,"structure":$STRUCTURE,"product":$PRODUCT,"capabilities":$CAPABILITIES,"hygiene":$HYGIENE,"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR"}
+{"score":$TOTAL,"build":$BUILD,"structure":$STRUCTURE,"product":$PRODUCT,"capabilities":$CAPABILITIES,"taste":$TASTE,"hygiene":$HYGIENE,"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR"}
 EOF
         ;;
     breakdown)
         echo "=== Product Score: $TOTAL/100 ==="
         echo ""
-        echo "  Build Health:     $BUILD/100  (15%)  — does it compile?"
-        echo "  Structure:        $STRUCTURE/100  (15%)  — dead ends, empty states"
-        echo "  Product Signals:  $PRODUCT/100  (25%)  — share, push, OG, retention, realtime, social"
-        echo "  Capabilities:     $CAPABILITIES/100  (25%)  — features, routes, auth, search, media"
-        echo "  Code Hygiene:     $HYGIENE/100  (20%)  — hardcoded colors, any, console.log, TODOs"
+        echo "  Build Health:     $BUILD/100  (10%)  — does it compile?"
+        echo "  Structure:        $STRUCTURE/100  (10%)  — dead ends, empty states"
+        echo "  Product Signals:  $PRODUCT/100  (20%)  — share, push, OG, retention, social"
+        echo "  Capabilities:     $CAPABILITIES/100  (20%)  — features, routes, auth, search"
+        echo "  Taste (IA+VA):    $TASTE/100  (20%)  — identity, motion, feedback, polish"
+        echo "  Code Hygiene:     $HYGIENE/100  (20%)  — hardcoded colors, any, console.log"
         echo ""
         echo "  Project: $PROJECT_TYPE ($SRC_DIR)"
         echo ""
-        echo "Score goes UP when you: add features, add product signals, fix debt."
-        echo "Score goes DOWN when you: break the build, add dead ends, add any types."
-        echo "Run after every commit. The number should trend upward."
+        echo "Score goes UP when you: add features, add distinctiveness, fix debt."
+        echo "Score goes DOWN when you: break the build, add dead ends, add generic patterns."
+        echo "Taste measures resistance to AI convergence — does this feel like YOUR product?"
         ;;
 esac

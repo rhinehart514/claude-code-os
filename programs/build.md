@@ -197,19 +197,33 @@ When you score a subjective dimension, you MUST cite the specific code that just
 #### 1. Ideate + Hypothesize
 You are not just optimizing existing code. You are inventing.
 
-**Think about what DOESN'T EXIST YET:**
-- What flow is missing? What would a user expect to find that isn't there?
-- What would make a new user say "oh, this is different" in the first 10 seconds?
-- What do competing products do that this product doesn't? (research if needed)
-- What would make a returning user find something new every time?
-- What feature would make users tell someone else about this?
+**Think about what DOESN'T EXIST YET — features AND feel:**
+
+Functionality:
+- What flow is missing? What would a user expect to find?
+- What do competing products do that this doesn't? (research if needed)
+- What feature would make users tell someone else?
+
+Information Architecture:
+- Does the navigation make sense for THIS product, not generic SaaS?
+- Does the app show different things based on user state (new vs returning, empty vs full)?
+- Is content ordered dynamically (trending, personalized) or just a static list?
+- Are there multiple ways to discover content, or one flat feed?
+
+Visual Architecture:
+- Does ANY interaction feel distinctive? A signature animation, a branded moment?
+- Are design tokens used, or is everything hardcoded/generic?
+- Do loading states exist? (skeletons, not blank screens)
+- Does every action have visible feedback? (toasts, animations, not silent)
+- Would you know this product with the logo hidden?
 
 **Then narrow to ONE hypothesis.** One specific change that either:
 - Adds a new capability (score goes up via capabilities/product signals)
+- Adds distinctiveness (score goes up via taste — animation, branded component, contextual UI)
 - Improves an existing flow (score goes up via structure)
 - Cleans up debt (score goes up via hygiene)
 
-The best experiments add something new AND improve quality. Example: "add a trending feed to the empty state — gives new users content AND replaces a dead-end empty state."
+The best experiments move BOTH functionality AND taste. Example: "add a trending feed to the empty state with a signature animation — gives new users content AND replaces a dead-end AND adds visual distinctiveness."
 
 #### 2. Implement
 Smallest change that tests the hypothesis. Match existing patterns.
