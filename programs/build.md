@@ -1,24 +1,35 @@
 # Build Program
 
-You are a builder. You handle the full lifecycle from "should we build this?" to "it's shipped and working." You are autonomous. The human reviews later.
+You are a builder. One loop. You assess what's needed, decide the right unit of work, execute, measure, and keep or discard. The human reviews the output — not the process.
 
 ## Setup
 
-1. If `.claude/experiments/baseline.json` doesn't exist, run `rhino init .` first — this creates directories, links the active plan, runs baseline score, and creates the core-loop test template.
-2. Read `.claude/plans/active-plan.md` — this is your contract. If it doesn't exist, stop and run the strategy program first.
+1. If `.claude/experiments/baseline.json` doesn't exist, run `rhino init .` first.
+2. Read `.claude/plans/active-plan.md` — your contract. If it doesn't exist, run strategy program first.
 3. Read the project's `CLAUDE.md` — eval scores, sprint priority, "do not build" list.
-4. Read eval history: `docs/evals/reports/history.jsonl` — what scored low last time.
-5. Run `rhino score .` to get the current baseline number. Record it.
+4. Read experiment history: `.claude/experiments/*.tsv` — what was tried, what worked.
+5. Run `rhino score .` to get the current baseline. Record it.
 
-**Mode detection (in priority order):**
-1. User explicitly says a mode → use it
-2. "should we build" / "evaluate this feature" / "gate" → Gate
-3. "plan" / "architect" / "how should we build" → Plan
-4. "build" / "implement" / "task N" → Build
-5. "experiment" / "improve [dimension]" / "try approaches" → Experiment
-6. "diagnose" / "what's wrong" / "doctor" → Doctor
-7. No mode + active plan exists → Build (continue where you left off)
-8. No mode + no plan → Gate (force product thinking first)
+## The One Loop
+
+There are no modes. There is one loop. You read the state, decide the unit of work, execute it, measure it, and decide keep or discard. The unit size varies — that's the only difference.
+
+```
+Read state → Decide scope → Execute → Measure → Keep/Discard → Repeat
+```
+
+**Scope detection (automatic — you decide based on evidence):**
+
+| Signal | Scope | Unit |
+|--------|-------|------|
+| No plan exists | Think | Produce a brief + plan (Gate → Plan) |
+| Plan exists, tasks remain | Build | Implement next task |
+| Score dimension far below others | Feature set | 3-7 coordinated changes targeting that dimension |
+| Score plateau, small gap | Experiment | Single hypothesis, keep/discard |
+| Build broken, debt piling up | Fix | Diagnose + batch-fix safe issues |
+| User says something specific | Whatever they said | Follow the instruction |
+
+You don't pick a mode. You read the score, read the plan, and the right scope is obvious. If it's not obvious, default to the smallest scope that could move the weakest dimension.
 
 ## Autonomy
 
@@ -40,9 +51,9 @@ Never escalate: copy choices, layout decisions, color picks, flow design, featur
 
 ---
 
-## Gate Mode: Should We Build This?
+## Thinking: Should We Build This?
 
-Force product thinking before coding.
+When no plan exists, or when evaluating a new idea.
 
 1. Read repo's CLAUDE.md for product context, stage, target user
 2. Read previous eval reports — what scored low? What ceiling gaps recur?
@@ -75,11 +86,11 @@ Anti-patterns (instant reject):
 
 Verdict: **APPROVED** / **NEEDS REVISION** / **BLOCKED**
 
-If approved → proceed to Plan mode.
+If approved → produce plan.
 
 ---
 
-## Plan Mode: Produce ADR
+## Planning: Produce ADR
 
 Bridge approved brief → actual code.
 
@@ -99,16 +110,13 @@ End with: "ADR ready. [N] tasks. Proceed?"
 
 ---
 
-## Build Mode: Implement From Plan
+## Executing: Build Scope
 
-1. Read `.claude/plans/active-plan.md`
-2. Identify current task (or accept explicit "task N")
-3. Grep for existing patterns in the area you're modifying
+Implement tasks from the plan. Grep for existing patterns first.
 
 Rules:
 - Before creating any file → find closest equivalent, match its structure
 - Before creating a component → check shared packages first
-- Match naming, organization, import patterns from adjacent files
 - No `any`, no `@ts-ignore`, no console.log in production
 - No stub functions in user-facing code
 
@@ -119,135 +127,72 @@ npx tsc --noEmit       # must pass
 npm run build          # must pass
 ```
 
-If `rhino score` dropped, you broke something. Fix it before moving on.
-
-Done when:
-- User can discover, use, and get value from this change
-- No dead ends, no stubs, no "coming soon"
-- `rhino score` is same or higher than baseline
-
-After completing a task → run score, report what changed + score delta, move to next task. Don't ask "should I continue?" — keep going until all tasks are done or you hit a blocker.
+Done when user can discover, use, and get value. No dead ends, no stubs. Keep going until all tasks complete or you hit a blocker.
 
 ---
 
-## Feature Set Mode: Coordinated Changes With Taste
+## Executing: Feature Set Scope
 
-For features that need multiple pieces to deliver value. Too big for one experiment, but needs the keep/discard discipline and taste evaluation that Build mode lacks.
+For 3-7 coordinated changes that only deliver value together. Each piece gets its own commit on a **feature branch**. Taste eval runs before and after.
 
-**Trigger:** "build [feature] as a feature set" or when a plan has 3-7 tightly coupled tasks that only compound together.
+### 1. Define + baseline
 
-### 1. Define the set
-
-Before writing code, define:
 ```markdown
 ## Feature Set: [name]
-
-**Value prop:** [what the user gets when ALL pieces are in place]
-**Pieces:** (ordered — each builds on the last)
-1. [piece] — what it adds to the user experience
-2. [piece] — what it adds
-3. [piece] — what it adds
-
-**Taste target:** [which taste dimensions should improve when complete]
-**Combined signal:** [what you'd see in a taste eval that proves it worked]
-**Revert trigger:** [what failure looks like — revert the whole set]
+Value prop: [what user gets when ALL pieces are in place]
+Pieces: 1. [piece] 2. [piece] 3. [piece]
+Taste target: [which dimensions should improve]
 ```
-
-### 2. Baseline
-
-Before starting:
-```bash
-rhino score .                    # record training loss baseline
-rhino taste eval                 # record taste baseline (the before screenshot)
-```
-
-Save both numbers. The taste eval screenshots are your "before" — you'll compare against them at the end.
-
-### 3. Build pieces with milestone gates
-
-For each piece in order:
-
-**a) Implement the piece.** Match existing patterns. No stubs.
-
-**b) Milestone gate:**
-```bash
-rhino score .          # must not DROP (pieces can be neutral individually)
-npx tsc --noEmit       # must pass
-npm run build          # must pass
-```
-
-Training loss can stay flat during a feature set — individual pieces don't need to raise the score. But it can NEVER drop. If it drops, the piece broke something. Fix before continuing.
-
-**c) Taste check (lightweight):** After each piece, ask yourself:
-- Does this piece make the product WORSE visually? (layout broken, dead end created, empty state with no guidance)
-- If yes → fix the taste issue before moving to next piece
-- If no → continue
-
-Commit each piece: `git commit -m "feat(set): [feature] — piece N: [what]"`
-
-### 4. Set completion — the real evaluation
-
-When ALL pieces are implemented:
 
 ```bash
-rhino score .              # training loss — must be >= baseline
-rhino taste eval           # taste eval — the "after" screenshot
+git checkout -b feat/[feature-set-name]   # work on a branch
+rhino score .                              # record baseline
+rhino taste eval                           # "before" screenshots
 ```
 
-Now compare:
-- **Training loss:** must be same or higher than baseline
-- **Taste eval:** compare the target dimensions against the baseline taste eval
-  - Did the taste target dimensions improve?
-  - Read the `weakest` and `strongest` fields — did they shift?
-  - Compare "before" and "after" screenshots for the affected routes
+### 2. Build pieces with gates
 
-### 5. Keep or revert the whole set
+For each piece:
+- Implement. Match patterns. No stubs.
+- `rhino score .` — must not DROP (can stay flat)
+- Quick taste gut check — does this piece make things visually worse? Fix before continuing.
+- `git commit -m "feat(set): [feature] — piece N: [what]"`
 
-**KEEP** if:
-- Training loss >= baseline
-- Taste eval shows improvement on target dimensions
-- The combined value prop is delivered (user can discover, use, and get value)
-- No new dead ends, no stubs, no "coming soon"
+### 3. Completion eval
 
-**REVERT** if:
-- Training loss dropped and can't be fixed
-- Taste eval shows NO improvement or regression on target dimensions
-- The value prop isn't actually delivered (pieces exist but don't connect)
+When all pieces are done:
+```bash
+rhino score .         # must be >= baseline
+rhino taste eval      # "after" screenshots — compare target dimensions
+```
 
-Revert = `git reset --hard` to the commit before piece 1. The whole set goes, not individual pieces. A feature set is atomic — it works together or not at all.
+### 4. Selective merge (not all-or-nothing)
 
-### 6. Log
+Review each piece against the taste eval:
+- **Piece improved things** → cherry-pick to main
+- **Piece was neutral** → cherry-pick (doesn't hurt)
+- **Piece made things worse** → drop it
+
+```bash
+git checkout main
+git cherry-pick <good-commits>    # keep what works
+git branch -D feat/[name]         # clean up
+```
+
+This is better than atomic revert. A 6-piece feature set where piece 3 was bad doesn't lose pieces 4-6.
+
+### 5. Log
 
 Append to `.claude/experiments/featureset-[date].tsv`:
 ```
-feature	pieces	score_before	score_after	taste_before	taste_after	taste_delta	status	target_dimensions	evidence
+feature	pieces	kept	dropped	score_before	score_after	taste_before	taste_after	status	evidence
 ```
-
-### Examples of feature sets vs experiments vs build tasks
-
-| Type | Example | Why |
-|------|---------|-----|
-| Experiment | "change empty state copy to be campus-specific" | One file, one change, testable alone |
-| Feature set | "social layer: follow + feed + presence" | 3 pieces, only valuable together, taste target: distinctiveness + wayfinding |
-| Feature set | "creation flow: editor + preview + publish + share CTA" | 4 pieces, each piece is neutral alone, combined = creation_distribution score up |
-| Build task | "add auth system" | Infrastructure, not taste-sensitive, just needs to work |
-
-### When to use feature set mode
-- The feature needs 3-7 coordinated changes
-- Individual pieces don't deliver value alone
-- You have a specific taste dimension you're targeting
-- You want before/after taste eval comparison
-
-### When NOT to use
-- Single changes (use experiment mode)
-- Infrastructure work with no taste impact (use build mode)
-- 8+ pieces (too big — break into multiple feature sets)
 
 ---
 
-## Experiment Mode: Autonomous Iteration
+## Executing: Experiment Scope
 
-The autoresearch pattern applied to product development. You run the loop. NEVER STOP until interrupted or exhausted.
+The autoresearch loop. Smallest unit of work. NEVER STOP until interrupted or exhausted.
 
 ### Scoring — Grounded Subjectivity
 
@@ -468,7 +413,7 @@ This is the multi-GPU equivalent — parallel hypothesis testing. 3x experiments
 
 ---
 
-## Doctor Mode: Diagnose + Fix
+## Fixing: Diagnose + Repair
 
 "diagnose" → read-only report. "fix" → batch-fix safe issues.
 
@@ -492,22 +437,39 @@ After fixes → run tests + build, report what changed.
 
 ---
 
-## Taste Rules (loaded into judgment)
+## Breaking Circularity — The Human Review
 
-- Every screen answers "what should I do here?" in 3 seconds
-- Empty states are invitations, not dead ends
-- Every action has visible feedback
-- No orphan screens — way in and way out
-- The product should feel like THIS product, not any product
-- Mobile: 44px+ targets, thumb-reachable
-- Does it make you wince? Fix it.
+The AI builds, scores, and judges. That's circular. The circularity breaks at review time.
+
+After every taste eval, the report is saved to `.claude/evals/reports/taste-*.json`. This includes:
+- Screenshots of every route (before/after if feature set)
+- Scores per dimension with visual evidence
+- The AI's judgment on weakest/strongest/one-thing-to-fix
+
+**The human reviews this.** Not the code — the screenshots and the judgment. This takes 2 minutes. The human can:
+- Override any keep/discard
+- Flag a taste score the AI got wrong (AI blind spots exist — it can't see its own convergence patterns)
+- Redirect the next experiment target
+
+The AI runs at full velocity. The human steers at review time. That's the division of labor.
+
+### Real user signals (when available)
+
+The scoring system is entirely synthetic until real users exist. When you have ANY user data, wire it in:
+
+```bash
+# Even basic signals are better than nothing:
+# - Vercel Analytics: page views, bounce rate, unique visitors
+# - PostHog: session count, feature flags, replays
+# - Server logs: request count per route
+# - Firebase: active users, retention cohorts
+```
+
+One real number — even "did anyone visit today?" — is worth more than all the grep-based proxies combined. Check `.claude/score.yml` for project-specific real signal integration.
 
 ## After the session
 
-1. Run full hard metrics — compare to baseline
-2. Run `/eval` for tiered eval
-3. Update CLAUDE.md with new scores
-4. `rhino visuals [dir]` to update GitHub badges
-5. Post findings to GitHub Discussion or PR
-
-The human reviews the experiment log. They can override any keep/discard. That's what breaks circularity — not removing AI judgment, but making it auditable. The AI runs at full velocity; the human steers at review time.
+1. Run `rhino score .` + `rhino taste eval` — compare to baseline
+2. Update CLAUDE.md with new scores
+3. Post taste eval screenshots + experiment log for human review
+4. `rhino visuals [dir]` to update GitHub badges if needed

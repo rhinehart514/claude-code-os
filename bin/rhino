@@ -1479,7 +1479,7 @@ cmd_dashboard() {
     json=$("$RHINO_DIR/bin/score.sh" "${1:-.}" --json 2>/dev/null || echo "{}")
     if command -v jq &> /dev/null && [[ "$json" != "{}" ]]; then
         local dims=("build" "structure" "product" "capabilities" "hygiene")
-        local labels=("Build    " "Structure" "Product  " "Capabilty" "Hygiene  ")
+        local labels=("Build    " "Structure" "Flows    " "Capabilty" "Hygiene  ")
         local blocks=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
         for i in "${!dims[@]}"; do
             local val

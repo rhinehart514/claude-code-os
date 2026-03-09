@@ -130,72 +130,81 @@ score_structure() {
     echo "$score"
 }
 
-# --- 3. Product Signals (0-100, additive + depth) ---
-# Not binary — deeper implementation = more points
+# --- 3. Product Signals (0-100) ---
+# Measures FLOW COMPLETION, not feature existence.
+# "Does share exist?" is useless. "Can a user go from creation → someone else sees it?" is useful.
 score_product() {
     [[ -z "$SRC_DIR" ]] && echo "0" && return
 
     local score=0
 
-    # Share flow (0-20): button exists → +5, navigator.share call → +5, share CTA after creation → +5, share analytics → +5
-    local share_files
-    share_files=$(grep -rn "navigator\.share\|ShareSheet\|shareUrl\|useShare" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local share_cta
-    share_cta=$(grep -rn "share.*button\|Share.*CTA\|copy.*link\|copy.*url" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$share_files" -ge 1 ]] && score=$((score + 5))
-    [[ "$share_files" -ge 3 ]] && score=$((score + 5))
-    [[ "$share_cta" -ge 1 ]] && score=$((score + 5))
-    [[ "$share_cta" -ge 3 ]] && score=$((score + 5))
+    # --- CREATION → DISTRIBUTION flow (0-30) ---
+    # Can a user create something AND get it to other people?
+    # Points scale with flow depth: create → save → share → link preview → someone sees it
+    local has_create=0 has_save=0 has_share=0 has_preview=0
+    # Creation: forms, editors, or creation UI
+    [[ $(grep -rn "onSubmit\|handleSubmit\|createPost\|editor\|compose\|publish" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_create=1
+    # Save/persist: mutation, API call after creation
+    [[ $(grep -rn "mutation\|\.post(\|\.put(\|addDoc\|setDoc\|insertOne" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_save=1
+    # Share: after creation, can you send it to someone?
+    [[ $(grep -rn "navigator\.share\|copy.*link\|copy.*url\|shareUrl\|ShareSheet" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_share=1
+    # Link preview: if shared, does it look good?
+    [[ $(grep -rn "og:title\|og:image\|openGraph" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_preview=1
 
-    # OG / link previews (0-15): meta tags exist → +5, per-page dynamic OG → +5, twitter cards → +5
-    local og_files
-    og_files=$(grep -rn "og:title\|og:image\|og:description\|openGraph" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local twitter_cards
-    twitter_cards=$(grep -rn "twitter:card\|twitter:image" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$og_files" -ge 1 ]] && score=$((score + 5))
-    [[ "$og_files" -ge 3 ]] && score=$((score + 5))
-    [[ "$twitter_cards" -ge 1 ]] && score=$((score + 5))
+    local creation_flow=$((has_create + has_save + has_share + has_preview))
+    # 0 steps = 0, 1 = 5, 2 = 10, 3 = 20, 4 = 30 (full flow = disproportionate reward)
+    case "$creation_flow" in
+        4) score=$((score + 30)) ;;
+        3) score=$((score + 20)) ;;
+        2) score=$((score + 10)) ;;
+        1) score=$((score + 5)) ;;
+    esac
 
-    # Push notifications (0-15): permission request → +5, trigger exists → +5, multiple triggers → +5
-    local push_setup
-    push_setup=$(grep -rn "Notification\.requestPermission\|registerServiceWorker\|firebase.*messaging" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local push_triggers
-    push_triggers=$(grep -rn "sendNotification\|pushNotification\|messaging()\.send" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$push_setup" -ge 1 ]] && score=$((score + 5))
-    [[ "$push_triggers" -ge 1 ]] && score=$((score + 5))
-    [[ "$push_triggers" -ge 3 ]] && score=$((score + 5))
+    # --- RETURN PULL flow (0-30) ---
+    # Does anything pull the user back after they leave?
+    local has_notif=0 has_unread=0 has_return_ux=0 has_digest=0
+    # Notification infrastructure
+    [[ $(grep -rn "Notification\.requestPermission\|sendNotification\|pushNotification" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_notif=1
+    # Unread/unseen state (something changed since you left)
+    [[ $(grep -rn "unreadCount\|unseen\|badge.*count\|new.*since" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_unread=1
+    # Return-specific UX (welcome back, what you missed)
+    [[ $(grep -rn "since you left\|welcome back\|what you missed\|new since last" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_return_ux=1
+    # Digest/email pull
+    [[ $(grep -rn "digest\|daily.*email\|weekly.*summary\|recap" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_digest=1
 
-    # Retention UX (0-15): "welcome back" / "since you left" → +5, unread badges → +5, digest/email → +5
-    local retention_ux
-    retention_ux=$(grep -rn "since you left\|welcome back\|new since last\|we missed you" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local unread_badges
-    unread_badges=$(grep -rn "unreadCount\|badge.*count\|notification.*count\|unseen" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local digest
-    digest=$(grep -rn "digest\|daily.*email\|weekly.*summary\|sendEmail.*recap" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$retention_ux" -ge 1 ]] && score=$((score + 5))
-    [[ "$unread_badges" -ge 1 ]] && score=$((score + 5))
-    [[ "$digest" -ge 1 ]] && score=$((score + 5))
+    local return_flow=$((has_notif + has_unread + has_return_ux + has_digest))
+    case "$return_flow" in
+        4) score=$((score + 30)) ;;
+        3) score=$((score + 20)) ;;
+        2) score=$((score + 10)) ;;
+        1) score=$((score + 5)) ;;
+    esac
 
-    # Realtime (0-15): subscriptions → +5, optimistic updates → +5, presence → +5
-    local realtime
-    realtime=$(grep -rn "onSnapshot\|WebSocket\|EventSource\|\.subscribe(" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | grep -v "node_modules\|test\|spec" | wc -l | tr -d ' ')
-    local optimistic
-    optimistic=$(grep -rn "optimistic\|setQueryData\|mutate.*onMutate\|revalidate" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local presence
-    presence=$(grep -rn "presence\|online.*users\|typing.*indicator\|is.*online" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$realtime" -ge 1 ]] && score=$((score + 5))
-    [[ "$optimistic" -ge 1 ]] && score=$((score + 5))
-    [[ "$presence" -ge 1 ]] && score=$((score + 5))
+    # --- SOCIAL flow (0-20) ---
+    # Can users see each other? Does more users = better product?
+    local has_profiles=0 has_follow=0 has_feed=0 has_realtime=0
+    [[ $(grep -rn "UserProfile\|user.*avatar\|ProfilePage\|member.*list" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_profiles=1
+    [[ $(grep -rn "follow\|connect.*user\|friend.*request\|join.*group" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_follow=1
+    [[ $(grep -rn "feed\|timeline\|activity.*stream\|recent.*posts" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_feed=1
+    [[ $(grep -rn "onSnapshot\|WebSocket\|presence\|typing.*indicator" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | grep -v "node_modules" | wc -l | tr -d ' ') -ge 1 ]] && has_realtime=1
 
-    # Social graph (0-10): follow/connect → +5, feed/timeline → +5
-    local social
-    social=$(grep -rn "follow\|connect.*user\|friend.*request\|add.*friend" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    local feed
-    feed=$(grep -rn "feed\|timeline\|activity.*stream" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ')
-    [[ "$social" -ge 1 ]] && score=$((score + 5))
-    [[ "$feed" -ge 1 ]] && score=$((score + 5))
+    local social_flow=$((has_profiles + has_follow + has_feed + has_realtime))
+    case "$social_flow" in
+        4) score=$((score + 20)) ;;
+        3) score=$((score + 15)) ;;
+        2) score=$((score + 10)) ;;
+        1) score=$((score + 5)) ;;
+    esac
 
-    # Cap at 100
+    # --- REAL USER SIGNAL (0-20) ---
+    # Check for analytics/tracking — is anyone measuring real usage?
+    local has_analytics=0 has_error_tracking=0
+    [[ $(grep -rn "posthog\|mixpanel\|plausible\|gtag\|analytics\.track\|trackEvent" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_analytics=1
+    [[ $(grep -rn "sentry\|bugsnag\|errorBoundary\|captureException" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" -l 2>/dev/null | wc -l | tr -d ' ') -ge 1 ]] && has_error_tracking=1
+
+    [[ "$has_analytics" -eq 1 ]] && score=$((score + 10))
+    [[ "$has_error_tracking" -eq 1 ]] && score=$((score + 10))
+
     [[ "$score" -gt 100 ]] && score=100
     echo "$score"
 }
@@ -354,8 +363,8 @@ EOF
         echo ""
         echo "  Build Health:     $BUILD/100  (20%)  — does it compile?"
         echo "  Structure:        $STRUCTURE/100  (15%)  — dead ends, empty states"
-        echo "  Product Signals:  $PRODUCT/100  (25%)  — share, push, OG, retention, social"
-        echo "  Capabilities:     $CAPABILITIES/100  (25%)  — features, routes, auth, search"
+        echo "  Product Flows:    $PRODUCT/100  (25%)  — creation→distribution, return pull, social"
+        echo "  Capabilities:     $CAPABILITIES/100  (25%)  — routes, components, auth, search"
         echo "  Code Hygiene:     $HYGIENE/100  (15%)  — hardcoded colors, any, console.log"
         echo ""
         if [[ -n "$TASTE_SCORE" ]]; then
