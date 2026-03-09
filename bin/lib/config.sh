@@ -6,7 +6,7 @@
 #   source "$(dirname "$0")/lib/config.sh"
 #   cache_ttl=$(cfg scoring.cache_ttl 300)
 
-_RHINO_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+_RHINO_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 _RHINO_CONFIG_FILE="$_RHINO_CONFIG_DIR/config/rhino.yml"
 
 # Read a dotted key from rhino.yml.
@@ -19,8 +19,10 @@ cfg() {
         return
     fi
 
-    local IFS='.'
+    local OLD_IFS="$IFS"
+    IFS='.'
     read -ra parts <<< "$key"
+    IFS="$OLD_IFS"
     local matched=0
     local target_indent=-1
 
@@ -28,7 +30,11 @@ cfg() {
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// }" ]] && continue
 
-        local stripped="${line#"${line%%[![:space:]]*}"}"
+        # Count leading spaces (bash 3 compatible — [![:space:]] broken in parameter expansion)
+        local stripped="$line"
+        while [[ "${stripped:0:1}" == " " || "${stripped:0:1}" == "	" ]]; do
+            stripped="${stripped:1}"
+        done
         local spaces=$(( ${#line} - ${#stripped} ))
 
         # If we've matched some parts but indent went back, reset
@@ -40,15 +46,21 @@ cfg() {
         if [[ "$stripped" =~ ^([a-zA-Z_][a-zA-Z0-9_-]*):(.*)$ ]]; then
             local ykey="${BASH_REMATCH[1]}"
             local yval="${BASH_REMATCH[2]}"
-            yval="${yval#"${yval%%[![:space:]]*}"}"
+            # Strip leading whitespace from value (bash 3 compatible)
+            while [[ "${yval:0:1}" == " " || "${yval:0:1}" == "	" ]]; do
+                yval="${yval:1}"
+            done
 
             if [[ "$ykey" == "${parts[$matched]}" ]]; then
                 ((matched++))
                 target_indent=$spaces
                 if [[ "$matched" -eq "${#parts[@]}" ]]; then
-                    # Strip inline comments and trailing whitespace
+                    # Strip inline comments: remove " #..." suffix
                     yval="${yval%%[[:space:]]#*}"
-                    yval="${yval%"${yval##*[![:space:]]}"}"
+                    # Strip trailing whitespace (bash 3 compatible)
+                    while [[ "${yval: -1}" == " " || "${yval: -1}" == "	" ]]; do
+                        yval="${yval%?}"
+                    done
                     if [[ -z "$yval" || "$yval" == "~" ]]; then
                         echo "$default"
                     else

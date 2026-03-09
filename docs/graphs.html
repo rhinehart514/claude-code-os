@@ -223,6 +223,28 @@
       <canvas id="selfHealing" height="200"></canvas>
     </div>
 
+    <!-- 9. AGENT COUNCIL — credibility leaderboard -->
+    <div class="chart-card">
+      <h3>Agent council: credibility leaderboard</h3>
+      <div class="chart-sub">Agents stake falsifiable claims, win or lose. Credibility diverges after 3+ resolved stances. High-conviction losses cost more.</div>
+      <canvas id="councilLeaderboard" height="300"></canvas>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background: var(--feat);"></div> wins</div>
+        <div class="legend-item"><div class="legend-dot" style="background: var(--fix);"></div> losses</div>
+        <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> credibility</div>
+      </div>
+    </div>
+
+    <!-- 10. CONFLICT RESOLUTION — who beats whom -->
+    <div class="chart-card">
+      <h3>Conflict resolution history</h3>
+      <div class="chart-sub">Agents disagree, meta resolves. Natural tensions: builder vs design-engineer (velocity vs quality), scout vs strategist (market vs portfolio).</div>
+      <canvas id="conflictHistory" height="300"></canvas>
+      <div class="callout" style="margin-top: 16px;">
+        <strong>Why this matters.</strong> Without competition, agents parrot each other. With falsifiable stances and credibility tracking, the system surfaces real tradeoffs — quality vs speed, build vs buy — instead of consensus mush.
+      </div>
+    </div>
+
   </div>
 </section>
 
@@ -343,6 +365,28 @@ const selfHealingEvents = [
   { label: "13 broken feedback\nloops found", type: "detect", x: 4 },
   { label: "All 13 fixed\nin one commit", type: "fix", x: 5 },
   { label: "5/5 agents\noperational", type: "result", x: 6 },
+];
+
+// Agent council — brain system data
+const councilData = [
+  { agent: "design-engineer", credibility: 0.88, wins: 4, losses: 0, pending: 0, domain: "quality" },
+  { agent: "scout", credibility: 0.50, wins: 1, losses: 0, pending: 1, domain: "market" },
+  { agent: "sweep", credibility: 0.50, wins: 0, losses: 0, pending: 1, domain: "safety" },
+  { agent: "strategist", credibility: 0.50, wins: 0, losses: 1, pending: 1, domain: "portfolio" },
+  { agent: "meta", credibility: 0.50, wins: 0, losses: 0, pending: 0, domain: "referee" },
+  { agent: "builder", credibility: 0.18, wins: 0, losses: 4, pending: 0, domain: "execution" },
+];
+
+// Conflict resolution timeline
+const conflictResolutions = [
+  { winner: "design-engineer", loser: "builder", domain: "quality",
+    claim: "Taste scores > agent complexity", date: "03-09" },
+  { winner: "scout", loser: "strategist", domain: "portfolio",
+    claim: "Claude memory coming soon", date: "03-09" },
+  { winner: "design-engineer", loser: "builder", domain: "quality",
+    claim: "Spacing/contrast > brain features", date: "03-09" },
+  { winner: "design-engineer", loser: "builder", domain: "quality",
+    claim: "Polish baseline needed first", date: "03-09" },
 ];
 
 const compressionSteps = [
@@ -766,6 +810,129 @@ function drawSelfHealing() {
   });
 }
 
+// === 9. COUNCIL LEADERBOARD ===
+function drawCouncilLeaderboard() {
+  const { ctx, w, h } = getCtx('councilLeaderboard');
+  const pad = { top: 20, right: 30, bottom: 20, left: 120 };
+  const barH = 28;
+  const gap = 10;
+  const maxW = w - pad.left - pad.right;
+
+  councilData.forEach((agent, i) => {
+    const y = pad.top + i * (barH + gap);
+
+    // Credibility bar background
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.roundRect(pad.left, y, maxW, barH, 4);
+    ctx.fill();
+
+    // Credibility bar
+    const credW = agent.credibility * maxW;
+    const credColor = agent.credibility >= 0.7 ? '#22c55e' :
+                      agent.credibility >= 0.4 ? '#f59e0b' : '#f87171';
+    ctx.fillStyle = credColor;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.roundRect(pad.left, y, credW, barH, [4, credW >= maxW ? 4 : 0, credW >= maxW ? 4 : 0, 4]);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Win/loss dots inside bar
+    const dotY = y + barH / 2;
+    for (let d = 0; d < agent.wins; d++) {
+      ctx.beginPath();
+      ctx.arc(pad.left + 12 + d * 14, dotY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#22c55e';
+      ctx.fill();
+    }
+    for (let d = 0; d < agent.losses; d++) {
+      ctx.beginPath();
+      ctx.arc(pad.left + 12 + (agent.wins + d) * 14, dotY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#f87171';
+      ctx.fill();
+    }
+
+    // Agent name
+    ctx.fillStyle = credColor;
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(agent.agent, pad.left - 10, y + barH / 2);
+
+    // Credibility score
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(agent.credibility.toFixed(2), pad.left + credW + 8, y + barH / 2);
+
+    // Domain tag
+    ctx.fillStyle = '#444';
+    ctx.font = '9px monospace';
+    ctx.fillText(agent.domain, pad.left + credW + 50, y + barH / 2);
+  });
+}
+
+// === 10. CONFLICT HISTORY ===
+function drawConflictHistory() {
+  const { ctx, w, h } = getCtx('conflictHistory');
+  const pad = { top: 20, right: 20, bottom: 30, left: 20 };
+  const rowH = 56;
+  const n = conflictResolutions.length;
+
+  conflictResolutions.forEach((res, i) => {
+    const y = pad.top + i * rowH;
+
+    // Winner side (green)
+    const halfW = (w - pad.left - pad.right) / 2 - 30;
+    ctx.fillStyle = '#22c55e';
+    ctx.globalAlpha = 0.15;
+    ctx.beginPath();
+    ctx.roundRect(pad.left, y, halfW, rowH - 8, [4, 0, 0, 4]);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Loser side (red)
+    ctx.fillStyle = '#f87171';
+    ctx.globalAlpha = 0.08;
+    ctx.beginPath();
+    ctx.roundRect(pad.left + halfW + 60, y, halfW, rowH - 8, [0, 4, 4, 0]);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // VS badge
+    const cx = pad.left + halfW + 30;
+    ctx.fillStyle = '#f59e0b';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('VS', cx, y + (rowH - 8) / 2);
+
+    // Winner name
+    ctx.fillStyle = '#22c55e';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(res.winner, pad.left + halfW / 2, y + 14);
+
+    // Loser name
+    ctx.fillStyle = '#f87171';
+    ctx.font = '11px monospace';
+    ctx.fillText(res.loser, pad.left + halfW + 60 + halfW / 2, y + 14);
+
+    // Claim
+    ctx.fillStyle = '#666';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    const claimTrunc = res.claim.length > 35 ? res.claim.slice(0, 35) + '...' : res.claim;
+    ctx.fillText(claimTrunc, w / 2, y + 32);
+
+    // Domain + date
+    ctx.fillStyle = '#444';
+    ctx.font = '9px monospace';
+    ctx.fillText(`[${res.domain}] ${res.date}`, w / 2, y + 44);
+  });
+}
+
 // === RENDER ===
 function renderAll() {
   drawTasteRadar();
@@ -776,6 +943,8 @@ function renderAll() {
   drawCompression();
   drawProductEval();
   drawSelfHealing();
+  drawCouncilLeaderboard();
+  drawConflictHistory();
 }
 
 window.addEventListener('load', renderAll);

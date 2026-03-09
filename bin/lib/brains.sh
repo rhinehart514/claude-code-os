@@ -375,20 +375,39 @@ resolve_conflict() {
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
     # Update winner brain — stance → won
+    # Try domain match first; if no match, mark first pending stance (cross-domain conflicts)
     local winner_brain="$(_brain_path "$winner")"
-    jq --arg domain "$domain" --arg now "$now" '
+    jq --arg domain "$domain" --arg loser "$loser" --arg now "$now" '
         .track_record.won += 1 |
         .track_record.resolved += 1 |
-        .active_stances = [.active_stances[] | if .domain == $domain then .status = "won" | .resolved = $now else . end] |
+        # Find best stance to mark: same domain > conflicts_with loser > first pending
+        (
+            [.active_stances | to_entries[] | select(.value.domain == $domain and (.value.status == "pending" or .value.status == null))] +
+            [.active_stances | to_entries[] | select(.value.conflicts_with == $loser and (.value.status == "pending" or .value.status == null))] +
+            [.active_stances | to_entries[] | select(.value.status == "pending" or .value.status == null)]
+        )[0].key as $idx |
+        if $idx != null then
+            .active_stances[$idx].status = "won" |
+            .active_stances[$idx].resolved = $now
+        else . end |
         .updated = $now
     ' "$winner_brain" > "${winner_brain}.tmp" && mv "${winner_brain}.tmp" "$winner_brain"
 
     # Update loser brain — stance → lost
+    # Same cross-domain logic as winner
     local loser_brain="$(_brain_path "$loser")"
-    jq --arg domain "$domain" --arg now "$now" '
+    jq --arg domain "$domain" --arg winner "$winner" --arg now "$now" '
         .track_record.lost += 1 |
         .track_record.resolved += 1 |
-        .active_stances = [.active_stances[] | if .domain == $domain then .status = "lost" | .resolved = $now else . end] |
+        (
+            [.active_stances | to_entries[] | select(.value.domain == $domain and (.value.status == "pending" or .value.status == null))] +
+            [.active_stances | to_entries[] | select(.value.conflicts_with == $winner and (.value.status == "pending" or .value.status == null))] +
+            [.active_stances | to_entries[] | select(.value.status == "pending" or .value.status == null)]
+        )[0].key as $idx |
+        if $idx != null then
+            .active_stances[$idx].status = "lost" |
+            .active_stances[$idx].resolved = $now
+        else . end |
         .updated = $now
     ' "$loser_brain" > "${loser_brain}.tmp" && mv "${loser_brain}.tmp" "$loser_brain"
 
