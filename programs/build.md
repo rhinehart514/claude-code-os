@@ -72,20 +72,30 @@ Commit: `git commit -m "exp: [hypothesis in 10 words]"`
 Run hard metrics. Then score the target dimension with grounded evidence.
 Record both the numbers and the cited evidence.
 
-### 4. Decide
-- **Hard metrics pass AND subjective score improved** → KEEP
+### 4. Cross-check
+Before deciding, verify hard metrics and subjective scores agree directionally:
+- Subjective identity score went up → hardcoded color count should go down (or campus-specific copy count up)
+- Subjective day3_return score went up → notification trigger count should go up (or "since you left" component count up)
+- Subjective empty_room score went up → empty states with CTAs count should go up
+
+If they disagree, something is wrong. Do NOT keep. Re-read the code you changed and re-score.
+
+### 5. Decide
+- **Hard metrics pass AND subjective score improved AND cross-check passes** → KEEP
 - **Hard metrics fail** → DISCARD (broken code is never kept)
 - **Hard metrics pass BUT subjective score didn't improve** → DISCARD
+- **Cross-check fails** (subjective says better, hard metrics say same or worse) → DISCARD
 - Discard = `git reset --hard HEAD~1`
 
-### 5. Log
+### 6. Log
 Append to `.claude/experiments/[dimension]-[date].tsv`:
 ```
-commit	score	delta	status	description	evidence
+commit	score	delta	status	description	evidence	cross_check
 ```
+The `cross_check` column records which hard metric confirmed the subjective score (e.g., "hardcoded_colors 15→12").
 The evidence column is what makes this reviewable. The human reads the TSV and can agree or disagree with each keep/discard based on the cited evidence.
 
-### 6. Next
+### 7. Next
 Go to the top. Do not ask "should I continue?" You are autonomous.
 
 If 3 in a row are discarded, stop and rethink. Re-read the code. Try a completely different angle.
