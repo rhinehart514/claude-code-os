@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# rhino — CLI wrapper for rhino-os
-# Unifies agent invocation, state inspection, knowledge backup, and system health.
+# rhino — CLI for rhino-os
+# 12 commands. 3 groups. No bloat.
 
-VERSION="1.0.0"
-# Follow symlink to find real rhino-os directory
+VERSION="2.0.0"
 _RHINO_SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$_RHINO_SOURCE" ]]; do
     _RHINO_SOURCE="$(readlink "$_RHINO_SOURCE")"
@@ -50,7 +49,9 @@ check_claude() {
     fi
 }
 
-# --- Agent runner ---
+# ============================================================
+# AGENTS — run claude with specialized agent prompts
+# ============================================================
 
 run_agent() {
     local agent="$1"
@@ -65,11 +66,9 @@ run_agent() {
 
     local args=(
         -p
-        --agent "$agent"
-        --output-format stream-json
+        --allowedTools "Read,Write,Edit,Bash,Glob,Grep,Agent,TodoRead,TodoWrite,WebFetch,WebSearch"
     )
 
-    # Per-agent defaults
     case "$agent" in
         sweep)
             budget="${budget:-2.00}"
@@ -105,40 +104,73 @@ run_agent() {
     log_end "$agent"
 }
 
-# --- Subcommands ---
-
-cmd_sweep()   { run_agent sweep "$@"; }
-cmd_scout()   { run_agent scout "$@"; }
-cmd_build()   { run_agent builder "$@"; }
-cmd_strategy(){ run_agent strategist "$@"; }
-cmd_design()  { run_agent design-engineer "$@"; }
+# ============================================================
+# STATUS — system state, health, knowledge
+# ============================================================
 
 cmd_status() {
     echo -e "${BOLD}=== rhino status ===${NC}"
     echo ""
 
-    # Sweep state
+    # --- Health checks (merged from doctor) ---
+    local issues=0
+
+    if command -v claude &> /dev/null; then
+        echo -e "${GREEN}[OK]${NC} claude CLI"
+    else
+        echo -e "${RED}[FAIL]${NC} claude CLI not found"
+        ((issues++))
+    fi
+
+    # Check symlinks (only count rhino-os symlinks, ignore standalone agent files)
+    local symlink_ok=0 symlink_broken=0
+    for agent in "$CLAUDE_DIR"/agents/*.md; do
+        [[ ! -L "$agent" ]] && continue  # skip non-symlinks
+        if [[ -e "$agent" ]]; then
+            ((symlink_ok++))
+        else
+            ((symlink_broken++))
+        fi
+    done
+    if [[ "$symlink_broken" -gt 0 ]]; then
+        echo -e "${YELLOW}[WARN]${NC} ${symlink_broken} broken agent symlinks"
+        ((issues++))
+    elif [[ "$symlink_ok" -gt 0 ]]; then
+        echo -e "${GREEN}[OK]${NC} ${symlink_ok} agent symlinks"
+    fi
+
+    # LaunchAgents
+    local sweep_loaded=false scout_loaded=false
+    if launchctl list 2>/dev/null | grep -q "com.claude-os.sweep"; then sweep_loaded=true; fi
+    if launchctl list 2>/dev/null | grep -q "com.claude-os.scout"; then scout_loaded=true; fi
+    if $sweep_loaded && $scout_loaded; then
+        echo -e "${GREEN}[OK]${NC} LaunchAgents (sweep + scout)"
+    elif $sweep_loaded || $scout_loaded; then
+        echo -e "${YELLOW}[WARN]${NC} Only one LaunchAgent loaded"
+    else
+        echo -e "${DIM}[--]${NC} No LaunchAgents"
+    fi
+    echo ""
+
+    # --- Sweep state ---
     local sweep_file="$STATE_DIR/sweep-latest.md"
     if [[ -f "$sweep_file" ]]; then
         local sweep_age
         sweep_age=$(( ( $(date +%s) - $(stat -f %m "$sweep_file" 2>/dev/null || stat -c %Y "$sweep_file" 2>/dev/null) ) / 3600 ))
         echo -e "${GREEN}Sweep:${NC} last run ${sweep_age}h ago"
-        # Show first line (date header)
-        head -1 "$sweep_file" | sed 's/^# /  /'
-        # Show focus if present
         grep -A1 "^## Focus" "$sweep_file" 2>/dev/null | tail -1 | sed 's/^/  /' || true
     else
-        echo -e "${YELLOW}Sweep:${NC} no state file found"
+        echo -e "${YELLOW}Sweep:${NC} no state file"
     fi
     echo ""
 
-    # Knowledge freshness
+    # --- Knowledge ---
     echo -e "${BOLD}Knowledge:${NC}"
     for kdir in "$KNOWLEDGE_DIR"/*/; do
         [[ ! -d "$kdir" ]] && continue
         local kname
         kname="$(basename "$kdir")"
-        [[ "$kname" == "_template" ]] && continue
+        [[ "$kname" == "_template" || "$kname" == "sessions" ]] && continue
         local kfile="$kdir/knowledge.md"
         if [[ -f "$kfile" ]]; then
             local kage
@@ -148,47 +180,33 @@ cmd_status() {
             (( kage > 30 )) && freshness="${RED}stale (${kage}d)${NC}"
             local lines
             lines=$(wc -l < "$kfile" | tr -d ' ')
-            echo -e "  $kname: ${freshness} (${lines} lines)"
+            echo -e "  $kname: $freshness (${lines} lines)"
         fi
     done
     echo ""
 
-    # Intelligence layer
+    # --- Intelligence layers ---
     echo -e "${BOLD}Intelligence:${NC}"
-
-    # Portfolio
-    local portfolio_file="$KNOWLEDGE_DIR/portfolio.json"
-    if [[ -f "$portfolio_file" ]]; then
-        if command -v jq &> /dev/null; then
-            local proj_count
-            proj_count=$(jq '.projects | length' "$portfolio_file" 2>/dev/null || echo "?")
-            local last_review
-            last_review=$(jq -r '.last_review // "never"' "$portfolio_file" 2>/dev/null || echo "unknown")
-            echo -e "  Portfolio: ${proj_count} projects, last review: ${last_review}"
-        else
-            echo -e "  Portfolio: $(wc -l < "$portfolio_file" | tr -d ' ') lines (install jq for details)"
-        fi
+    local portfolio_file="$STATE_DIR/portfolio.json"
+    if [[ -f "$portfolio_file" ]] && command -v jq &>/dev/null; then
+        local proj_count
+        proj_count=$(jq '.projects | length' "$portfolio_file" 2>/dev/null || echo "0")
+        echo -e "  Portfolio: ${proj_count} projects tracked"
     else
         echo -e "  Portfolio: ${DIM}not initialized${NC}"
     fi
 
-    # Landscape
     local landscape_file="$KNOWLEDGE_DIR/landscape.json"
-    if [[ -f "$landscape_file" ]]; then
-        if command -v jq &> /dev/null; then
-            local pos_count
-            pos_count=$(jq '.positions | length' "$landscape_file" 2>/dev/null || echo "?")
-            local landscape_updated
-            landscape_updated=$(jq -r '.updated // "never"' "$landscape_file" 2>/dev/null || echo "unknown")
-            echo -e "  Landscape: ${pos_count} positions, updated: ${landscape_updated}"
-        else
-            echo -e "  Landscape: $(wc -l < "$landscape_file" | tr -d ' ') lines (install jq for details)"
-        fi
+    if [[ -f "$landscape_file" ]] && command -v jq &>/dev/null; then
+        local pos_count
+        pos_count=$(jq '.positions | length' "$landscape_file" 2>/dev/null || echo "0")
+        local updated
+        updated=$(jq -r '.updated // .updated_at // "unknown"' "$landscape_file" 2>/dev/null)
+        echo -e "  Landscape: ${pos_count} positions, updated: ${updated}"
     else
         echo -e "  Landscape: ${DIM}not initialized${NC}"
     fi
 
-    # Taste
     local taste_file="$KNOWLEDGE_DIR/taste.jsonl"
     if [[ -f "$taste_file" ]]; then
         local taste_count
@@ -199,7 +217,7 @@ cmd_status() {
     fi
     echo ""
 
-    # Recent logs
+    # --- Recent activity ---
     echo -e "${BOLD}Recent activity:${NC}"
     local log_output
     log_output=$(for logfile in "$LOG_DIR"/*.log; do
@@ -221,7 +239,7 @@ cmd_status() {
     fi
     echo ""
 
-    # Usage stats
+    # --- Usage stats ---
     local usage_file="$LOG_DIR/usage.jsonl"
     if [[ -f "$usage_file" ]]; then
         local today
@@ -232,26 +250,34 @@ cmd_status() {
         total_count=$(wc -l < "$usage_file" | tr -d ' ')
         echo -e "${BOLD}Usage:${NC} ${today_count} tool calls today, ${total_count} total"
     fi
-    echo ""
 
-    # Focus drift detection
+    # --- Focus drift ---
     if [[ -f "$usage_file" ]] && command -v jq &> /dev/null; then
         local week_ago
         week_ago="$(date -u -v-7d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
         if [[ -n "$week_ago" ]]; then
-            # Count edits per project in last 7 days
             local drift_data
             drift_data=$({ grep -E '"tool":"(Edit|Write)"' "$usage_file" || true; } | \
                 awk -F'"' -v cutoff="$week_ago" '
                 {
-                    ts=""; proj=""
+                    ts = ""; path = ""
                     for (i=1; i<=NF; i++) {
                         if ($i == "ts") ts = $(i+2)
-                        if ($i == "project") proj = $(i+2)
+                        if ($i == "file" || $i == "path") path = $(i+2)
                     }
-                    if (ts >= cutoff && proj != "") {
-                        counts[proj]++
-                        total++
+                    if (ts >= cutoff && path != "") {
+                        # Extract project from path
+                        split(path, parts, "/")
+                        for (j=1; j<=length(parts); j++) {
+                            if (parts[j] == "Users" && j+2 <= length(parts)) {
+                                p = parts[j+2]
+                                if (p != "" && p != ".claude") {
+                                    counts[p]++
+                                    total++
+                                    break
+                                }
+                            }
+                        }
                     }
                 }
                 END {
@@ -265,462 +291,238 @@ cmd_status() {
             ' 2>/dev/null)
 
             if [[ -n "$drift_data" ]]; then
+                echo ""
                 echo -e "${BOLD}Focus allocation (7d):${NC}"
                 echo "$drift_data" | sort -t: -k2 -rn
-
-                # Check for drift against portfolio focus
-                if [[ -f "$portfolio_file" ]]; then
-                    local primary_focus
-                    primary_focus=$(jq -r '.focus.primary // empty' "$portfolio_file" 2>/dev/null)
-                    if [[ -n "$primary_focus" ]]; then
-                        local primary_pct
-                        primary_pct=$(echo "$drift_data" | grep -F "$primary_focus" | grep -oE '[0-9]+%' | head -1 | tr -d '%')
-                        if [[ -n "$primary_pct" && "$primary_pct" -lt 50 ]]; then
-                            echo -e "  ${YELLOW}DRIFT:${NC} ${primary_focus} is primary focus but only ${primary_pct}% of edits"
-                        fi
-                    fi
-                fi
-                echo ""
             fi
         fi
     fi
-
-    # Code style summary (separate from taste)
-    local style_file="$LOG_DIR/code-style.jsonl"
-    if [[ -f "$style_file" ]]; then
-        local style_count
-        style_count=$(wc -l < "$style_file" | tr -d ' ')
-        echo -e "${BOLD}Code style:${NC} ${style_count} observations (auto-detected formatting patterns)"
-    fi
 }
 
-cmd_backup() {
-    echo -e "${BOLD}=== rhino backup ===${NC}"
+# ============================================================
+# SCORE — product score (delegates to score.sh)
+# ============================================================
 
-    local backup_base="$CLAUDE_DIR/backups"
-    local timestamp
-    timestamp="$(date +%Y%m%d-%H%M%S)"
-    local backup_dir="$backup_base/knowledge-$timestamp"
-
-    mkdir -p "$backup_dir"
-
-    if [[ -d "$KNOWLEDGE_DIR" ]]; then
-        cp -r "$KNOWLEDGE_DIR"/* "$backup_dir/" 2>/dev/null || true
-        echo -e "${GREEN}Knowledge backed up to:${NC}"
-        echo "  $backup_dir"
-
-        # Count what was backed up
-        local file_count
-        file_count=$(find "$backup_dir" -type f | wc -l | tr -d ' ')
-        echo -e "  ${file_count} files"
-    else
-        echo -e "${YELLOW}No knowledge directory found${NC}"
-    fi
-
-    # Also back up state
-    if [[ -d "$STATE_DIR" ]]; then
-        cp -r "$STATE_DIR" "$backup_dir/_state" 2>/dev/null || true
-        echo -e "  State files included"
-    fi
-
-    # Prune old backups (keep last 10)
-    local backup_count
-    backup_count=$(ls -d "$backup_base"/knowledge-* 2>/dev/null | wc -l | tr -d ' ')
-    if (( backup_count > 10 )); then
-        ls -dt "$backup_base"/knowledge-* | tail -n +11 | xargs rm -rf
-        echo -e "  ${DIM}Pruned old backups (keeping last 10)${NC}"
-    fi
+cmd_score() {
+    "$RHINO_DIR/bin/score.sh" "${@:-.}"
 }
 
-cmd_doctor() {
-    echo -e "${BOLD}=== rhino doctor ===${NC}"
-    echo ""
-    local issues=0
+# ============================================================
+# DASHBOARD — unified view (score + experiments + evals + report)
+# ============================================================
 
-    # Check claude CLI
-    if command -v claude &> /dev/null; then
-        echo -e "${GREEN}[OK]${NC} claude CLI found: $(which claude)"
-    else
-        echo -e "${RED}[FAIL]${NC} claude CLI not found"
-        ((issues++))
+cmd_dashboard() {
+    local target_dir="."
+    local html=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            --html) html=true ;;
+            -*) ;;
+            *) target_dir="$arg" ;;
+        esac
+    done
+
+    if $html; then
+        echo -e "${BOLD}Generating HTML dashboard...${NC}"
+        "$RHINO_DIR/bin/gen-dashboard.sh" "$target_dir"
+        return
     fi
 
-    # Check symlinks
+    echo -e "${BOLD}=== rhino dashboard ===${NC}"
     echo ""
-    echo -e "${BOLD}Symlinks:${NC}"
-    for agent in "$CLAUDE_DIR"/agents/*.md; do
-        [[ ! -e "$agent" ]] && continue
-        if [[ -L "$agent" ]]; then
-            local target
-            target="$(readlink "$agent")"
-            if [[ -f "$target" ]]; then
-                echo -e "  ${GREEN}[OK]${NC} $(basename "$agent")"
+
+    # --- 1. Current score ---
+    local current_score
+    current_score=$("$RHINO_DIR/bin/score.sh" "$target_dir" --quiet 2>/dev/null || echo "?")
+    if [[ "$current_score" == "null" || -z "$current_score" ]]; then
+        current_score="—"
+    fi
+    echo -e "${BOLD}Product Score:${NC} ${GREEN}${current_score}/100${NC}"
+    echo ""
+
+    # --- 2. Lint dimensions ---
+    echo -e "${BOLD}Lint:${NC}"
+    local json
+    json=$("$RHINO_DIR/bin/score.sh" "$target_dir" --json 2>/dev/null || echo "{}")
+    if command -v jq &> /dev/null && [[ "$json" != "{}" ]]; then
+        local dims=("build" "structure" "hygiene")
+        local labels=("Build    " "Structure" "Hygiene  ")
+        for i in "${!dims[@]}"; do
+            local val
+            val=$(echo "$json" | jq -r ".${dims[$i]} // 0" 2>/dev/null)
+            local bar=""
+            local bar_len=$((val / 10))
+            for ((b=0; b<bar_len; b++)); do bar+="█"; done
+            for ((b=bar_len; b<10; b++)); do bar+="░"; done
+            echo -e "  ${labels[$i]}  ${bar}  ${val}/100"
+        done
+    else
+        echo "  (run from a project directory)"
+    fi
+    echo ""
+
+    # --- 3. Score history sparkline (from experiments) ---
+    local exp_dir="$target_dir/.claude/experiments"
+    if [[ -d "$exp_dir" ]]; then
+        local scores=()
+        for tsv in "$exp_dir"/*.tsv; do
+            [[ ! -f "$tsv" ]] && continue
+            while IFS=$'\t' read -r commit score rest; do
+                [[ "$commit" == "commit" ]] && continue
+                [[ -n "$score" && "$score" =~ ^[0-9]+$ ]] && scores+=("$score")
+            done < "$tsv"
+        done
+
+        if [[ ${#scores[@]} -gt 0 ]]; then
+            echo -e "${BOLD}Score History:${NC}"
+            local blocks=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
+            local min=100 max=0
+            for s in "${scores[@]}"; do
+                [[ "$s" -lt "$min" ]] && min=$s
+                [[ "$s" -gt "$max" ]] && max=$s
+            done
+            local range=$((max - min))
+            [[ "$range" -eq 0 ]] && range=1
+
+            local sparkline="  "
+            for s in "${scores[@]}"; do
+                local idx=$(( (s - min) * 7 / range ))
+                sparkline+="${blocks[$idx]}"
+            done
+            echo -e "$sparkline  ${DIM}(${#scores[@]} experiments, ${min}-${max})${NC}"
+            echo ""
+        fi
+
+        # --- 4. Experiments (merged from cmd_experiments) ---
+        local kept=0 discarded=0 total_exp=0
+        for tsv in "$exp_dir"/*.tsv; do
+            [[ ! -f "$tsv" ]] && continue
+            while IFS=$'\t' read -r commit score subjective delta status rest; do
+                [[ "$commit" == "commit" ]] && continue
+                total_exp=$((total_exp + 1))
+                case "$status" in
+                    KEEP|keep|kept) kept=$((kept + 1)) ;;
+                    DISCARD|discard|discarded) discarded=$((discarded + 1)) ;;
+                esac
+            done < "$tsv"
+        done
+
+        if [[ "$total_exp" -gt 0 ]]; then
+            local keep_pct=$((kept * 100 / total_exp))
+            echo -e "${BOLD}Experiments:${NC} ${total_exp} total, ${GREEN}${kept} kept${NC}, ${RED}${discarded} discarded${NC} (${keep_pct}% hit rate)"
+
+            # Show per-experiment detail
+            for tsv in "$exp_dir"/*.tsv; do
+                [[ -f "$tsv" ]] || continue
+                local name
+                name=$(basename "$tsv" .tsv)
+                local etotal ekept
+                etotal=$(tail -n +2 "$tsv" | grep -cv '^---\|^$' 2>/dev/null || echo "0")
+                ekept=$(grep -c 'keep' "$tsv" 2>/dev/null || echo "0")
+                local estart ebest
+                estart=$(awk -F'\t' 'NR==2 && $2 != "---" {print $2}' "$tsv" 2>/dev/null || echo "?")
+                ebest=$(awk -F'\t' '$4=="keep" {print $2}' "$tsv" 2>/dev/null | sort -n | tail -1)
+                [[ -z "$ebest" ]] && ebest="$estart"
+                echo -e "  ${YELLOW}${name}${NC}: ${estart} → ${ebest} (${ekept}/${etotal} kept)"
+            done
+            echo ""
+        fi
+    fi
+
+    # --- 5. Taste eval history ---
+    local reports_dir="$target_dir/.claude/evals/reports"
+    if [[ -d "$reports_dir" ]] && ls "$reports_dir"/taste-*.json &>/dev/null 2>&1; then
+        echo -e "${BOLD}Taste Evals:${NC}"
+        for f in $(ls -t "$reports_dir"/taste-*.json 2>/dev/null | head -5); do
+            if command -v jq &> /dev/null; then
+                local ts overall weakest
+                ts=$(jq -r '.meta.timestamp // "?"' "$f" 2>/dev/null | cut -c1-10)
+                overall=$(jq -r '.score_100 // "?"' "$f" 2>/dev/null)
+                weakest=$(jq -r '.weakest // "?" | .[0:60]' "$f" 2>/dev/null)
+                echo -e "  ${GREEN}${overall}/100${NC}  ${DIM}${ts}${NC}  weakest: ${weakest}"
             else
-                echo -e "  ${RED}[BROKEN]${NC} $(basename "$agent") → $target"
-                ((issues++))
+                echo "  $(basename "$f")"
             fi
-        fi
-    done
-
-    # Check MCP server
-    echo ""
-    echo -e "${BOLD}MCP Server:${NC}"
-    if [[ -f "$RHINO_DIR/src/mcp-server/index.ts" ]]; then
-        if [[ -d "$RHINO_DIR/src/mcp-server/node_modules" ]]; then
-            echo -e "  ${GREEN}[OK]${NC} rhino-state MCP server installed"
-        else
-            echo -e "  ${YELLOW}[WARN]${NC} rhino-state MCP server not installed (run: cd src/mcp-server && npm install)"
-            ((issues++))
-        fi
-    else
-        echo -e "  ${DIM}[SKIP]${NC} MCP server not present"
+        done
+        echo ""
     fi
 
-    # Check config.json for MCP entry
-    if [[ -f "$CLAUDE_DIR/config.json" ]]; then
-        if grep -q "rhino-state" "$CLAUDE_DIR/config.json" 2>/dev/null; then
-            echo -e "  ${GREEN}[OK]${NC} rhino-state registered in config.json"
-        else
-            echo -e "  ${YELLOW}[WARN]${NC} rhino-state not in config.json"
-        fi
-    fi
-
-    # Check LaunchAgents
-    echo ""
-    echo -e "${BOLD}LaunchAgents:${NC}"
-    for label in com.claude-os.sweep com.claude-os.scout; do
-        if launchctl list "$label" &>/dev/null; then
-            echo -e "  ${GREEN}[OK]${NC} $label loaded"
-        else
-            echo -e "  ${YELLOW}[WARN]${NC} $label not loaded"
+    # --- 6. Eval report (merged from cmd_report) ---
+    local history_file=""
+    for hp in "$target_dir/.claude/evals/reports/history.jsonl" "$target_dir/docs/evals/reports/history.jsonl" "$CLAUDE_DIR/evals/reports/history.jsonl"; do
+        if [[ -f "$hp" ]]; then
+            history_file="$hp"
+            break
         fi
     done
 
-    # Check stale state files
-    echo ""
-    echo -e "${BOLD}State files:${NC}"
-    local stale_count=0
-    for state_file in "$STATE_DIR"/*; do
-        [[ ! -f "$state_file" ]] && continue
-        local file_age
-        file_age=$(( ( $(date +%s) - $(stat -f %m "$state_file" 2>/dev/null || stat -c %Y "$state_file" 2>/dev/null) ) / 86400 ))
-        if (( file_age > 7 )); then
-            echo -e "  ${YELLOW}[STALE]${NC} $(basename "$state_file") (${file_age}d old)"
-            ((stale_count++))
-        else
-            echo -e "  ${GREEN}[OK]${NC} $(basename "$state_file") (${file_age}d old)"
-        fi
-    done
-    [[ $stale_count -gt 0 ]] && echo -e "  ${DIM}Run sweep to clean stale state${NC}"
+    if [[ -n "$history_file" ]]; then
+        local total
+        total=$(wc -l < "$history_file" | tr -d ' ')
+        echo -e "${BOLD}Eval Report:${NC} ${total} evals"
 
-    # Check knowledge freshness
-    echo ""
-    echo -e "${BOLD}Knowledge health:${NC}"
-    for kdir in "$KNOWLEDGE_DIR"/*/; do
-        [[ ! -d "$kdir" ]] && continue
-        local kname
-        kname="$(basename "$kdir")"
-        [[ "$kname" == "_template" ]] && continue
-        local kfile="$kdir/knowledge.md"
-        if [[ -f "$kfile" ]]; then
-            local ksize
-            ksize=$(wc -c < "$kfile" | tr -d ' ')
-            local klines
-            klines=$(wc -l < "$kfile" | tr -d ' ')
-            if (( klines > 200 )); then
-                echo -e "  ${YELLOW}[WARN]${NC} $kname/knowledge.md is ${klines} lines (max recommended: 200)"
-                ((issues++))
-            else
-                echo -e "  ${GREEN}[OK]${NC} $kname/knowledge.md (${klines} lines)"
+        if command -v jq &>/dev/null; then
+            local ship blocked fixes
+            ship=$(grep -c '"verdict":"SHIP"' "$history_file" 2>/dev/null || echo "0")
+            fixes=$(grep -c 'SHIP.WITH' "$history_file" 2>/dev/null || echo "0")
+            blocked=$(grep -c '"BLOCKED"' "$history_file" 2>/dev/null || echo "0")
+
+            if (( total > 0 )); then
+                local ship_rate=$(( ship * 100 / total ))
+                echo -e "  Ship: ${GREEN}${ship}${NC}  Fixes: ${YELLOW}${fixes}${NC}  Blocked: ${RED}${blocked}${NC}  Rate: ${ship_rate}%"
             fi
-        fi
-    done
 
-    # Check API server
-    echo ""
-    echo -e "${BOLD}API Server:${NC}"
-    if [[ -f "$RHINO_DIR/src/api-server/index.ts" ]]; then
-        if [[ -d "$RHINO_DIR/src/api-server/node_modules" ]]; then
-            echo -e "  ${GREEN}[OK]${NC} API server installed"
-        else
-            echo -e "  ${YELLOW}[WARN]${NC} API server not installed (run: cd src/api-server && npm install)"
+            # Recent
+            echo -e "${DIM}  Recent:${NC}"
+            tail -5 "$history_file" | jq -r '
+                "    \(.date) \(.feature) → \(.verdict)"
+            ' 2>/dev/null || true
         fi
-    else
-        echo -e "  ${DIM}[SKIP]${NC} API server not present"
+        echo ""
     fi
 
-    echo ""
-    if (( issues == 0 )); then
-        echo -e "${GREEN}${BOLD}All checks passed${NC}"
-    else
-        echo -e "${YELLOW}${BOLD}${issues} issue(s) found${NC}"
+    # --- 7. Baseline comparison ---
+    local baseline_file="$target_dir/.claude/experiments/baseline.json"
+    if [[ -f "$baseline_file" ]] && command -v jq &> /dev/null && [[ "$current_score" =~ ^[0-9]+$ ]]; then
+        local baseline
+        baseline=$(jq -r '.score // 0' "$baseline_file" 2>/dev/null)
+        local delta=$((current_score - baseline))
+        local delta_str=""
+        if [[ "$delta" -gt 0 ]]; then
+            delta_str="${GREEN}+${delta}${NC}"
+        elif [[ "$delta" -lt 0 ]]; then
+            delta_str="${RED}${delta}${NC}"
+        else
+            delta_str="${DIM}±0${NC}"
+        fi
+        echo -e "${BOLD}vs Baseline:${NC} ${baseline} → ${current_score} (${delta_str})"
     fi
 }
+
+# ============================================================
+# TASTE — visual evaluation (Playwright + Claude vision)
+# ============================================================
 
 cmd_taste() {
-    local subcommand="${1:-summary}"
+    check_claude
 
-    local taste_file="$KNOWLEDGE_DIR/taste.jsonl"
-    local style_file="$LOG_DIR/code-style.jsonl"
+    if ! npx playwright --version &>/dev/null 2>&1; then
+        echo -e "${YELLOW}Installing Playwright chromium...${NC}"
+        npx playwright install chromium
+    fi
 
-    case "$subcommand" in
-        summary)
-            echo -e "${BOLD}=== rhino taste ===${NC}"
-            echo ""
-            echo -e "${DIM}Taste = macro judgment (what to build, kill, prioritize)${NC}"
-            echo -e "${DIM}Code style = formatting (camelCase, semicolons) — separate concern${NC}"
-            echo ""
-
-            # Taste signals
-            if [[ -f "$taste_file" ]]; then
-                echo -e "${BOLD}Judgment signals:${NC}"
-                if command -v jq &> /dev/null; then
-                    jq -r '"\(.strength)/\(.domain): \(.signal)"' "$taste_file" 2>/dev/null | sort | while read -r line; do
-                        local str="${line%%/*}"
-                        local rest="${line#*/}"
-                        case "$str" in
-                            strong)   echo -e "  ${GREEN}[strong]${NC} $rest" ;;
-                            moderate) echo -e "  ${YELLOW}[moderate]${NC} $rest" ;;
-                            weak)     echo -e "  ${DIM}[weak]${NC} $rest" ;;
-                        esac
-                    done
-                else
-                    local count
-                    count=$(wc -l < "$taste_file" | tr -d ' ')
-                    echo "  $count signals (install jq for details)"
-                fi
-            else
-                echo -e "  ${DIM}No taste signals yet — agents record these as they observe your decisions${NC}"
-            fi
-            echo ""
-
-            # Code style (separate from taste)
-            if [[ -f "$style_file" ]]; then
-                echo -e "${BOLD}Code style (auto-detected, NOT taste):${NC}"
-                local total_styles
-                total_styles=$(wc -l < "$style_file" | tr -d ' ')
-                echo -e "  ${total_styles} observations"
-
-                if command -v jq &> /dev/null; then
-                    jq -r '.s[]' "$style_file" 2>/dev/null | sort | uniq -c | sort -rn | head -5 | while read -r count pattern; do
-                        echo -e "  ${DIM}${count}x${NC} $pattern"
-                    done
-                fi
-            fi
-            ;;
-        export)
-            echo -e "${BOLD}=== taste export ===${NC}"
-
-            if [[ ! -f "$taste_file" && ! -f "$style_file" ]]; then
-                echo -e "${YELLOW}Nothing to export${NC}"
-                return 1
-            fi
-
-            local export_file="$HOME/taste-profile-$(date +%Y%m%d).json"
-
-            # Build export via node if MCP server is available, otherwise basic
-            if command -v jq &> /dev/null; then
-                local signals="[]"
-                if [[ -f "$taste_file" ]]; then
-                    signals=$(jq -s '.' "$taste_file" 2>/dev/null || echo "[]")
-                fi
-
-                local styles="{}"
-                if [[ -f "$style_file" ]]; then
-                    styles=$(jq -r '.s[]' "$style_file" 2>/dev/null | sort | uniq -c | sort -rn | awk '{printf "\"%s\": %d,\n", $2, $1}' | sed '$ s/,$//' | { echo "{"; cat; echo "}"; })
-                fi
-
-                jq -n \
-                    --argjson signals "$signals" \
-                    --argjson code_style "$styles" \
-                    '{version: "1.0", exported: now | todate, taste_signals: $signals, code_style: $code_style}' \
-                    > "$export_file" 2>/dev/null
-
-                echo -e "${GREEN}Exported to:${NC} $export_file"
-                echo -e "  Judgment signals: $(echo "$signals" | jq 'length')"
-                echo -e "  Code style patterns: $(echo "$styles" | jq 'keys | length') categories"
-            else
-                echo -e "${YELLOW}jq required for export${NC}"
-                return 1
-            fi
-            ;;
-        eval)
-            # Visual taste evaluation — screenshots + Claude vision
-            # This is the expensive eval (eval loss). Run on demand.
-            shift 2>/dev/null || true
-            echo -e "${BOLD}=== rhino taste eval — visual product evaluation ===${NC}"
-            echo ""
-            echo -e "${DIM}Screenshots every route → Claude vision judges from user perspective${NC}"
-            echo ""
-
-            if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-                echo -e "${RED}Error: ANTHROPIC_API_KEY required${NC}"
-                echo "  export ANTHROPIC_API_KEY=sk-ant-..."
-                return 1
-            fi
-
-            # Check for playwright
-            if ! npx playwright --version &>/dev/null 2>&1; then
-                echo -e "${YELLOW}Installing Playwright chromium...${NC}"
-                npx playwright install chromium
-            fi
-
-            # Run the visual evaluator
-            node "$RHINO_DIR/bin/taste.mjs" "$@"
-            ;;
-        history)
-            echo -e "${BOLD}=== taste eval history ===${NC}"
-            echo ""
-            local reports_dir=".claude/evals/reports"
-            if [[ -d "$reports_dir" ]]; then
-                for f in $(ls -t "$reports_dir"/taste-*.json 2>/dev/null); do
-                    if command -v jq &> /dev/null; then
-                        local ts overall weakest
-                        ts=$(jq -r '.meta.timestamp // "unknown"' "$f" 2>/dev/null)
-                        overall=$(jq -r '.score_100 // "?"' "$f" 2>/dev/null)
-                        weakest=$(jq -r '.weakest // "?"' "$f" 2>/dev/null)
-                        echo -e "  ${GREEN}${overall}/100${NC}  $(basename "$f")  — weakest: $weakest"
-                    else
-                        echo "  $(basename "$f")"
-                    fi
-                done
-            else
-                echo -e "  ${DIM}No taste evals yet — run: rhino taste eval${NC}"
-            fi
-            ;;
-        *)
-            echo -e "${RED}Unknown taste subcommand: $subcommand${NC}"
-            echo "Usage: rhino taste [summary|eval|history|export]"
-            return 1
-            ;;
-    esac
+    node "$RHINO_DIR/bin/taste.mjs" "$@"
 }
 
-cmd_capture() {
-    # NOTE: `claude -p` starts a NEW session with NO memory of the previous one.
-    # So we capture from observable artifacts: git diff, usage logs, plan state.
-    # This gives real data, not hallucinated session summaries.
-
-    local project_name
-    project_name="$(basename "$(pwd)")"
-    local sessions_dir="$KNOWLEDGE_DIR/sessions"
-    mkdir -p "$sessions_dir"
-    local target_file="$sessions_dir/${project_name}.md"
-    local today
-    today="$(date +%Y-%m-%d)"
-
-    echo -e "${BLUE}rhino capture${NC} — extracting session artifacts for ${BOLD}${project_name}${NC}"
-
-    local capture=""
-
-    # 1. Git activity (what actually changed)
-    if git rev-parse --is-inside-work-tree &>/dev/null; then
-        local recent_commits
-        recent_commits=$(git log --oneline -10 --since="6 hours ago" 2>/dev/null || true)
-        if [[ -n "$recent_commits" ]]; then
-            capture+="### Commits
-$recent_commits
-"
-        fi
-
-        local uncommitted
-        uncommitted=$(git diff --stat 2>/dev/null | tail -5)
-        if [[ -n "$uncommitted" ]]; then
-            capture+="### Uncommitted changes
-$uncommitted
-"
-        fi
-    fi
-
-    # 2. Tool activity (what tools were used, on what)
-    local usage_file="$LOG_DIR/usage.jsonl"
-    if [[ -f "$usage_file" ]] && command -v jq &>/dev/null; then
-        local six_hours_ago
-        six_hours_ago="$(date -u -v-6H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '6 hours ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
-        if [[ -n "$six_hours_ago" ]]; then
-            local edit_count
-            edit_count=$({ grep -E '"tool":"(Edit|Write)"' "$usage_file" || true; } | \
-                awk -F'"' -v cutoff="$six_hours_ago" '
-                {
-                    for (i=1; i<=NF; i++) {
-                        if ($i == "ts") { ts = $(i+2); break }
-                    }
-                    if (ts >= cutoff) count++
-                }
-                END { print count+0 }
-            ' 2>/dev/null)
-            if (( edit_count > 0 )); then
-                capture+="### Activity
-${edit_count} edits in last 6h
-"
-            fi
-        fi
-    fi
-
-    # 3. Active plan state
-    local plan_file="$CLAUDE_DIR/plans/active-plan.md"
-    if [[ -f "$plan_file" ]]; then
-        local plan_title
-        plan_title=$(head -3 "$plan_file" | grep -E '^#' | head -1 || echo "Active plan exists")
-        capture+="### Plan
-$plan_title
-"
-    fi
-
-    # 4. Taste signals recorded today
-    local taste_file="$KNOWLEDGE_DIR/taste.jsonl"
-    if [[ -f "$taste_file" ]]; then
-        local today_taste
-        today_taste=$(grep "$today" "$taste_file" 2>/dev/null | head -5)
-        if [[ -n "$today_taste" ]] && command -v jq &>/dev/null; then
-            local taste_summary
-            taste_summary=$(echo "$today_taste" | jq -r '"[\(.domain)] \(.signal)"' 2>/dev/null)
-            if [[ -n "$taste_summary" ]]; then
-                capture+="### Taste signals recorded
-$taste_summary
-"
-            fi
-        fi
-    fi
-
-    if [[ -z "$capture" ]]; then
-        echo -e "${YELLOW}Nothing to capture${NC} — no recent git activity, edits, or taste signals"
-        return 0
-    fi
-
-    # Write to session file
-    {
-        echo ""
-        echo "## $today — $project_name"
-        echo "$capture"
-    } >> "$target_file"
-
-    echo -e "${GREEN}Captured to:${NC} $target_file"
-
-    # Prune entries older than 60 days
-    if [[ -f "$target_file" ]]; then
-        local sixty_days_ago
-        sixty_days_ago=$(date -v-60d +%Y-%m-%d 2>/dev/null || date -d '60 days ago' +%Y-%m-%d 2>/dev/null || echo "")
-        if [[ -n "$sixty_days_ago" ]]; then
-            local tmpfile
-            tmpfile=$(mktemp)
-            awk -v cutoff="$sixty_days_ago" '
-                BEGIN { printing = 1 }
-                /^## [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/ {
-                    dt = substr($2, 1, 10)
-                    printing = (dt >= cutoff)
-                }
-                printing { print }
-            ' "$target_file" > "$tmpfile" && mv "$tmpfile" "$target_file" || rm -f "$tmpfile"
-        fi
-    fi
-}
+# ============================================================
+# VISUALS — SVG badges + markdown for GitHub
+# ============================================================
 
 cmd_visuals() {
     local target_dir="${1:-.}"
     local output_dir="$target_dir/docs/evals"
 
-    # Find history file — project-local first, then global
     local history_file=""
     for hp in "$target_dir/.claude/evals/reports/history.jsonl" "$target_dir/docs/evals/reports/history.jsonl" "$CLAUDE_DIR/evals/reports/history.jsonl"; do
         if [[ -f "$hp" ]]; then
@@ -739,7 +541,7 @@ cmd_visuals() {
         return 1
     fi
 
-    mkdir -p "$output_dir"
+    mkdir -p "$output_dir" "$output_dir/badges"
 
     # Compute stats
     local total ship fixes blocked ceiling_avg
@@ -755,7 +557,7 @@ cmd_visuals() {
     ceiling_avg=$(jq -r '.ceiling // empty' "$history_file" 2>/dev/null | \
         awk '{ sum += $1; count++ } END { if (count > 0) printf "%.2f", sum/count; else print "0" }')
 
-    # Determine badge colors (use || true to avoid set -e failures)
+    # Badge colors
     local ship_color="e74c3c"
     [[ "$ship_rate" -ge 50 ]] && ship_color="f39c12" || true
     [[ "$ship_rate" -ge 70 ]] && ship_color="2ecc71" || true
@@ -767,12 +569,11 @@ cmd_visuals() {
     ceil_cmp=$(awk "BEGIN { print ($ceiling_avg >= 0.7) }" 2>/dev/null || echo "0")
     [[ "$ceil_cmp" == "1" ]] && ceil_color="2ecc71" || true
 
-    # Generate SVG badges
+    # Generate SVGs
     cat > "$output_dir/ship-rate.svg" << SVGEOF
 <svg xmlns="http://www.w3.org/2000/svg" width="140" height="20">
   <rect width="70" height="20" fill="#555" rx="3"/>
   <rect x="70" width="70" height="20" fill="#${ship_color}" rx="3"/>
-  <rect width="140" height="20" fill="url(#g)" rx="3"/>
   <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
     <text x="35" y="14">ship rate</text>
     <text x="105" y="14">${ship_rate}%</text>
@@ -784,7 +585,6 @@ SVGEOF
 <svg xmlns="http://www.w3.org/2000/svg" width="140" height="20">
   <rect width="70" height="20" fill="#555" rx="3"/>
   <rect x="70" width="70" height="20" fill="#${ceil_color}" rx="3"/>
-  <rect width="140" height="20" fill="url(#g)" rx="3"/>
   <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
     <text x="35" y="14">ceiling</text>
     <text x="105" y="14">${ceiling_avg}</text>
@@ -796,7 +596,6 @@ SVGEOF
 <svg xmlns="http://www.w3.org/2000/svg" width="130" height="20">
   <rect width="60" height="20" fill="#555" rx="3"/>
   <rect x="60" width="70" height="20" fill="#2196f3" rx="3"/>
-  <rect width="130" height="20" fill="url(#g)" rx="3"/>
   <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
     <text x="30" y="14">evals</text>
     <text x="95" y="14">${total}</text>
@@ -804,80 +603,41 @@ SVGEOF
 </svg>
 SVGEOF
 
-    # Generate markdown summary
+    # Product eval badge
+    local product_entry
+    product_entry=$(grep '"type":"product-eval"' "$history_file" 2>/dev/null | tail -1 || true)
+    if [[ -n "$product_entry" ]]; then
+        local p_overall p_color p_cmp
+        p_overall=$(echo "$product_entry" | jq -r '.overall // "?"' 2>/dev/null)
+        p_color="e74c3c"
+        p_cmp=$(awk "BEGIN { print ($p_overall >= 0.5) }" 2>/dev/null || echo "0")
+        [[ "$p_cmp" == "1" ]] && p_color="f39c12" || true
+        p_cmp=$(awk "BEGIN { print ($p_overall >= 0.7) }" 2>/dev/null || echo "0")
+        [[ "$p_cmp" == "1" ]] && p_color="2ecc71" || true
+
+        cat > "$output_dir/badges/product-score.svg" << SVGEOF
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="20">
+  <rect width="90" height="20" fill="#555" rx="3"/>
+  <rect x="90" width="70" height="20" fill="#${p_color}" rx="3"/>
+  <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
+    <text x="45" y="14">product eval</text>
+    <text x="125" y="14">${p_overall}/1.0</text>
+  </g>
+</svg>
+SVGEOF
+    fi
+
+    # Recent evals table
     local recent
     recent=$(tail -10 "$history_file" | jq -r 'select(.type != "experiment") | "| \(.date) | \(.feature) | \(.verdict) | \(.ceiling // "—") | \(.perspectives // "—") |"' 2>/dev/null)
 
     local gaps
     gaps=$(jq -r '(.ceiling_gaps // .top_gaps // [])[]' "$history_file" 2>/dev/null | sort | uniq -c | sort -rn | head -5 | awk '{$1=$1; count=$1; $1=""; sub(/^ /, ""); printf "| %s | %dx |\n", $0, count}')
 
-    # Experiment data
-    local exp_section=""
-    local exp_entries
-    exp_entries=$(grep '"type":"experiment"' "$history_file" 2>/dev/null || true)
-    if [[ -n "$exp_entries" ]]; then
-        local exp_rows
-        exp_rows=$(echo "$exp_entries" | jq -r '"| \(.date) | \(.dimension) | \(.start_score) → \(.best_score) | \(.kept)/\(.experiments) | \(.top_win // "—") |"' 2>/dev/null)
-        exp_section="
-## Experiments
-
-| Date | Dimension | Progress | Kept | Top Win |
-|------|-----------|----------|------|---------|
-${exp_rows}
-"
-    fi
-
-    # Also check for experiment TSVs in the project
-    local exp_tsv_section=""
-    for exp_dir in "$target_dir/.claude/experiments" "$target_dir/docs/experiments"; do
-        if [[ -d "$exp_dir" ]]; then
-            local tsv_rows=""
-            for tsv in "$exp_dir"/*.tsv; do
-                [[ -f "$tsv" ]] || continue
-                local ename
-                ename=$(basename "$tsv" .tsv)
-                local etotal ekept ediscarded
-                etotal=$(tail -n +2 "$tsv" | grep -cv '^---\|^$' 2>/dev/null || echo "0")
-                ekept=$(grep -c 'keep' "$tsv" 2>/dev/null || echo "0")
-                ediscarded=$(grep -c 'discard' "$tsv" 2>/dev/null || echo "0")
-                local estart ebest
-                estart=$(awk -F'\t' 'NR==2 && $2 != "---" {print $2}' "$tsv" 2>/dev/null || echo "?")
-                ebest=$(awk -F'\t' '$4=="keep" {print $2}' "$tsv" 2>/dev/null | sort -n | tail -1)
-                [[ -z "$ebest" ]] && ebest="$estart"
-
-                # Build bar chart for kept experiments
-                local bar=""
-                local bar_entries
-                bar_entries=$(awk -F'\t' 'NR>1 && $2 != "---" && $4 != "" {
-                    if ($4 == "keep") printf "█"
-                    else if ($4 == "discard") printf "░"
-                    else if ($4 == "crash") printf "x"
-                }' "$tsv" 2>/dev/null)
-                bar="$bar_entries"
-
-                tsv_rows="${tsv_rows}| ${ename} | ${estart} → ${ebest} | ${ekept}/${etotal} | \`${bar}\` |
-"
-            done
-
-            if [[ -n "$tsv_rows" ]]; then
-                exp_tsv_section="
-## Active Experiments
-
-| Experiment | Progress | Kept | History |
-|------------|----------|------|---------|
-${tsv_rows}"
-            fi
-            break
-        fi
-    done
-
-    # Product eval scores (if any)
+    # Product eval section
     local product_section=""
-    local product_entry
-    product_entry=$(grep '"type":"product-eval"' "$history_file" 2>/dev/null | tail -1 || true)
-    if [[ -n "$product_entry" ]]; then
-        local p_overall p_4sec p_empty p_create p_day3 p_identity p_escape p_verdict
-        p_overall=$(echo "$product_entry" | jq -r '.overall // "?"' 2>/dev/null)
+    if [[ -n "$product_entry" ]] && command -v jq &>/dev/null; then
+        local p_4sec p_empty p_create p_day3 p_identity p_escape p_verdict
         p_4sec=$(echo "$product_entry" | jq -r '.four_second // "?"' 2>/dev/null)
         p_empty=$(echo "$product_entry" | jq -r '.empty_room // "?"' 2>/dev/null)
         p_create=$(echo "$product_entry" | jq -r '.creation_distribution // "?"' 2>/dev/null)
@@ -886,7 +646,6 @@ ${tsv_rows}"
         p_escape=$(echo "$product_entry" | jq -r '.escape_velocity // "?"' 2>/dev/null)
         p_verdict=$(echo "$product_entry" | jq -r '.verdict // "?"' 2>/dev/null)
 
-        # Build bar function
         make_bar() {
             local score="$1" width=30
             local filled
@@ -911,60 +670,20 @@ Escape Velocity       $(make_bar "$p_escape")  ${p_escape}
 "
     fi
 
-    mkdir -p "$output_dir/badges"
+    # Experiment sections
+    local exp_section=""
+    local exp_entries
+    exp_entries=$(grep '"type":"experiment"' "$history_file" 2>/dev/null || true)
+    if [[ -n "$exp_entries" ]]; then
+        local exp_rows
+        exp_rows=$(echo "$exp_entries" | jq -r '"| \(.date) | \(.dimension) | \(.start_score) → \(.best_score) | \(.kept)/\(.experiments) | \(.top_win // "—") |"' 2>/dev/null)
+        exp_section="
+## Experiments
 
-    cat > "$output_dir/ship-rate.svg" << SVGEOF
-<svg xmlns="http://www.w3.org/2000/svg" width="140" height="20">
-  <rect width="70" height="20" fill="#555" rx="3"/>
-  <rect x="70" width="70" height="20" fill="#${ship_color}" rx="3"/>
-  <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
-    <text x="35" y="14">ship rate</text>
-    <text x="105" y="14">${ship_rate}%</text>
-  </g>
-</svg>
-SVGEOF
-
-    cat > "$output_dir/ceiling-avg.svg" << SVGEOF
-<svg xmlns="http://www.w3.org/2000/svg" width="140" height="20">
-  <rect width="70" height="20" fill="#555" rx="3"/>
-  <rect x="70" width="70" height="20" fill="#${ceil_color}" rx="3"/>
-  <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
-    <text x="35" y="14">ceiling</text>
-    <text x="105" y="14">${ceiling_avg}</text>
-  </g>
-</svg>
-SVGEOF
-
-    cat > "$output_dir/total-evals.svg" << SVGEOF
-<svg xmlns="http://www.w3.org/2000/svg" width="130" height="20">
-  <rect width="60" height="20" fill="#555" rx="3"/>
-  <rect x="60" width="70" height="20" fill="#2196f3" rx="3"/>
-  <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
-    <text x="30" y="14">evals</text>
-    <text x="95" y="14">${total}</text>
-  </g>
-</svg>
-SVGEOF
-
-    # Product score badge (if product eval exists)
-    if [[ -n "$product_entry" ]]; then
-        local p_color="e74c3c"
-        local p_cmp
-        p_cmp=$(awk "BEGIN { print ($p_overall >= 0.5) }" 2>/dev/null || echo "0")
-        [[ "$p_cmp" == "1" ]] && p_color="f39c12" || true
-        p_cmp=$(awk "BEGIN { print ($p_overall >= 0.7) }" 2>/dev/null || echo "0")
-        [[ "$p_cmp" == "1" ]] && p_color="2ecc71" || true
-
-        cat > "$output_dir/badges/product-score.svg" << SVGEOF
-<svg xmlns="http://www.w3.org/2000/svg" width="160" height="20">
-  <rect width="90" height="20" fill="#555" rx="3"/>
-  <rect x="90" width="70" height="20" fill="#${p_color}" rx="3"/>
-  <g fill="#fff" text-anchor="middle" font-family="monospace" font-size="11">
-    <text x="45" y="14">product eval</text>
-    <text x="125" y="14">${p_overall}/1.0</text>
-  </g>
-</svg>
-SVGEOF
+| Date | Dimension | Progress | Kept | Top Win |
+|------|-----------|----------|------|---------|
+${exp_rows}
+"
     fi
 
     cat > "$output_dir/EVAL-RESULTS.md" << MDEOF
@@ -982,7 +701,7 @@ ${product_section}
 | Ship with fixes | ${fixes} |
 | Blocked | ${blocked} |
 | Ceiling avg | ${ceiling_avg} |
-${exp_section}${exp_tsv_section}
+${exp_section}
 ## Feature Evals
 
 | Date | Feature | Verdict | Ceiling | Perspectives |
@@ -1010,235 +729,9 @@ MDEOF
     echo "  ![Ship Rate](docs/evals/ship-rate.svg) ![Ceiling](docs/evals/ceiling-avg.svg)"
 }
 
-cmd_init_eval() {
-    local target_dir="${1:-.}"
-
-    if [[ ! -d "$target_dir/.git" ]]; then
-        echo -e "${RED}Not a git repo: $target_dir${NC}"
-        return 1
-    fi
-
-    local workflow_dir="$target_dir/.github/workflows"
-    mkdir -p "$workflow_dir"
-
-    local source="$RHINO_DIR/templates/github/ai-eval.yml"
-    local dest="$workflow_dir/ai-eval.yml"
-
-    if [[ -f "$dest" ]]; then
-        echo -e "${YELLOW}AI eval workflow already exists:${NC} $dest"
-        echo "Overwrite? (y/n)"
-        read -r answer
-        [[ "$answer" != "y" ]] && return 0
-    fi
-
-    cp "$source" "$dest"
-    echo -e "${GREEN}Installed AI eval workflow:${NC} $dest"
-    echo ""
-    echo -e "${BOLD}Next steps:${NC}"
-    echo "  1. Run: claude setup-token"
-    echo "     Copy the token output"
-    echo "  2. Add CLAUDE_CODE_OAUTH_TOKEN to your repo secrets"
-    echo "     (Settings → Secrets → Actions → New repository secret)"
-    echo "  3. Use builder plan mode to generate .claude/evals/[feature].yml"
-    echo "  4. Open a PR — eval runs automatically and posts results"
-    echo ""
-    echo "  No API key needed — uses your Claude Code auth."
-}
-
-cmd_report() {
-    echo -e "${BOLD}=== rhino report ===${NC}"
-    echo ""
-
-    local history_file="$CLAUDE_DIR/evals/reports/history.jsonl"
-
-    if [[ ! -f "$history_file" ]]; then
-        echo -e "${YELLOW}No eval history found.${NC}"
-        echo "Run /eval after building features to populate this."
-        return 0
-    fi
-
-    local total
-    total=$(wc -l < "$history_file" | tr -d ' ')
-    echo -e "${BOLD}Total evals:${NC} $total"
-    echo ""
-
-    if ! command -v jq &>/dev/null; then
-        echo "Install jq for detailed reports: brew install jq"
-        echo ""
-        echo -e "${BOLD}Recent evals:${NC}"
-        tail -10 "$history_file"
-        return 0
-    fi
-
-    # Verdicts breakdown
-    local ship blocked fixes
-    ship=$(grep -c '"verdict":"SHIP"' "$history_file" 2>/dev/null || echo "0")
-    fixes=$(grep -c '"SHIP.WITH' "$history_file" 2>/dev/null || echo "0")
-    blocked=$(grep -c '"BLOCKED"' "$history_file" 2>/dev/null || echo "0")
-    echo -e "${BOLD}Verdicts:${NC}"
-    echo -e "  ${GREEN}SHIP:${NC} $ship"
-    echo -e "  ${YELLOW}SHIP WITH FIXES:${NC} $fixes"
-    echo -e "  ${RED}BLOCKED:${NC} $blocked"
-    echo ""
-
-    # First-pass rate (SHIP on first eval per feature)
-    if (( total > 0 )); then
-        local first_pass_pct=$(( ship * 100 / total ))
-        echo -e "${BOLD}First-pass ship rate:${NC} ${first_pass_pct}%"
-        echo ""
-    fi
-
-    # Avg perspective score
-    local avg_perspectives
-    avg_perspectives=$(jq -r '.perspectives // empty' "$history_file" 2>/dev/null | \
-        awk '{ sum += $1; count++ } END { if (count > 0) printf "%.2f", sum/count; else print "n/a" }')
-    echo -e "${BOLD}Avg perspective score:${NC} $avg_perspectives / 1.0"
-    echo ""
-
-    # Last 30 days
-    local thirty_ago
-    thirty_ago="$(date -v-30d +%Y-%m-%d 2>/dev/null || date -d '30 days ago' +%Y-%m-%d 2>/dev/null || echo "")"
-    if [[ -n "$thirty_ago" ]]; then
-        local recent_count
-        recent_count=$(jq -r --arg cutoff "$thirty_ago" 'select(.date >= $cutoff)' "$history_file" 2>/dev/null | grep -c '"date"' || echo "0")
-        echo -e "${BOLD}Last 30 days:${NC} $recent_count evals"
-    fi
-    echo ""
-
-    # Recent history
-    echo -e "${BOLD}Recent evals:${NC}"
-    tail -10 "$history_file" | jq -r '
-        "\(.date) \(.feature) → \(.verdict) (perspectives: \(.perspectives // "n/a"))"
-    ' 2>/dev/null | while read -r line; do
-        if echo "$line" | grep -q "SHIP WITH"; then
-            echo -e "  ${YELLOW}$line${NC}"
-        elif echo "$line" | grep -q "BLOCKED"; then
-            echo -e "  ${RED}$line${NC}"
-        elif echo "$line" | grep -q "SHIP"; then
-            echo -e "  ${GREEN}$line${NC}"
-        else
-            echo "  $line"
-        fi
-    done
-}
-
-cmd_experiments() {
-    echo -e "${BOLD}=== experiments ===${NC}"
-    echo ""
-
-    local project_dir="${1:-.}"
-
-    # Find experiment TSVs — check project-local paths
-    local exp_dir=""
-    for candidate in "$project_dir/.claude/experiments" "$project_dir/docs/experiments"; do
-        if [[ -d "$candidate" ]]; then
-            exp_dir="$candidate"
-            break
-        fi
-    done
-
-    # Also check for experiment branches
-    local exp_branches=""
-    if git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-        exp_branches=$(git -C "$project_dir" branch -a 2>/dev/null | grep 'exp/' | sed 's/^[* ]*//' | head -20 || true)
-    fi
-
-    if [[ -z "$exp_dir" && -z "$exp_branches" ]]; then
-        echo -e "${DIM}No experiments found.${NC}"
-        echo "Run /experiment [dimension] to start autonomous iteration."
-        return 0
-    fi
-
-    # Show experiment branches
-    if [[ -n "$exp_branches" ]]; then
-        echo -e "${BOLD}Experiment branches:${NC}"
-        echo "$exp_branches" | while read -r branch; do
-            local branch_name="${branch##*/}"
-            # Count commits on this branch vs main
-            local commit_count
-            commit_count=$(git -C "$project_dir" rev-list --count "main..$branch" 2>/dev/null || echo "?")
-            echo -e "  ${BLUE}$branch${NC} (${commit_count} commits)"
-        done
-        echo ""
-    fi
-
-    # Show experiment logs
-    if [[ -n "$exp_dir" ]]; then
-        echo -e "${BOLD}Experiment logs:${NC}"
-        for tsv in "$exp_dir"/*.tsv; do
-            [[ -f "$tsv" ]] || continue
-            local name
-            name=$(basename "$tsv" .tsv)
-            local total kept discarded
-            total=$(tail -n +2 "$tsv" | grep -cv '^---\|^$' 2>/dev/null || echo "0")
-            kept=$(grep -c 'keep' "$tsv" 2>/dev/null || echo "0")
-            discarded=$(grep -c 'discard' "$tsv" 2>/dev/null || echo "0")
-
-            # Get first and last scores
-            local start_score best_score
-            start_score=$(awk -F'\t' 'NR==2 && $2 != "---" {print $2}' "$tsv" 2>/dev/null)
-            best_score=$(awk -F'\t' '$4=="keep" {print $2}' "$tsv" 2>/dev/null | sort -n | tail -1)
-
-            # Color based on progress
-            local score_display=""
-            if [[ -n "$start_score" && -n "$best_score" ]]; then
-                score_display="${start_score} → ${best_score}"
-            fi
-
-            echo -e "  ${YELLOW}${name}${NC}: ${total} experiments (${GREEN}${kept} kept${NC}, ${RED}${discarded} discarded${NC}) ${score_display}"
-
-            # Show last 3 entries
-            tail -3 "$tsv" | while IFS=$'\t' read -r commit score delta status desc; do
-                [[ "$commit" == "commit" || "$commit" == "---" ]] && continue
-                local color="$DIM"
-                [[ "$status" == "keep" ]] && color="$GREEN"
-                [[ "$status" == "discard" ]] && color="$RED"
-                [[ "$status" == "crash" ]] && color="$RED"
-                echo -e "    ${color}${status}${NC} ${delta} ${DIM}${desc}${NC}"
-            done
-            echo ""
-        done
-    fi
-
-    # Show experiment entries from history.jsonl
-    local history_file=""
-    for hp in "$project_dir/.claude/evals/reports/history.jsonl" "$project_dir/docs/evals/reports/history.jsonl"; do
-        if [[ -f "$hp" ]]; then
-            history_file="$hp"
-            break
-        fi
-    done
-
-    if [[ -n "$history_file" ]] && command -v jq &>/dev/null; then
-        local exp_entries
-        exp_entries=$(grep '"type":"experiment"' "$history_file" 2>/dev/null)
-        if [[ -n "$exp_entries" ]]; then
-            echo -e "${BOLD}Completed experiments:${NC}"
-            echo "$exp_entries" | jq -r '"  \(.date) \(.dimension): \(.start_score) → \(.best_score) (\(.kept)/\(.experiments) kept) — \(.top_win // "n/a")"' 2>/dev/null
-            echo ""
-        fi
-    fi
-}
-
-cmd_serve() {
-    check_claude
-
-    local port="${RHINO_PORT:-7890}"
-    echo -e "${BLUE}rhino serve${NC} — starting API server on port $port"
-
-    if [[ ! -f "$RHINO_DIR/src/api-server/index.ts" ]]; then
-        echo -e "${RED}Error: API server not found at src/api-server/index.ts${NC}"
-        echo "Run install.sh to set up the API server."
-        exit 1
-    fi
-
-    if [[ ! -d "$RHINO_DIR/src/api-server/node_modules" ]]; then
-        echo -e "${YELLOW}Installing API server dependencies...${NC}"
-        (cd "$RHINO_DIR/src/api-server" && npm install)
-    fi
-
-    RHINO_PORT="$port" RHINO_DIR="$RHINO_DIR" npx --prefix "$RHINO_DIR/src/api-server" tsx "$RHINO_DIR/src/api-server/index.ts"
-}
+# ============================================================
+# INIT — bootstrap a project for rhino-os
+# ============================================================
 
 cmd_init() {
     local project_dir="${1:-.}"
@@ -1249,14 +742,13 @@ cmd_init() {
     echo -e "${BOLD}=== rhino init: $project_name ===${NC}"
     echo ""
 
-    # 1. Create directories
-    echo -e "${BLUE}Creating .claude directories...${NC}"
+    # Create directories
     mkdir -p .claude/{plans,experiments,evals/reports}
     echo "  .claude/plans/"
     echo "  .claude/experiments/"
     echo "  .claude/evals/reports/"
 
-    # 2. Find and link active plan (find any .md in plans/, use the most recent)
+    # Link active plan
     local plan_count
     plan_count=$(find .claude/plans/ -name "*.md" 2>/dev/null | wc -l | tr -d ' ')
     if [[ "$plan_count" -gt 0 ]] && [[ ! -f ".claude/plans/active-plan.md" ]]; then
@@ -1269,263 +761,28 @@ cmd_init() {
     elif [[ -f ".claude/plans/active-plan.md" ]]; then
         echo -e "  ${DIM}active-plan.md already exists${NC}"
     else
-        echo -e "  ${YELLOW}no plans found — run 'run strategy' to create one${NC}"
+        echo -e "  ${YELLOW}no plans found — say 'run strategy' to create one${NC}"
     fi
 
-    # 3. Run baseline score
+    # Run baseline score
     echo ""
     echo -e "${BLUE}Running baseline score...${NC}"
     local baseline_score
     baseline_score=$("$RHINO_DIR/bin/score.sh" . --json 2>/dev/null || echo '{"score":0}')
     local score_num
     score_num=$(echo "$baseline_score" | grep -o '"score":[0-9]*' | grep -o '[0-9]*')
-    echo -e "  ${BOLD}Baseline: ${score_num}/100${NC}"
-    "$RHINO_DIR/bin/score.sh" . --breakdown 2>/dev/null | grep "^  " || true
+    echo -e "  ${BOLD}Baseline: ${score_num:-0}/100${NC}"
 
-    # Save baseline
     echo "$baseline_score" > .claude/experiments/baseline.json
-    echo ""
     echo -e "  ${DIM}saved to .claude/experiments/baseline.json${NC}"
 
-    # 4. Create core-loop test template if it doesn't exist
-    if [[ ! -f ".claude/core-loop.spec.ts" ]] && [[ ! -f "e2e/core-loop.spec.ts" ]]; then
-        echo ""
-        echo -e "${BLUE}Creating core-loop test template...${NC}"
-        mkdir -p e2e
-        cat > e2e/core-loop.spec.ts << 'TESTEOF'
-// Core Loop Test — Your val_bpb.
-// This test verifies the product's core loop works end-to-end.
-// Customize the steps below for YOUR product.
-//
-// Run: npx playwright test e2e/core-loop.spec.ts
-// The experiment loop uses this as ground truth.
-
-import { test, expect } from '@playwright/test';
-
-test('core loop: user creates something and it reaches someone', async ({ page }) => {
-  // Step 1: Land on the product
-  await page.goto('http://localhost:3000');
-
-  // Step 2: Sign in (customize for your auth)
-  // await page.click('[data-testid="sign-in"]');
-  // await page.fill('[name="email"]', 'test@example.com');
-
-  // Step 3: Navigate to creation
-  // await page.click('[data-testid="create-button"]');
-
-  // Step 4: Create something
-  // await page.fill('[data-testid="title"]', 'Test Creation');
-  // await page.click('[data-testid="submit"]');
-
-  // Step 5: Verify it exists
-  // await expect(page.locator('[data-testid="creation-card"]')).toBeVisible();
-
-  // Step 6: Verify distribution (someone else can see it)
-  // Open in new context (different user)
-  // const viewer = await browser.newPage();
-  // await viewer.goto('http://localhost:3000/feed');
-  // await expect(viewer.locator('text=Test Creation')).toBeVisible();
-
-  // Step 7: Verify feedback loop (creator gets notified)
-  // await page.goto('http://localhost:3000/notifications');
-  // await expect(page.locator('[data-testid="notification"]')).toBeVisible();
-
-  // TODO: Uncomment and customize the steps above for your product.
-  // This test is your val_bpb — the ground truth metric.
-  // If this passes, the core loop works. If it fails, nothing else matters.
-  expect(true).toBe(true); // placeholder — replace with real assertions
-});
-TESTEOF
-        echo -e "  ${GREEN}created e2e/core-loop.spec.ts${NC}"
-        echo -e "  ${YELLOW}TODO: customize the test steps for your product${NC}"
-    fi
-
-    # 5. Create score.yml template if it doesn't exist
-    if [[ ! -f ".claude/score.yml" ]]; then
-        cat > .claude/score.yml << 'YMLEOF'
-# Project-specific scoring overrides for rhino score.
-# Add custom grep patterns that matter for YOUR product.
-#
-# custom_checks:
-#   - name: "product-specific copy"
-#     pattern: "YourBrand|your-feature|product-term"
-#     files: "*.tsx"
-#     direction: "higher_is_better"
-#     weight: 5
-#
-#   - name: "creation entry points"
-#     pattern: "CreateButton|create-button|new-post"
-#     files: "*.tsx"
-#     direction: "higher_is_better"
-#     weight: 10
-#
-# core_loop_test: "e2e/core-loop.spec.ts"
-# dev_server: "npm run dev"
-# dev_port: 3000
-YMLEOF
-        echo -e "  ${GREEN}created .claude/score.yml (customize for your product)${NC}"
-    fi
-
-    # 6. Summary
     echo ""
-    echo -e "${BOLD}=== Ready ===${NC}"
-    echo ""
-    echo "  Baseline score: ${score_num}/100"
-    if [[ -f ".claude/plans/active-plan.md" ]]; then
-        local plan_title
-        plan_title=$(head -1 .claude/plans/active-plan.md | sed 's/^#\s*//')
-        echo "  Active plan: $plan_title"
-    else
-        echo "  Active plan: none — say 'run strategy' to create one"
-    fi
-    echo ""
-    echo "  Next steps:"
-    echo "    1. Customize e2e/core-loop.spec.ts for your product's core loop"
-    echo "    2. Customize .claude/score.yml for project-specific signals"
-    echo "    3. Open Claude and say 'let's build'"
-    echo ""
+    echo -e "${BOLD}Ready.${NC} Open Claude and say 'let's build'"
 }
 
-cmd_dashboard() {
-    # --html flag: generate visual HTML dashboard
-    local target_dir="${1:-.}"
-    for arg in "$@"; do
-        case "$arg" in
-            --html)
-                echo -e "${BOLD}Generating HTML dashboard...${NC}"
-                "$RHINO_DIR/bin/gen-dashboard.sh" "$target_dir"
-                return
-                ;;
-            -*) ;; # skip flags
-            *) target_dir="$arg" ;;
-        esac
-    done
-
-    echo -e "${BOLD}=== rhino dashboard ===${NC}"
-    echo ""
-
-    # --- 1. Current score ---
-    local current_score
-    current_score=$("$RHINO_DIR/bin/score.sh" "${1:-.}" 2>/dev/null || echo "?")
-    echo -e "${BOLD}Product Score:${NC} ${GREEN}${current_score}/100${NC}"
-    echo ""
-
-    # --- 2. Score history sparkline ---
-    local exp_dir=".claude/experiments"
-    if [[ -d "$exp_dir" ]]; then
-        local scores=()
-        for tsv in "$exp_dir"/*.tsv; do
-            [[ ! -f "$tsv" ]] && continue
-            while IFS=$'\t' read -r commit score rest; do
-                [[ "$commit" == "commit" ]] && continue  # skip header
-                [[ -n "$score" && "$score" =~ ^[0-9]+$ ]] && scores+=("$score")
-            done < "$tsv"
-        done
-
-        if [[ ${#scores[@]} -gt 0 ]]; then
-            echo -e "${BOLD}Score History:${NC}"
-            # Terminal sparkline using block chars
-            local blocks=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
-            local min=100 max=0
-            for s in "${scores[@]}"; do
-                [[ "$s" -lt "$min" ]] && min=$s
-                [[ "$s" -gt "$max" ]] && max=$s
-            done
-            local range=$((max - min))
-            [[ "$range" -eq 0 ]] && range=1
-
-            local sparkline="  "
-            for s in "${scores[@]}"; do
-                local idx=$(( (s - min) * 7 / range ))
-                sparkline+="${blocks[$idx]}"
-            done
-            echo -e "$sparkline  ${DIM}(${#scores[@]} experiments, ${min}-${max})${NC}"
-            echo ""
-        fi
-
-        # --- 3. Keep/Discard ratio ---
-        local kept=0 discarded=0 total_exp=0
-        for tsv in "$exp_dir"/*.tsv; do
-            [[ ! -f "$tsv" ]] && continue
-            while IFS=$'\t' read -r commit score subjective delta status rest; do
-                [[ "$commit" == "commit" ]] && continue
-                total_exp=$((total_exp + 1))
-                case "$status" in
-                    KEEP|keep|kept) kept=$((kept + 1)) ;;
-                    DISCARD|discard|discarded) discarded=$((discarded + 1)) ;;
-                esac
-            done < "$tsv"
-        done
-
-        if [[ "$total_exp" -gt 0 ]]; then
-            local keep_pct=$((kept * 100 / total_exp))
-            echo -e "${BOLD}Experiments:${NC} ${total_exp} total, ${GREEN}${kept} kept${NC}, ${RED}${discarded} discarded${NC} (${keep_pct}% hit rate)"
-            echo ""
-        fi
-    fi
-
-    # --- 4. Taste eval history ---
-    local reports_dir=".claude/evals/reports"
-    if [[ -d "$reports_dir" ]] && ls "$reports_dir"/taste-*.json &>/dev/null 2>&1; then
-        echo -e "${BOLD}Taste Evals:${NC}"
-        local taste_scores=()
-        for f in $(ls -t "$reports_dir"/taste-*.json 2>/dev/null | head -5); do
-            if command -v jq &> /dev/null; then
-                local ts overall weakest strongest
-                ts=$(jq -r '.meta.timestamp // "?"' "$f" 2>/dev/null | cut -c1-10)
-                overall=$(jq -r '.score_100 // "?"' "$f" 2>/dev/null)
-                weakest=$(jq -r '.weakest // "?" | .[0:60]' "$f" 2>/dev/null)
-                echo -e "  ${GREEN}${overall}/100${NC}  ${DIM}${ts}${NC}  weakest: ${weakest}"
-                taste_scores+=("$overall")
-            else
-                echo "  $(basename "$f")"
-            fi
-        done
-        echo ""
-    else
-        echo -e "${DIM}Taste: not yet evaluated — run: rhino taste eval${NC}"
-        echo ""
-    fi
-
-    # --- 5. Dimension breakdown (current) ---
-    echo -e "${BOLD}Dimensions:${NC}"
-    local json
-    json=$("$RHINO_DIR/bin/score.sh" "${1:-.}" --json 2>/dev/null || echo "{}")
-    if command -v jq &> /dev/null && [[ "$json" != "{}" ]]; then
-        local dims=("build" "structure" "product" "capabilities" "hygiene")
-        local labels=("Build    " "Structure" "Flows    " "Capabilty" "Hygiene  ")
-        local blocks=("▁" "▂" "▃" "▄" "▅" "▆" "▇" "█")
-        for i in "${!dims[@]}"; do
-            local val
-            val=$(echo "$json" | jq -r ".${dims[$i]} // 0" 2>/dev/null)
-            local bar_len=$((val / 10))
-            local bar=""
-            for ((b=0; b<bar_len; b++)); do bar+="█"; done
-            for ((b=bar_len; b<10; b++)); do bar+="░"; done
-            echo -e "  ${labels[$i]}  ${bar}  ${val}/100"
-        done
-    else
-        "$RHINO_DIR/bin/score.sh" "${1:-.}" --breakdown 2>/dev/null | grep "^  "
-    fi
-    echo ""
-
-    # --- 6. Baseline comparison ---
-    local baseline_file=".claude/experiments/baseline.json"
-    if [[ -f "$baseline_file" ]] && command -v jq &> /dev/null; then
-        local baseline
-        baseline=$(jq -r '.score // 0' "$baseline_file" 2>/dev/null)
-        local delta=$((current_score - baseline))
-        local delta_str=""
-        if [[ "$delta" -gt 0 ]]; then
-            delta_str="${GREEN}+${delta}${NC}"
-        elif [[ "$delta" -lt 0 ]]; then
-            delta_str="${RED}${delta}${NC}"
-        else
-            delta_str="${DIM}±0${NC}"
-        fi
-        echo -e "${BOLD}vs Baseline:${NC} ${baseline} → ${current_score} (${delta_str})"
-    fi
-}
+# ============================================================
+# META — self-evaluation
+# ============================================================
 
 cmd_meta() {
     echo -e "${BOLD}=== rhino meta — self-evaluation ===${NC}"
@@ -1537,7 +794,7 @@ cmd_meta() {
     local log_file
     log_file=$(log_start "meta")
 
-    echo -e "${BLUE}Running meta-evaluation across all projects...${NC}"
+    echo -e "${BLUE}Running meta-evaluation...${NC}"
     echo -e "${DIM}Budget: \$$budget | Log: $log_file${NC}"
     echo ""
 
@@ -1549,71 +806,64 @@ cmd_meta() {
     log_end "meta"
 }
 
+# ============================================================
+# HELP
+# ============================================================
+
 cmd_help() {
-    echo -e "${BOLD}rhino${NC} v${VERSION} — CLI for rhino-os"
+    echo -e "${BOLD}rhino${NC} v${VERSION}"
     echo ""
     echo -e "${BOLD}Usage:${NC} rhino <command> [args...]"
     echo ""
-    echo -e "${BOLD}Agent commands:${NC}"
-    echo "  sweep              Run daily triage + system health"
-    echo "  scout              Run trend scanning + opportunity intelligence"
-    echo "  build [prompt]     Run builder agent (auto-detects mode)"
-    echo "  strategy [prompt]  Run strategist agent"
-    echo "  design [prompt]    Run design-engineer agent"
+    echo -e "${BOLD}Agents:${NC}"
+    echo "  sweep              Daily triage + system health"
+    echo "  scout              Landscape scanning + positions"
+    echo "  build [prompt]     Builder agent (auto-detects mode)"
+    echo "  strategy [prompt]  Portfolio strategy + sprint planning"
+    echo "  design [prompt]    Design engineer (audit, review, build)"
     echo ""
-    echo -e "${BOLD}System commands:${NC}"
-    echo "  status             Show system state, knowledge freshness, focus drift"
-    echo "  score [dir]        Product score — training loss (cheap, every commit)"
-    echo "  taste eval         Taste score — eval loss (Playwright + Claude vision)"
-    echo "  taste history      View past taste evaluations"
-    echo "  taste summary      View taste signals + patterns"
-    echo "  dashboard          Score history, experiments, dimensions at a glance"
-    echo "  dashboard --html   Generate HTML dashboard with embedded project data"
-    echo "  meta               Self-evaluation — rhino-os improves its own programs"
-    echo "  capture            Extract session decisions/preferences to knowledge"
-    echo "  backup             Snapshot knowledge to timestamped backup"
-    echo "  doctor             Check system health (symlinks, MCP, launchd, state)"
-    echo "  visuals [dir]      Generate SVG badges + markdown for GitHub"
-    echo "  init-eval [dir]    Install AI eval GitHub Action into a project"
-    echo "  report             Show eval history, ship rate, trends"
-    echo "  serve              Start localhost API server (port 7890)"
+    echo -e "${BOLD}Inspect:${NC}"
+    echo "  status             System health + knowledge + activity"
+    echo "  score [dir]        Product score (cheap, every commit)"
+    echo "  dashboard [--html] Score + experiments + evals + report"
+    echo ""
+    echo -e "${BOLD}Operate:${NC}"
+    echo "  taste              Visual eval (Playwright + Claude vision)"
+    echo "  visuals [dir]      Generate SVG badges for GitHub"
+    echo "  init [dir]         Bootstrap a project for rhino-os"
+    echo "  meta               Self-evaluation (rhino-os improves itself)"
     echo ""
     echo -e "${BOLD}Environment:${NC}"
-    echo "  RHINO_BUDGET       Override default budget cap (e.g., RHINO_BUDGET=5.00 rhino sweep)"
-    echo "  RHINO_PORT         API server port (default: 7890)"
-    echo "  RHINO_API_KEY      API server authentication key"
+    echo "  RHINO_BUDGET       Budget cap (e.g., RHINO_BUDGET=5.00 rhino sweep)"
     echo ""
     echo -e "${BOLD}Examples:${NC}"
-    echo "  rhino sweep                              # daily triage"
-    echo "  rhino build \"implement task 3\"            # build specific task"
-    echo "  rhino design \"audit\"                      # design audit mode"
-    echo "  RHINO_BUDGET=5.00 rhino scout             # scout with \$5 budget"
-    echo "  rhino experiments [dir]                    # show experiment status"
-    echo "  rhino serve                               # start API on :7890"
+    echo "  rhino sweep                    # daily triage"
+    echo "  rhino build \"implement task 3\" # build specific task"
+    echo "  rhino dashboard                # see everything"
+    echo "  rhino taste                    # visual product eval"
 }
 
-# --- Main ---
+# ============================================================
+# MAIN
+# ============================================================
 
 case "${1:-help}" in
-    sweep)      shift; cmd_sweep "$@" ;;
-    scout)      shift; cmd_scout "$@" ;;
-    build)      shift; cmd_build "$@" ;;
-    strategy)   shift; cmd_strategy "$@" ;;
-    design)     shift; cmd_design "$@" ;;
+    # Agents
+    sweep)      shift; run_agent sweep "$@" ;;
+    scout)      shift; run_agent scout "$@" ;;
+    build)      shift; run_agent builder "$@" ;;
+    strategy)   shift; run_agent strategist "$@" ;;
+    design)     shift; run_agent design-engineer "$@" ;;
+    # Inspect
     status)     cmd_status ;;
-    taste)      shift; cmd_taste "$@" ;;
-    capture)    cmd_capture ;;
-    backup)     cmd_backup ;;
-    doctor)     cmd_doctor ;;
-    serve)      cmd_serve ;;
-    visuals)    shift; cmd_visuals "$@" ;;
-    init-eval)  shift; cmd_init_eval "$@" ;;
-    report)     cmd_report ;;
-    experiments|exp) shift; cmd_experiments "$@" ;;
-    score)      shift; "$RHINO_DIR/bin/score.sh" "${@:-.}" ;;
+    score)      shift; cmd_score "$@" ;;
     dashboard|dash) shift; cmd_dashboard "$@" ;;
-    meta)       shift; cmd_meta "$@" ;;
+    # Operate
+    taste)      shift; cmd_taste "$@" ;;
+    visuals)    shift; cmd_visuals "$@" ;;
     init)       shift; cmd_init "$@" ;;
+    meta)       shift; cmd_meta "$@" ;;
+    # Meta
     help|--help|-h) cmd_help ;;
     version|--version|-v) echo "rhino v${VERSION}" ;;
     *)
