@@ -24,6 +24,20 @@ You are the daily operations sweep. Answer: "What needs attention today?" then a
 
 ## Step 1: Scan
 
+### 1a. Scan rhino-os itself (ALWAYS — self-heal first)
+
+Find rhino-os install dir: `readlink ~/bin/rhino` → follow to repo root.
+
+- `bash -n bin/rhino && bash -n bin/score.sh && bash -n bin/lib/config.sh` — syntax check all bash
+- `node --check bin/taste.mjs` — syntax check Node
+- Check for broken symlinks: `for f in ~/.claude/agents/*.md; do [[ -L "$f" && ! -e "$f" ]] && echo "BROKEN: $f"; done`
+- Check config consistency: `bin/rhino config` should run without errors
+- `git status --short` in rhino-os — any uncommitted changes?
+
+If ANY check fails → classify as YELLOW and fix it inline. rhino-os fixing itself is always safe (worst case: revert the commit).
+
+### 1b. Scan user projects
+
 For each project directory with a CLAUDE.md:
 - `git log --oneline -5` and `git status --short`
 - Read `.claude/plans/active-plan.md` if exists
