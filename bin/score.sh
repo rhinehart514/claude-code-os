@@ -138,13 +138,16 @@ COMP_EXT="tsx"
 # ============================================================
 score_build_health() {
     local score=100
+    local ts_penalty=$(cfg scoring.build.ts_error_penalty -30)
+    local stale_penalty=$(cfg scoring.build.stale_build_penalty -10)
+    local fail_penalty=$(cfg scoring.build.build_fail_penalty -50)
 
     if [[ -f "tsconfig.json" ]] || [[ -f "apps/web/tsconfig.json" ]]; then
         if [[ "$FORCE" == true ]]; then
             local ts_errors
             ts_errors=$(npx tsc --noEmit 2>&1 | grep -c "error TS" || true)
             if [[ "$ts_errors" -gt 0 ]]; then
-                score=$((score - 30))
+                score=$((score + ts_penalty))
             fi
         else
             local has_build=false
@@ -160,9 +163,9 @@ score_build_health() {
                 build_age=$(( $(date +%s) - $(stat -f %m "apps/web/.next" 2>/dev/null || stat -c %Y "apps/web/.next" 2>/dev/null || echo 0) ))
             fi
             if ! $has_build; then
-                score=$((score - 30))
+                score=$((score + ts_penalty))
             elif [[ "$build_age" -gt 86400 ]]; then
-                score=$((score - 10))
+                score=$((score + stale_penalty))
             fi
         fi
     fi
@@ -170,7 +173,7 @@ score_build_health() {
     if grep -q '"build"' package.json 2>/dev/null; then
         if [[ "$FORCE" == true ]]; then
             if ! npm run build > /dev/null 2>&1; then
-                score=$((score - 50))
+                score=$((score + fail_penalty))
             fi
         fi
     fi
@@ -187,6 +190,19 @@ score_structure() {
     [[ -z "$SRC_DIR" ]] && echo "50" && return
 
     local score=100
+    # Read weights from config (these are divisors: dead_pct / weight)
+    # Config stores as decimals (0.5, 0.33), we convert to integer divisors
+    local dead_end_div=2    # default: dead_pct / 2
+    local empty_div=3       # default: missing_pct / 3
+    local de_cfg=$(cfg scoring.structure.dead_end_weight "")
+    local es_cfg=$(cfg scoring.structure.empty_state_weight "")
+    # Convert 0.5 → 2, 0.33 → 3 (invert for use as divisor)
+    [[ "$de_cfg" == "0.5" ]] && dead_end_div=2
+    [[ "$de_cfg" == "0.25" ]] && dead_end_div=4
+    [[ "$de_cfg" == "1" ]] && dead_end_div=1
+    [[ "$es_cfg" == "0.33" ]] && empty_div=3
+    [[ "$es_cfg" == "0.5" ]] && empty_div=2
+    [[ "$es_cfg" == "0.25" ]] && empty_div=4
 
     # Pages with no outbound navigation = dead ends
     local total_pages
@@ -202,7 +218,7 @@ score_structure() {
 
     if [[ "$dead_ends" -gt 0 ]]; then
         local dead_pct=$((dead_ends * 100 / total_pages))
-        score=$((score - dead_pct / 2))
+        score=$((score - dead_pct / dead_end_div))
     fi
 
     # Empty states without guidance
@@ -214,7 +230,7 @@ score_structure() {
     if [[ "$empty_states" -gt 0 ]]; then
         local cta_pct=$((empty_with_cta * 100 / empty_states))
         local missing_pct=$((100 - cta_pct))
-        score=$((score - missing_pct / 3))
+        score=$((score - missing_pct / empty_div))
     fi
 
     [[ "$score" -lt 0 ]] && score=0
@@ -231,45 +247,46 @@ score_hygiene() {
 
     local score=100
 
+    # Helper: tiered penalty from config. Usage: tiered_penalty count "cfg.key" "50:-30 20:-20 5:-10"
+    # Thresholds checked from highest to lowest
+    tiered_penalty() {
+        local count=$1 defaults="$2"
+        local pair threshold penalty
+        for pair in $defaults; do
+            threshold="${pair%%:*}"
+            penalty="${pair#*:}"
+            if [[ "$count" -gt "$threshold" ]]; then
+                score=$((score + penalty))
+                return
+            fi
+        done
+    }
+
     # `any` types — real type safety gap
     local any_count
     any_count=$(grep -rn ": any\b" --include="*.ts" --include="*.tsx" "$SRC_DIR" 2>/dev/null | grep -v "node_modules\|\.d\.ts" | wc -l | tr -d ' ')
-    if [[ "$any_count" -gt 50 ]]; then score=$((score - 30))
-    elif [[ "$any_count" -gt 20 ]]; then score=$((score - 20))
-    elif [[ "$any_count" -gt 5 ]]; then score=$((score - 10))
-    fi
+    tiered_penalty "$any_count" "50:-30 20:-20 5:-10"
 
     # console.log in production code
     local console_count
     console_count=$(grep -rn "console\.\(log\|warn\|error\)" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" 2>/dev/null | grep -v "node_modules\|test\|spec\|__test__\|logger" | wc -l | tr -d ' ')
-    if [[ "$console_count" -gt 30 ]]; then score=$((score - 25))
-    elif [[ "$console_count" -gt 15 ]]; then score=$((score - 15))
-    elif [[ "$console_count" -gt 5 ]]; then score=$((score - 5))
-    fi
+    tiered_penalty "$console_count" "30:-25 15:-15 5:-5"
 
     # TODO/FIXME/HACK — unfinished work
     local todo_count
     todo_count=$(grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" 2>/dev/null | grep -v "node_modules" | wc -l | tr -d ' ')
-    if [[ "$todo_count" -gt 30 ]]; then score=$((score - 20))
-    elif [[ "$todo_count" -gt 15 ]]; then score=$((score - 10))
-    elif [[ "$todo_count" -gt 5 ]]; then score=$((score - 5))
-    fi
+    tiered_penalty "$todo_count" "30:-20 15:-10 5:-5"
 
     # Unused imports (rough signal — files with 10+ imports are suspicious)
     local large_import_files
     large_import_files=$(grep -rn "^import " --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" 2>/dev/null | \
         awk -F: '{print $1}' | sort | uniq -c | sort -rn | awk '$1 > 15 {count++} END {print count+0}')
-    if [[ "$large_import_files" -gt 10 ]]; then score=$((score - 15))
-    elif [[ "$large_import_files" -gt 5 ]]; then score=$((score - 10))
-    fi
+    tiered_penalty "$large_import_files" "10:-15 5:-10"
 
     # Disabled lint rules — eslint-disable, @ts-ignore, @ts-expect-error
     local lint_overrides
     lint_overrides=$(grep -rn "eslint-disable\|@ts-ignore\|@ts-expect-error\|@ts-nocheck" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" 2>/dev/null | grep -v "node_modules" | wc -l | tr -d ' ')
-    if [[ "$lint_overrides" -gt 20 ]]; then score=$((score - 15))
-    elif [[ "$lint_overrides" -gt 10 ]]; then score=$((score - 10))
-    elif [[ "$lint_overrides" -gt 3 ]]; then score=$((score - 5))
-    fi
+    tiered_penalty "$lint_overrides" "20:-15 10:-10 3:-5"
 
     [[ "$score" -lt 0 ]] && score=0
     echo "$score"
@@ -293,7 +310,8 @@ HYGIENE=$(score_hygiene)
 stop_spinner "hygiene: $HYGIENE/100"
 
 # Build gate
-if [[ "$BUILD" -lt 70 ]]; then
+BUILD_GATE_THRESHOLD=$(cfg scoring.build.gate_threshold 70)
+if [[ "$BUILD" -lt "$BUILD_GATE_THRESHOLD" ]]; then
     BUILD_GATE="FAIL"
 else
     BUILD_GATE="PASS"
@@ -320,12 +338,6 @@ printf "%s\t%s\t%s\t%s\t%s\n" \
     "$BUILD" "$STRUCTURE" "$HYGIENE" \
     "$PROJECT_TYPE" >> "$HISTORY_FILE"
 
-# --- Cache ---
-mkdir -p "$CACHE_DIR"
-cat > "$CACHE_FILE" <<CEOF
-{"score":$local_min,"build":$BUILD,"build_gate":"$BUILD_GATE","structure":$STRUCTURE,"hygiene":$HYGIENE,"taste":${TASTE_SCORE:-null},"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR","cached_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
-CEOF
-
 # --- Taste eval (product quality from last visual eval) ---
 TASTE_SCORE=""
 TASTE_FILE=""
@@ -343,6 +355,12 @@ fi
 if [[ -n "$TASTE_SCORE" && "$TASTE_SCORE" =~ ^[0-9]+$ ]]; then
     [[ "$TASTE_SCORE" -lt "$local_min" ]] && local_min=$TASTE_SCORE
 fi
+
+# --- Cache (AFTER taste read so taste score is included) ---
+mkdir -p "$CACHE_DIR"
+cat > "$CACHE_FILE" <<CEOF
+{"score":$local_min,"build":$BUILD,"build_gate":"$BUILD_GATE","structure":$STRUCTURE,"hygiene":$HYGIENE,"taste":${TASTE_SCORE:-null},"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR","cached_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+CEOF
 
 # --- Trends ---
 trend_for() {

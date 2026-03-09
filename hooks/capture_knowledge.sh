@@ -85,9 +85,12 @@ ${tool_count} tool calls in last 30m
 "
 fi
 
-# 3. Active plan state
-PLAN_FILE="$CLAUDE_DIR/plans/active-plan.md"
-if [[ -f "$PLAN_FILE" ]]; then
+# 3. Active plan state (check project-local first, then global)
+PLAN_FILE=""
+for plan_path in "$PROJECT_DIR/.claude/plans/active-plan.md" "$CLAUDE_DIR/plans/active-plan.md"; do
+    [[ -f "$plan_path" ]] && PLAN_FILE="$plan_path" && break
+done
+if [[ -n "$PLAN_FILE" ]]; then
     plan_title=$(head -3 "$PLAN_FILE" | grep -E '^#' | head -1 || echo "Active plan exists")
     CAPTURE+="### Plan
 $plan_title
