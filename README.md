@@ -4,6 +4,10 @@
 
 rhino-os fixes that. It's a brain for your AI coding agent — it decides what to build, builds it, scores the result, and learns from every cycle. You point it at a project and walk away.
 
+Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch) — the same modify-measure-keep/discard loop, applied to product development instead of ML training.
+
+![rhino-os overview](docs/screenshots/overview-hero.png)
+
 ## The problem
 
 AI coding agents (Claude Code, OpenClaw, etc.) are incredible at executing tasks. But they:
@@ -51,6 +55,36 @@ Every cycle, rhino-os gets smarter about your project. It remembers what worked,
 | `rhino taste .` | Visual eval — takes screenshots, scores what it *sees* like a real user |
 | `rhino meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
 | `rhino go .` | Full autopilot — strategy + build + score, no human gate |
+
+## Proof it works
+
+Real data from real agent runs. Not vanity metrics.
+
+### Visual taste eval — 8 dimensions scored by Claude vision
+
+The system takes Playwright screenshots of your app and scores what it *sees*. 40/100 here. Honest.
+
+![Taste radar](docs/screenshots/taste-radar.png)
+
+### Ship readiness — the system said NOT READY
+
+Scored 0.35/1.0. Identified "Day 3 return" at 0.2 as the critical bottleneck. The strategist wrote a sprint plan targeting exactly that gap. It didn't tell us what we wanted to hear.
+
+![Product eval](docs/screenshots/product-eval.png)
+
+### Self-healing — 3 dead agents → 5/5 operational
+
+Meta found that 3 agents were silently crashing. It diagnosed the root cause (CLAUDECODE env var blocking nested sessions), applied the fix, and verified all 5 agents came back online.
+
+![Self-healing timeline](docs/screenshots/self-healing.png)
+
+### System architecture — four layers
+
+Programs think. Agents act. Skills + scoring measure. Knowledge remembers.
+
+![Architecture](docs/screenshots/architecture.png)
+
+See [all 10 charts with real data →](docs/graphs.html)
 
 ## Install (2 minutes)
 
