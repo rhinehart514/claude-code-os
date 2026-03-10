@@ -83,7 +83,7 @@ def chart_overview():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 3))
     fig.patch.set_facecolor(BG)
 
-    # Left: structural score over time (real HIVE data pattern)
+    # Left: structural score over time (real project data pattern)
     style_ax(ax1, CARD_C)
     runs = list(range(1, 24))
     build =     [90,90,90,90,90,70,90,90,70,90,90,90,90,90,100,100,70,70,90,70,70,90,90]
@@ -98,7 +98,7 @@ def chart_overview():
                facecolor=CARD_C, edgecolor='#333', loc='lower left')
     ax1.grid(axis='y', color='#222', linewidth=0.5)
 
-    # Right: taste dimensions (real HIVE taste data)
+    # Right: taste dimensions (real project taste data)
     style_ax(ax2, CARD_C)
     dims = ['hierarchy', 'whitespace', 'contrast', 'polish', 'emotion', 'density', 'wayfinding', 'distinct.', 'scroll']
     scores = [1, 1, 1, 1, 1, 1, 1, 1, 1]  # Real: both projects scored 1/5
@@ -336,7 +336,7 @@ def build_pdf():
     pdf.caption('65 experiments. 2 projects. 2 days.\nReal data, including the parts that don\'t work yet.', 14)
     pdf.ln(12)
     pdf.set_x(MARGIN)
-    pdf.dim('Jacob Rhinehart  |  March 2026', 12)
+    pdf.dim('March 2026', 12)
 
     # --- 2: What it measures ---
     pdf.dark_page()

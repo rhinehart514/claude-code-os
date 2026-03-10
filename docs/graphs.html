@@ -146,11 +146,11 @@
 
     <!-- 1. TASTE EVAL — 8 dimensions radar -->
     <div class="chart-card wide">
-      <h3>Taste eval: HIVE product quality</h3>
+      <h3>Taste eval: product quality</h3>
       <div class="chart-sub">8 visual dimensions scored by Claude vision from Playwright screenshots. Overall: 40/100. This is what "measuring by looking" produces — honest, evidence-backed scores.</div>
       <canvas id="tasteRadar" height="320"></canvas>
       <div class="legend">
-        <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> HIVE score (out of 5)</div>
+        <div class="legend-item"><div class="legend-dot" style="background: var(--accent);"></div> project score (out of 5)</div>
         <div class="legend-item"><div class="legend-dot" style="background: #333;"></div> max possible</div>
       </div>
     </div>
@@ -172,7 +172,7 @@
       <div class="chart-sub">Strategist scanned 6 projects. Killed 4 dead ones. This is the hard call other systems won't make.</div>
       <canvas id="portfolioChart" height="300"></canvas>
       <div class="verdict-row">
-        <span class="verdict buy">BUY &middot; HIVE</span>
+        <span class="verdict buy">BUY &middot; project-alpha</span>
         <span class="verdict hold">HOLD &middot; rhino-os</span>
         <span class="verdict sell">SELL &middot; 4 projects</span>
       </div>
@@ -206,9 +206,9 @@
       <canvas id="compressionChart" height="300"></canvas>
     </div>
 
-    <!-- 7. PRODUCT EVAL — ship readiness (HIVE) -->
+    <!-- 7. PRODUCT EVAL — ship readiness -->
     <div class="chart-card wide">
-      <h3>Product eval: HIVE ship readiness</h3>
+      <h3>Product eval: ship readiness</h3>
       <div class="chart-sub">4 ceiling dimensions scored 0-1. Verdict: NOT READY (0.35). Day 3 return at 0.2 is the critical gap. This score drove the current sprint plan.</div>
       <canvas id="productEval" height="220"></canvas>
       <div class="callout" style="margin-top: 16px;">
@@ -238,7 +238,7 @@
     <!-- 10. LIVE CONFLICTS + AGENT NEXT MOVES -->
     <div class="chart-card">
       <h3>Active conflicts + next moves</h3>
-      <div class="chart-sub">Real disagreements from live agent runs on HIVE. Strategist vs scout on Lovable threat model. Each agent has a next_move that drives the system forward.</div>
+      <div class="chart-sub">Real disagreements from live agent runs. Strategist vs scout on Lovable threat model. Each agent has a next_move that drives the system forward.</div>
       <canvas id="conflictHistory" height="300"></canvas>
       <div class="callout" style="margin-top: 16px;">
         <strong>Why this matters.</strong> Without competition, agents parrot each other. With falsifiable stances and credibility tracking, the system surfaces real tradeoffs — "is Lovable a product threat or distribution threat?" — instead of consensus mush. Run <code>rhino resolve 1 scout</code> to pick a side.
@@ -303,12 +303,12 @@ const agentGrades = {
 
 // Portfolio — real data from state/portfolio.json
 const portfolio = [
-  { name: "HIVE", call: "BUY", stage: "pre-launch", eval: 0.35 },
+  { name: "project-alpha", call: "BUY", stage: "pre-launch", eval: 0.35 },
   { name: "rhino-os", call: "HOLD", stage: "production", eval: null },
-  { name: "owshsystems", call: "SELL", stage: "stale", eval: null },
-  { name: "shelf-scout", call: "SELL", stage: "stale", eval: null },
-  { name: "mission-control", call: "SELL", stage: "stale", eval: null },
-  { name: "goose", call: "SELL", stage: "stale", eval: null },
+  { name: "project-b", call: "SELL", stage: "stale", eval: null },
+  { name: "project-c", call: "SELL", stage: "stale", eval: null },
+  { name: "project-d", call: "SELL", stage: "stale", eval: null },
+  { name: "project-e", call: "SELL", stage: "stale", eval: null },
 ];
 
 // Score history — real data from .claude/scores/history.tsv
@@ -346,7 +346,7 @@ const agentRuns = [
   { agent: "meta", date: "03-09", lines: 37, status: "alive" },
 ];
 
-// Product eval — real data from HIVE eval reports
+// Product eval — real data from eval reports
 const productEval = [
   { dim: "Four-second test", score: 0.5 },
   { dim: "Empty room test", score: 0.3 },
@@ -387,9 +387,9 @@ const activeConflicts = [
 // What each agent is watching (real next_moves from brains)
 const agentNextMoves = [
   { agent: "scout", action: "Deep dive Lovable campus templates + Campus Leaders winners", priority: "high" },
-  { agent: "strategist", action: "After builder ships tasks 1-2, run eval to validate day3_return", priority: "normal" },
+  { agent: "strategist", action: "After builder ships tasks 1-2, run eval to validate retention", priority: "normal" },
   { agent: "design-engineer", action: "Debug invisible landing page sections (DOM present, not rendering)", priority: "normal" },
-  { agent: "sweep", action: "Escalate day3_return sprint if still 0/4 next sweep", priority: "normal" },
+  { agent: "sweep", action: "Escalate retention sprint if still 0/4 next sweep", priority: "normal" },
 ];
 
 const compressionSteps = [

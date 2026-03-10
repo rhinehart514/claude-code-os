@@ -52,13 +52,13 @@ The hardest strategic question: does this product need other people to be valuab
 
 Know which category your product is in. The acquisition strategy depends entirely on this.
 
-## For Campus/Student Products Specifically
+## For Niche/Community Products Specifically
 
-- **Distribution = physical + digital.** Campus products can do what pure-digital can't: QR codes on bulletin boards, integration with campus events, word-of-mouth in dorms. This is an unfair advantage over competitors who can only distribute online.
-- **Semester cycles matter.** Welcome Weekend, midterms, finals, spring break — these are natural activation windows. A campus product that launches mid-semester missed its best growth moment.
-- **Students are mobile-first.** Desktop is for homework. Everything else is phone. If your product doesn't work beautifully on a phone, it doesn't work.
-- **Social proof is everything.** "Your friend Sarah just created X" > "Create your first X!" Students do what other students do. Invest in social proof mechanics early.
-- **Institutional partnerships are distribution shortcuts.** If a professor assigns your product or student government endorses it, you skip the cold-start problem. One partnership > 1000 social posts.
+- **Distribution = physical + digital.** Community products can do what pure-digital can't: in-person events, partnerships with institutions, word-of-mouth in tight-knit groups. This is an unfair advantage over competitors who can only distribute online.
+- **Cyclical activation windows matter.** Industry events, seasonal patterns, academic calendars — these are natural growth moments. Launching between cycles means missing the best activation window.
+- **Mobile-first is non-negotiable.** Desktop is for work. Everything else is phone. If your product doesn't work beautifully on a phone, it doesn't work.
+- **Social proof is everything.** "Your friend just created X" > "Create your first X!" People do what their peers do. Invest in social proof mechanics early.
+- **Institutional partnerships are distribution shortcuts.** If an authority figure endorses your product, you skip the cold-start problem. One partnership > 1000 social posts.
 
 ## How This Connects to rhino-os
 

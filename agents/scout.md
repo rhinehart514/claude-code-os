@@ -70,7 +70,7 @@ IMPLICATIONS: [what this means for the founder's portfolio]
 ```
 
 **Good positions:**
-- "Campus infrastructure is underserved because incumbents sell to administrators, not students. Student-first tools win on distribution."
+- "Underserved verticals exist because incumbents sell to buyers, not end users. User-first tools win on distribution."
 - "Solo founders in 2026 win on context engineering + distribution, not product quality. Product quality is table stakes."
 - "The claude code workflow tool market is saturated (349+ skills, 40+ orchestrators). The moat is knowledge compounding, not more agents."
 
