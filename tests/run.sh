@@ -696,7 +696,9 @@ TOTAL_DISCARDED=0
 for tsv in "$PROJECTS_DIR"/*/.claude/experiments/*.tsv "$CLAUDE_HOME/experiments/"*.tsv; do
     [[ -f "$tsv" ]] || continue
     kept=$(grep -c 'keep' "$tsv" 2>/dev/null || echo 0)
+    kept=${kept##*$'\n'}  # take last line if multi-line
     discarded=$(grep -c 'discard' "$tsv" 2>/dev/null || echo 0)
+    discarded=${discarded##*$'\n'}
     TOTAL_KEPT=$((TOTAL_KEPT + kept))
     TOTAL_DISCARDED=$((TOTAL_DISCARDED + discarded))
     TOTAL_EXPERIMENTS=$((TOTAL_EXPERIMENTS + kept + discarded))
