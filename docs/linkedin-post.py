@@ -79,11 +79,9 @@ def style_ax(ax, bg=None):
 
 
 def chart_overview():
-    """What the system measures and how"""
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(7, 3))
     fig.patch.set_facecolor(BG)
 
-    # Left: structural score over time (real project data pattern)
     style_ax(ax1, CARD_C)
     runs = list(range(1, 24))
     build =     [90,90,90,90,90,70,90,90,70,90,90,90,90,90,100,100,70,70,90,70,70,90,90]
@@ -98,10 +96,9 @@ def chart_overview():
                facecolor=CARD_C, edgecolor='#333', loc='lower left')
     ax1.grid(axis='y', color='#222', linewidth=0.5)
 
-    # Right: taste dimensions (real project taste data)
     style_ax(ax2, CARD_C)
     dims = ['hierarchy', 'whitespace', 'contrast', 'polish', 'emotion', 'density', 'wayfinding', 'distinct.', 'scroll']
-    scores = [1, 1, 1, 1, 1, 1, 1, 1, 1]  # Real: both projects scored 1/5
+    scores = [1, 1, 1, 1, 1, 1, 1, 1, 1]
     colors = [RED_C] * 9
     ax2.barh(dims, scores, color=colors, height=0.6)
     ax2.set_xlim(0, 5)
@@ -116,7 +113,6 @@ def chart_overview():
 
 
 def chart_ceiling_real():
-    """Real ceiling dimension movement across evals"""
     fig, ax = plt.subplots(figsize=(7, 3.5))
     fig.patch.set_facecolor(BG)
     style_ax(ax)
@@ -142,7 +138,6 @@ def chart_ceiling_real():
               labelcolor=FG_C, facecolor=CARD_C, edgecolor='#333')
     ax.grid(axis='y', color='#1a1a1a', linewidth=0.5)
 
-    # Annotate the regression
     ax.annotate('regressed', xy=(2, 0.30), xytext=(2.3, 0.18),
                 color=RED_C, fontsize=8, fontweight='bold',
                 arrowprops=dict(arrowstyle='->', color=RED_C, lw=1))
@@ -151,7 +146,6 @@ def chart_ceiling_real():
 
 
 def chart_identity():
-    """Real identity sprint data"""
     fig, ax = plt.subplots(figsize=(7, 3))
     fig.patch.set_facecolor(BG)
     style_ax(ax)
@@ -191,7 +185,6 @@ def chart_identity():
 
 
 def chart_discard_honest():
-    """The discard rate problem -- front and center"""
     fig, ax = plt.subplots(figsize=(7, 3))
     fig.patch.set_facecolor(BG)
     style_ax(ax, CARD_C)
@@ -213,7 +206,6 @@ def chart_discard_honest():
 
 
 def chart_gap_feed_forward():
-    """Real gap persistence from eval history"""
     fig, ax = plt.subplots(figsize=(7, 3.2))
     fig.patch.set_facecolor(BG)
     style_ax(ax)
@@ -256,7 +248,6 @@ def chart_gap_feed_forward():
 
 
 def chart_self_audit():
-    """The self-audit: before/after with context"""
     fig, ax = plt.subplots(figsize=(7, 3))
     fig.patch.set_facecolor(BG)
     style_ax(ax, CARD_C)
@@ -278,7 +269,6 @@ def chart_self_audit():
               labelcolor=FG_C, facecolor=CARD_C, edgecolor='#333')
     ax.grid(axis='y', color='#222', linewidth=0.5)
 
-    # 200+ runs annotation
     ax.text(1, 55, '200+ runs of\nfake data', color=RED_C, fontsize=9,
             ha='center', fontweight='bold')
 
@@ -286,7 +276,6 @@ def chart_self_audit():
 
 
 def chart_tests():
-    """141/143 test suite"""
     fig, ax = plt.subplots(figsize=(7, 2.5))
     fig.patch.set_facecolor(BG)
     style_ax(ax)
@@ -327,59 +316,18 @@ def build_pdf():
     self_audit = chart_self_audit()
     tests = chart_tests()
 
-    # --- 1: Title ---
+    # --- 1: Title — lead with the hook ---
     pdf.dark_page()
-    pdf.set_xy(MARGIN, 50)
-    pdf.big_title('Automated evaluation\nloops for product\ndevelopment', 30)
-    pdf.ln(8)
+    pdf.set_xy(MARGIN, 40)
+    pdf.big_title('5 AI agents.\nThey grade each other.\nHere\'s what happened.', 32)
+    pdf.ln(10)
     pdf.set_x(MARGIN)
     pdf.caption('65 experiments. 2 projects. 2 days.\nReal data, including the parts that don\'t work yet.', 14)
-    pdf.ln(12)
+    pdf.ln(8)
     pdf.set_x(MARGIN)
-    pdf.dim('March 2026', 12)
+    pdf.dim('rhino-os  —  github.com/rhinehart514/rhino-os', 11)
 
-    # --- 2: What it measures ---
-    pdf.dark_page()
-    pdf.set_xy(MARGIN, 22)
-    pdf.slide_title('Two tiers: structural checks vs visual evaluation')
-    pdf.caption('Structural scoring (left) runs on every commit. Grep-based, fast, repeatable. Visual evaluation (right) takes Playwright screenshots and scores 9 taste dimensions via Claude vision. Both projects passed structural checks. Both scored 1/5 on taste -- routes were broken in production. That divergence is the entire point of running both.')
-    pdf.image(overview, x=MARGIN, w=CW)
-    pdf.ln(2)
-    pdf.caveat('Caveat: taste score of 1/5 reflects deployment failures (404s), not design quality. This is a smoke test result, not a taste evaluation. The system caught it, but calling it "taste" overstates what was measured.')
-
-    # --- 3: Ceiling dimensions ---
-    pdf.dark_page()
-    pdf.set_xy(MARGIN, 22)
-    pdf.slide_title('Ceiling scores across 4 evaluation cycles')
-    pdf.caption('Return pull (0.20 to 0.63) improved significantly after targeted sprint work. Escape velocity is stubborn -- improved, regressed, then partially recovered. These ceiling scores are self-assessed benchmarks, not externally validated.')
-    pdf.image(ceiling, x=MARGIN, w=CW)
-    pdf.ln(2)
-    pdf.caveat('Caveat: these scores come from the system\'s own evaluation rubric. There is no external ground truth. The trend direction is more meaningful than the absolute numbers.')
-
-    # --- 4: Identity sprint ---
-    pdf.dark_page()
-    pdf.set_xy(MARGIN, 22)
-    pdf.slide_title('17 experiments, 1 discarded')
-    pdf.caption('Identity score went from 0.30 to 0.63 in one sprint. Copy and voice changes (Phase 1) plateaued around 0.44. Visual identity changes (Phase 2) pushed further. The one discard was a gold ping animation that improved the score but violated the product\'s constraint set.')
-    pdf.image(identity, x=MARGIN, w=CW)
-
-    # --- 5: Discard rate ---
-    pdf.dark_page()
-    pdf.set_xy(MARGIN, 22)
-    pdf.slide_title('The discard rate is too low')
-    pdf.caption('3 discards out of 65 experiments. 4.6%. For comparison, Karpathy\'s autoresearch discards roughly half of its runs. A low discard rate means the agent is making safe, incremental changes -- not testing real hypotheses. The system correctly flags this. Fixing it requires pushing the agent toward riskier experiments.')
-    pdf.image(discard, x=MARGIN, w=CW)
-    pdf.ln(2)
-    pdf.caveat('This is the most important slide. An experiment loop that rarely fails isn\'t experimenting -- it\'s committing.')
-
-    # --- 6: Gap feed-forward ---
-    pdf.dark_page()
-    pdf.set_xy(MARGIN, 22)
-    pdf.slide_title('Unresolved gaps persist until addressed')
-    pdf.caption('Each row is a problem surfaced by an evaluation. Red squares persist across cycles. Escape velocity has been flagged since eval 1 and remains partially open. Identity was resolved after a dedicated sprint. New problems emerge as old ones close. The mechanism is simple -- append-only gap tracking -- but it prevents backlog amnesia.')
-    pdf.image(gaps, x=MARGIN, w=CW)
-
-    # --- 7: Self-audit ---
+    # --- 2: The self-audit (lead with the biggest failure) ---
     pdf.dark_page()
     pdf.set_xy(MARGIN, 22)
     pdf.slide_title('The system scored itself and found bugs')
@@ -388,15 +336,75 @@ def build_pdf():
     pdf.ln(2)
     pdf.caveat('This is both the best and worst finding. Best: the system can catch its own failures. Worst: 200+ runs of decorative data means every prior conclusion drawn from those scores was unfounded.')
 
+    # --- 3: The discard rate (the honest weakness) ---
+    pdf.dark_page()
+    pdf.set_xy(MARGIN, 22)
+    pdf.slide_title('The discard rate is too low')
+    pdf.caption('3 discards out of 65 experiments. 4.6%. For comparison, Karpathy\'s autoresearch discards roughly half of its runs. A low discard rate means the agent is making safe, incremental changes -- not testing real hypotheses. The system correctly flags this. Fixing it requires pushing the agent toward riskier experiments.')
+    pdf.image(discard, x=MARGIN, w=CW)
+    pdf.ln(2)
+    pdf.caveat('This is the most important slide. An experiment loop that rarely fails isn\'t experimenting -- it\'s committing.')
+
+    # --- 4: Two-tier scoring (how it works) ---
+    pdf.dark_page()
+    pdf.set_xy(MARGIN, 22)
+    pdf.slide_title('Two tiers: structural checks vs visual evaluation')
+    pdf.caption('Structural scoring (left) runs on every commit. Grep-based, fast, repeatable. Visual evaluation (right) takes Playwright screenshots and scores 9 taste dimensions via Claude vision. Both projects passed structural checks. Both scored 1/5 on taste -- routes were broken in production. That divergence is the entire point of running both.')
+    pdf.image(overview, x=MARGIN, w=CW)
+    pdf.ln(2)
+    pdf.caveat('Caveat: taste score of 1/5 reflects deployment failures (404s), not design quality. This is a smoke test result, not a taste evaluation. The system caught it, but calling it "taste" overstates what was measured.')
+
+    # --- 5: Ceiling dimensions ---
+    pdf.dark_page()
+    pdf.set_xy(MARGIN, 22)
+    pdf.slide_title('Ceiling scores across 4 evaluation cycles')
+    pdf.caption('Return pull (0.20 to 0.63) improved significantly after targeted sprint work. Escape velocity is stubborn -- improved, regressed, then partially recovered. These ceiling scores are self-assessed benchmarks, not externally validated.')
+    pdf.image(ceiling, x=MARGIN, w=CW)
+    pdf.ln(2)
+    pdf.caveat('Caveat: these scores come from the system\'s own evaluation rubric. There is no external ground truth. The trend direction is more meaningful than the absolute numbers.')
+
+    # --- 6: Identity sprint ---
+    pdf.dark_page()
+    pdf.set_xy(MARGIN, 22)
+    pdf.slide_title('17 experiments, 1 discarded')
+    pdf.caption('Identity score went from 0.30 to 0.63 in one sprint. Copy and voice changes (Phase 1) plateaued around 0.44. Visual identity changes (Phase 2) pushed further. The one discard was a gold ping animation that improved the score but violated the product\'s constraint set.')
+    pdf.image(identity, x=MARGIN, w=CW)
+
+    # --- 7: Gap persistence ---
+    pdf.dark_page()
+    pdf.set_xy(MARGIN, 22)
+    pdf.slide_title('Unresolved gaps persist until addressed')
+    pdf.caption('Each row is a problem surfaced by an evaluation. Red squares persist across cycles. Escape velocity has been flagged since eval 1 and remains partially open. Identity was resolved after a dedicated sprint. New problems emerge as old ones close. The mechanism is simple -- append-only gap tracking -- but it prevents backlog amnesia.')
+    pdf.image(gaps, x=MARGIN, w=CW)
+
     # --- 8: Test suite ---
     pdf.dark_page()
     pdf.set_xy(MARGIN, 22)
     pdf.slide_title('141 / 143 self-eval tests')
-    pdf.caption('Five tiers of deterministic checks. No LLM-as-judge. The 2 failures: keep rate too high (slide 5) and taste score below MVP floor. The test suite warns at 100% pass rate because tests that always pass aren\'t testing anything.')
+    pdf.caption('Five tiers of deterministic checks. No LLM-as-judge. The 2 failures: keep rate too high (slide 3) and taste score below MVP floor. The test suite warns at 100% pass rate because tests that always pass aren\'t testing anything.')
     pdf.image(tests, x=MARGIN, w=CW)
     pdf.ln(4)
     pdf.set_x(MARGIN)
     pdf.dim('All data from internal benchmarks. No external validation. N=2 projects, N=65 experiments, N=2 days. Interpret accordingly.', 9)
+
+    # --- 9: Closing slide with CTA ---
+    pdf.dark_page()
+    pdf.set_xy(MARGIN, 60)
+    pdf.big_title('The loop is the easy part.\nThe scoring is everything.', 28)
+    pdf.ln(12)
+    pdf.set_x(MARGIN)
+    pdf.caption('rhino-os gives AI coding agents a brain — strategy, scoring, memory, and self-correction. Five agents coordinate through the filesystem. No database. Markdown and bash.', 13)
+    pdf.ln(6)
+    pdf.set_x(MARGIN)
+    pdf.set_font('main', 'B', 14)
+    pdf.set_text_color(218, 165, 32)
+    pdf.multi_cell(CW, 8, 'github.com/rhinehart514/rhino-os', align='L')
+    pdf.ln(4)
+    pdf.set_x(MARGIN)
+    pdf.caption('Works with Claude Code natively. OpenClaw users can drop in the skills directly.\nMIT license.', 11)
+    pdf.ln(8)
+    pdf.set_x(MARGIN)
+    pdf.dim('Want to pressure test this? DM me.', 12)
 
     out = os.path.join(os.path.dirname(__file__), 'autonomous-scoring-loops.pdf')
     pdf.output(out)
