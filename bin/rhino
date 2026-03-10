@@ -142,7 +142,6 @@ run_agent() {
     log_end "$agent"
     update_marker "$agent"
     verify_artifacts "$agent"
-    detect_conflicts 2>/dev/null || true
 }
 
 # Post-run artifact verification — catches agents that "ran" but wrote nothing
@@ -162,27 +161,10 @@ verify_artifacts() {
             ;;
     esac
 
-    # Check brain file was updated by THIS run (all agents must update their brain)
+    # Check brain file exists (agents should create one)
     local brain_file="$BRAINS_DIR/${agent}.json"
-    if [[ -f "$brain_file" ]] && command -v jq &>/dev/null; then
-        local brain_updated
-        brain_updated=$(jq -r '.updated // ""' "$brain_file" 2>/dev/null)
-        if [[ -z "$brain_updated" || "$brain_updated" == "null" ]]; then
-            missing+=("brain/${agent}.json (never updated — agent didn't write brain)")
-        else
-            local brain_epoch
-            brain_epoch=$(date -jf "%Y-%m-%dT%H:%M:%SZ" "$brain_updated" +%s 2>/dev/null || date -d "$brain_updated" +%s 2>/dev/null || echo "0")
-            local brain_age_hr=$(( ($(date +%s) - brain_epoch) / 3600 ))
-            if [[ "$brain_age_hr" -gt 1 ]]; then
-                missing+=("brain/${agent}.json (stale — ${brain_age_hr}h since last update)")
-            fi
-        fi
-        # Check for at least 1 active stance (agents must stake claims)
-        local stance_count
-        stance_count=$(jq '[.active_stances[]? | select(.status == "pending" or .status == null)] | length' "$brain_file" 2>/dev/null || echo "0")
-        if [[ "$stance_count" -eq 0 ]]; then
-            missing+=("brain/${agent}.json (0 active stances — agent didn't stake claims)")
-        fi
+    if [[ ! -f "$brain_file" ]]; then
+        missing+=("brain/${agent}.json (not created — agent didn't write brain)")
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -303,26 +285,13 @@ cmd_status() {
 
     # --- Agent Council ---
     if [[ -d "$BRAINS_DIR" ]] && command -v jq &>/dev/null; then
-        local brain_count=0 total_stances=0 conflict_count=0 top_agent="" top_cred="0.00"
+        local brain_count=0
         for bf in "$BRAINS_DIR"/*.json; do
             [[ ! -f "$bf" ]] && continue
             ((brain_count++))
-            local bc ba
-            bc=$(jq -r '.track_record.credibility // 0.50' "$bf" 2>/dev/null)
-            ba=$(jq -r '.agent' "$bf" 2>/dev/null)
-            local sc
-            sc=$(jq '.active_stances | length' "$bf" 2>/dev/null || echo "0")
-            total_stances=$((total_stances + sc))
-            if awk "BEGIN { exit !($bc > $top_cred) }" 2>/dev/null; then
-                top_cred="$bc"
-                top_agent="$ba"
-            fi
         done
-        if [[ -f "$CONFLICTS_FILE" ]]; then
-            conflict_count=$(jq '[.[] | select(.status == "open")] | length' "$CONFLICTS_FILE" 2>/dev/null || echo "0")
-        fi
         if [[ "$brain_count" -gt 0 ]]; then
-            echo -e "  Council: ${brain_count} brains, ${total_stances} stances, ${conflict_count} conflicts, top: ${BLUE}${top_agent}${NC} (${top_cred})"
+            echo -e "  Council: ${brain_count} agent brains (run 'rhino council' for next moves)"
         fi
     fi
 
@@ -922,7 +891,7 @@ cmd_meta() {
 }
 
 # ============================================================
-# COUNCIL — agent credibility leaderboard + conflicts
+# COUNCIL — agent next moves
 # ============================================================
 
 cmd_council() {
@@ -936,123 +905,32 @@ cmd_council() {
 
     _ensure_brains_dir
 
-    # Credibility leaderboard
-    echo -e "${BOLD}Credibility Leaderboard:${NC}"
     local has_brains=false
-    local min_stances
-    min_stances=$(cfg brains.min_stances_for_credibility 5)
 
-    # Collect brain data, sort by credibility, display
-    local _brain_lines=""
+    echo -e "${BOLD}Agent Next Moves:${NC}"
     for brain_file in "$BRAINS_DIR"/*.json; do
         [[ ! -f "$brain_file" ]] && continue
         has_brains=true
-        local agent cred resolved won lost pending
-        agent=$(jq -r '.agent' "$brain_file" 2>/dev/null || true)
-        cred=$(jq -r '.track_record.credibility // 0.50' "$brain_file" 2>/dev/null || echo "0.50")
-        resolved=$(jq -r '.track_record.resolved // 0' "$brain_file" 2>/dev/null || echo "0")
-        won=$(jq -r '.track_record.won // 0' "$brain_file" 2>/dev/null || echo "0")
-        lost=$(jq -r '.track_record.lost // 0' "$brain_file" 2>/dev/null || echo "0")
-        pending=$(jq '[.active_stances[]? | select(.status == "pending" or .status == null)] | length' "$brain_file" 2>/dev/null || echo "0")
+        local agent next_move bias updated
+        agent=$(jq -r '.agent // ""' "$brain_file" 2>/dev/null)
+        next_move=$(jq -r '.next_move // "" | if type == "object" then .action // "" else . end' "$brain_file" 2>/dev/null)
+        bias=$(jq -r '.bias_awareness // ""' "$brain_file" 2>/dev/null)
+        updated=$(jq -r '.updated // ""' "$brain_file" 2>/dev/null | head -c 10)
 
-        _brain_lines+="${cred} ${agent} ${won} ${lost} ${pending} ${resolved}"$'\n'
-    done
-
-    echo "$_brain_lines" | sort -rn | while read -r cred agent won lost pending resolved; do
-        [[ -z "$agent" ]] && continue
-        local bar_len
-        bar_len=$(awk "BEGIN { printf \"%d\", $cred * 20 }")
-        local bar=""
-        for ((b=0; b<bar_len; b++)); do bar+="█"; done
-        for ((b=bar_len; b<20; b++)); do bar+="░"; done
-
-        local cal_label=""
-        if [[ "$resolved" -lt "$min_stances" ]]; then
-            cal_label="  ${DIM}(calibrating: ${resolved}/${min_stances})${NC}"
+        if [[ -n "$next_move" && "$next_move" != "null" && "$next_move" != "" ]]; then
+            echo -e "  ${BLUE}${agent}${NC} ${DIM}(${updated})${NC}: ${next_move}"
+        else
+            echo -e "  ${BLUE}${agent}${NC} ${DIM}(${updated})${NC}: ${DIM}no next_move set${NC}"
         fi
-        echo -e "  $(printf '%-16s' "$agent") ${bar}  ${cred}  W:${won} L:${lost} P:${pending}${cal_label}"
     done
 
     if ! $has_brains; then
         echo -e "  ${DIM}No brains yet — run any agent to create one${NC}"
     fi
     echo ""
-
-    # Active conflicts
-    echo -e "${BOLD}Active Conflicts:${NC}"
-    if [[ -f "$CONFLICTS_FILE" ]]; then
-        local open_conflicts
-        open_conflicts=$(jq -c '.[] | select(.status == "open")' "$CONFLICTS_FILE" 2>/dev/null)
-        if [[ -n "$open_conflicts" ]]; then
-            echo "$open_conflicts" | while IFS= read -r conflict; do
-                local id domain a_agent a_claim a_conv b_agent b_claim b_conv surfaced
-                id=$(echo "$conflict" | jq -r '.id')
-                domain=$(echo "$conflict" | jq -r '.domain')
-                a_agent=$(echo "$conflict" | jq -r '.side_a.agent')
-                a_claim=$(echo "$conflict" | jq -r '.side_a.claim')
-                a_conv=$(echo "$conflict" | jq -r '.side_a.conviction')
-                b_agent=$(echo "$conflict" | jq -r '.side_b.agent')
-                b_claim=$(echo "$conflict" | jq -r '.side_b.claim')
-                b_conv=$(echo "$conflict" | jq -r '.side_b.conviction')
-                surfaced=$(echo "$conflict" | jq -r '.surfaced' | cut -c1-10)
-
-                # Get credibility for each side
-                local a_cred b_cred
-                a_cred=$(jq -r '.track_record.credibility // 0.50' "$BRAINS_DIR/${a_agent}.json" 2>/dev/null)
-                b_cred=$(jq -r '.track_record.credibility // 0.50' "$BRAINS_DIR/${b_agent}.json" 2>/dev/null)
-
-                echo -e "  ${YELLOW}#${id}${NC} [${domain}] since ${surfaced}"
-                echo -e "    ${BLUE}${a_agent}${NC} (cred:${a_cred} conv:${a_conv}): ${a_claim}"
-                echo -e "    ${BLUE}${b_agent}${NC} (cred:${b_cred} conv:${b_conv}): ${b_claim}"
-                echo -e "    ${DIM}resolve: rhino resolve ${id} <winner>${NC}"
-            done
-        else
-            echo -e "  ${DIM}No active conflicts${NC}"
-        fi
-    else
-        echo -e "  ${DIM}No conflicts file — agents haven't disagreed yet${NC}"
-    fi
-    echo ""
-
-    # Next moves
-    echo -e "${BOLD}Agent Next Moves:${NC}"
-    for brain_file in "$BRAINS_DIR"/*.json; do
-        [[ ! -f "$brain_file" ]] && continue
-        local agent next_move priority
-        agent=$(jq -r '.agent' "$brain_file" 2>/dev/null)
-        next_move=$(jq -r 'if .next_move | type == "object" then .next_move.action // "none" elif .next_move then .next_move else "none" end' "$brain_file" 2>/dev/null || echo "none")
-        priority=$(jq -r 'if .next_move | type == "object" then .next_move.priority // "" else "" end' "$brain_file" 2>/dev/null || echo "")
-        if [[ "$next_move" != "none" && "$next_move" != "null" ]]; then
-            local prio_color="$DIM"
-            [[ "$priority" == "high" ]] && prio_color="$YELLOW"
-            echo -e "  ${BLUE}${agent}${NC}: ${next_move} ${prio_color}[${priority:-normal}]${NC}"
-        fi
-    done
-    echo ""
-
-    # Recent resolutions
-    if [[ -f "$RESOLUTIONS_FILE" ]]; then
-        echo -e "${BOLD}Recent Resolutions:${NC}"
-        tail -5 "$RESOLUTIONS_FILE" | while IFS= read -r line; do
-            [[ -z "$line" ]] && continue
-            local date domain winner loser
-            date=$(echo "$line" | jq -r '.date' 2>/dev/null | cut -c1-10)
-            domain=$(echo "$line" | jq -r '.domain' 2>/dev/null)
-            winner=$(echo "$line" | jq -r '.winner' 2>/dev/null)
-            loser=$(echo "$line" | jq -r '.loser' 2>/dev/null)
-            echo -e "  ${DIM}${date}${NC} [${domain}] ${GREEN}${winner}${NC} beat ${RED}${loser}${NC}"
-        done
-        echo ""
-    fi
 }
 
-cmd_resolve() {
-    if [[ $# -lt 2 ]]; then
-        echo "Usage: rhino resolve <conflict_id> <winner_agent>"
-        return 1
-    fi
-    resolve_conflict "$1" "$2"
-}
+# cmd_resolve removed — brain system simplified, no more conflicts
 
 # ============================================================
 # HELP
@@ -1069,6 +947,7 @@ cmd_help() {
     echo "  build [prompt]     Builder agent (auto-detects scope)"
     echo "  strategy [prompt]  Portfolio strategy + sprint planning"
     echo "  design [prompt]    Design engineer (audit, review, build)"
+    echo "  go [project-dir]   Strategy → build with no human gate"
     echo ""
     echo -e "${BOLD}Inspect:${NC}  ${DIM}(cheap, fast, local — no Claude calls)${NC}"
     echo "  status             System health + knowledge + activity"
@@ -1082,12 +961,12 @@ cmd_help() {
     echo "  meta               Self-evaluation — grades agents, applies fixes"
     echo "  config             Show current configuration (rhino.yml)"
     echo ""
-    echo -e "${BOLD}Council:${NC}  ${DIM}(agent competition + credibility)${NC}"
-    echo "  council            Credibility leaderboard + active conflicts"
-    echo "  resolve <id> <win> Resolve a conflict — update credibility scores"
+    echo -e "${BOLD}Council:${NC}  ${DIM}(agent next moves)${NC}"
+    echo "  council            Show each agent's next_move"
     echo ""
     echo -e "${BOLD}The Loop:${NC}"
     echo -e "  ${DIM}strategy → sprint plan → build (change → score → keep/discard) → taste → strategy${NC}"
+    echo -e "  ${DIM}'rhino go' chains strategy → build automatically${NC}"
     echo ""
     echo -e "${BOLD}Autonomous:${NC}"
     echo -e "  ${DIM}sweep (daily 8am) → scout (weekly mon) → meta (monthly) — all via LaunchAgents${NC}"
@@ -1143,14 +1022,7 @@ cmd_config() {
     echo ""
 
     echo -e "${BOLD}Brains:${NC}"
-    printf "  stance expiry: %sd  max stances: %s  credibility half-life: %sd\n" \
-        "$(cfg brains.stance_expiry_days 30)" \
-        "$(cfg brains.max_active_stances 5)" \
-        "$(cfg brains.credibility_half_life_days 30)"
-    printf "  min stances: %s  escalation: %sd  auto-resolve scores: %s\n" \
-        "$(cfg brains.min_stances_for_credibility 3)" \
-        "$(cfg brains.conflict_escalation_days 7)" \
-        "$(cfg brains.auto_resolve_score_claims true)"
+    echo "  Simplified: agents store next_move + bias_awareness"
     echo ""
 
     echo -e "${BOLD}Experiment Targets:${NC}"
@@ -1170,7 +1042,7 @@ cmd_config() {
 
 catchup() {
     # Skip if we're already running an agent (avoid recursion)
-    [[ "${1:-}" == "sweep" || "${1:-}" == "scout" || "${1:-}" == "meta" ]] && return
+    [[ "${1:-}" == "sweep" || "${1:-}" == "scout" || "${1:-}" == "meta" || "${1:-}" == "go" ]] && return
     # Skip for fast commands
     [[ "${1:-}" == "help" || "${1:-}" == "--help" || "${1:-}" == "version" || "${1:-}" == "--version" || "${1:-}" == "config" ]] && return
 
@@ -1217,9 +1089,6 @@ catchup() {
     else
         echo "$now" > "$meta_marker"
     fi
-
-    # Auto-resolve stances with measurable outcomes (runs on every CLI use)
-    ( auto_resolve_stances ) 2>/dev/null || true
 
     # High-priority brain next_moves: agents with urgent recommendations that haven't run
     if [[ -d "$BRAINS_DIR" ]] && command -v jq &>/dev/null; then
@@ -1276,6 +1145,18 @@ case "${1:-help}" in
     scout)      shift; run_agent scout "$@" ;;
     build|builder) shift; run_agent builder "$@" ;;
     strategy|strategist) shift; run_agent strategist "$@" ;;
+    go)
+        shift
+        check_claude
+        go_dir="${1:-.}"
+        go_plan="$go_dir/.claude/plans/active-plan.md"
+        if [[ ! -f "$go_plan" ]]; then
+            echo -e "${YELLOW}No active plan — running strategy first...${NC}"
+            run_agent strategist "" "$go_dir"
+        fi
+        echo -e "${GREEN}Plan ready — starting build loop...${NC}"
+        run_agent builder "" "$go_dir"
+        ;;
     design|design-engineer) shift; run_agent design-engineer "$@" ;;
     # Inspect
     status)     cmd_status ;;
@@ -1289,7 +1170,6 @@ case "${1:-help}" in
     config)     cmd_config ;;
     # Council
     council)    cmd_council ;;
-    resolve)    shift; cmd_resolve "$@" ;;
     # Meta
     help|--help|-h) cmd_help ;;
     version|--version|-v) echo "rhino v${VERSION}" ;;
