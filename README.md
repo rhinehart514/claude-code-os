@@ -1,123 +1,162 @@
 # rhino-os
 
-A strategic operating system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Five agents that learn your taste, score your product, and decide what to build next.
+**Your AI coding agent is powerful. But it has no memory, no strategy, and no taste.**
 
-Scores feed forward. Gaps become sprint priorities. The weakest dimension drives the next build cycle. Knowledge compounds across sessions.
+rhino-os fixes that. It's a brain for your AI coding agent — it decides what to build, builds it, scores the result, and learns from every cycle. You point it at a project and walk away.
 
-## Getting Started
+## The problem
 
-```bash
-# 1. Install (idempotent, symlink-based)
-git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
-cd ~/rhino-os && ./install.sh
+AI coding agents (Claude Code, OpenClaw, etc.) are incredible at executing tasks. But they:
+- Don't know what to build next
+- Can't tell if what they built is actually good
+- Forget everything between sessions
+- Have no strategy — they just do what you tell them
 
-# 2. Bootstrap a project
-cd ~/your-project
-rhino init .
+rhino-os turns a task executor into a **self-improving product engineer.**
 
-# 3. Open Claude Code in your project and say:
-#    "run strategy"    — decides what to build
-#    "let's build"     — builds it, scores it, keeps or discards
+## How it works (30 seconds)
+
+```
+You: "run strategy"
+rhino-os: scans your project, finds the biggest bottleneck, writes a sprint plan
+
+You: "let's build"
+rhino-os: builds it, scores the result, keeps or discards, logs what it learned
+
+You: "rhino go ."
+rhino-os: does both with no human gate. point it at a project and go to sleep.
 ```
 
-**Requirements:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with OAuth auth. macOS or Linux. Node 18+ for visual eval.
-
-## What it does
-
-| Command | What happens |
-|---------|-------------|
-| `rhino strategy` | Scans your projects, gives Buy/Sell/Hold verdicts, writes a sprint plan |
-| `rhino build` | Auto-detects mode: gate, plan, build, or experiment. Measures before and after. |
-| `rhino sweep` | Daily triage. Classifies issues GREEN/YELLOW/RED. Fixes safe ones inline. |
-| `rhino scout` | Updates market positions with evidence. Agents reason FROM these. |
-| `rhino score .` | Structural lint (free, 2 sec). Build health, structure, hygiene. |
-| `rhino taste .` | Visual eval via Playwright + Claude vision. Scores what it SEES. |
-| `rhino meta` | Grades its own agents. Fixes broken prompts. Agents can't silently die. |
-| `rhino go .` | Strategy + build with no human gate. Point it at a project and walk away. |
+That's it. Three commands.
 
 ## The loop
 
 ```
-strategy → sprint plan → build (change → score → keep/discard) → eval → strategy
+strategy → plan → build → score → keep or discard → repeat
+    ↑                                                    |
+    └────────────── learnings feed back ─────────────────┘
 ```
 
-## How it works
+Every cycle, rhino-os gets smarter about your project. It remembers what worked, what didn't, and why.
 
-**Two-tier scoring** like training loss vs eval loss:
-- `rhino score .` — cheap grep-based structural lint, every commit. 3 dimensions: build health, structure, hygiene.
-- `rhino taste .` — expensive visual eval via Playwright screenshots + Claude vision. 9 taste dimensions scored 1-5.
+## What's inside
 
-**Five agents** communicate through the filesystem (no direct calls, no RPC):
-- **Strategist** — portfolio strategy + sprint planning. Writes plans.
-- **Builder** — executes against plans. Scores every commit. Keeps or discards.
-- **Sweep** — daily triage. Classifies and fixes issues by severity.
-- **Scout** — market intelligence. Forms opinionated positions, not trends.
-- **Design Engineer** — visual audit via screenshots. Taste evaluation.
+| Command | What it does |
+|---------|-------------|
+| `rhino strategy` | Looks at your project, finds the biggest bottleneck, writes a sprint plan |
+| `rhino build` | Builds the plan, scores every change, keeps good ones, discards bad ones |
+| `rhino sweep` | Daily health check — finds issues, fixes safe ones, flags risky ones |
+| `rhino scout` | Researches your market — what competitors do, what users expect |
+| `rhino score .` | Instant code quality check (2 seconds, free) |
+| `rhino taste .` | Visual eval — takes screenshots, scores what it *sees* like a real user |
+| `rhino meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
+| `rhino go .` | Full autopilot — strategy + build + score, no human gate |
 
-**Anti-gaming guards** built into every scoring touchpoint:
-- Cosmetic-only detection (hygiene moved, nothing else)
-- Inflation cap (>15 point jump in one commit = warning)
-- Plateau detection (unchanged across 5 runs)
-- Stage ceilings (MVP expects 30-65, not 95)
-- Scores are diagnostic instruments, not goals
-
-**Knowledge compounds** across sessions:
-- Taste signals (what the founder likes/rejects)
-- Market positions (evidence-backed strategic claims)
-- Design preferences (accumulated audit findings)
-- Session context (last session summary injected into next)
-
-## Architecture
-
-```
-Programs (brain)     →  strategy.md, build.md, meta.md
-Agents (hands)       →  strategist, builder, sweep, scout, design-engineer
-Knowledge (memory)   →  portfolio.json, landscape.json, taste.jsonl
-Scoring (eyes)       →  score.sh (training loss) + taste.mjs (eval loss)
-```
-
-Agents communicate through the filesystem. Sweep writes state → strategist reads it next run. If one agent fails, the others keep working. Meta catches silent failures within 48h.
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full breakdown.
-
-## Install options
+## Install (2 minutes)
 
 ```bash
-./install.sh              # full install with macOS LaunchAgents
-./install.sh --no-launchd # skip scheduled automation
-./install.sh --no-backup  # skip backing up existing files
-rhino status              # verify everything is connected
+git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
+cd ~/rhino-os && ./install.sh
 ```
 
-The installer symlinks agents, skills, rules, and hooks into `~/.claude/`, merges configs additively (your existing settings are preserved), and links the `rhino` CLI to `~/bin/rhino`.
+Then in any project:
 
-**On Linux:** Core functionality works. Scheduled automation (LaunchAgents) is macOS-only — the CLI's built-in catchup system triggers overdue agents when you run any `rhino` command.
+```bash
+cd ~/your-project
+rhino init .
 
-## Customization
+# Open Claude Code and say:
+#   "run strategy"  — to plan
+#   "let's build"   — to build
+#   "rhino go ."    — to do both
+```
 
-- `config/rhino.yml` — agent budgets, scoring thresholds, cache TTLs, integrity guards
-- `config/CLAUDE.md` — project template (copied to each project on `rhino init`)
-- `agents/*.md` — agent system prompts (edit directly to change behavior)
-- `.claude/features.yml` — map features to routes for targeted taste evaluation
+**Requirements:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with OAuth. macOS or Linux. Node 18+ for visual eval.
+
+## Works with OpenClaw too
+
+If you use [OpenClaw](https://github.com/openclaw/openclaw), rhino-os skills work out of the box.
+
+**Why:** Both systems use the same `skills/*/SKILL.md` format. rhino-os ships 7 skills (`/build`, `/strategy`, `/sweep`, `/scout`, `/experiment`, `/design`, `/meta`) that OpenClaw can pick up directly.
+
+**How to use with OpenClaw:**
+
+```bash
+# 1. Clone rhino-os
+git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
+
+# 2. Copy the skills you want into your OpenClaw workspace
+cp -r ~/rhino-os/skills/build ~/your-openclaw-workspace/skills/
+cp -r ~/rhino-os/skills/strategy ~/your-openclaw-workspace/skills/
+
+# 3. Copy the programs they reference
+cp -r ~/rhino-os/programs ~/your-openclaw-workspace/
+
+# 4. Copy the scoring script
+cp ~/rhino-os/bin/score.sh ~/your-openclaw-workspace/bin/
+
+# 5. Use them — say "/build" or "/strategy" in any OpenClaw channel
+```
+
+The scoring system (`score.sh`) is a standalone bash script with zero dependencies — it works anywhere.
+
+> **Note:** Full agent orchestration (meta-grading, artifact verification, LaunchAgent automation) is Claude Code-native. OpenClaw users get the skills, scoring, and programs — which is the core value.
+
+## Two-tier scoring
+
+Like training loss vs eval loss in ML:
+
+- **`rhino score .`** — fast, free, every commit. Checks build health, structure, hygiene. Think of it as a linter for your whole project.
+- **`rhino taste .`** — slow, expensive, on demand. Takes real screenshots and scores what it *sees*. 9 dimensions scored 1-5. This is how you know if your app is actually good.
+
+## Five agents, one filesystem
+
+Agents don't call each other. They communicate by reading and writing files:
+
+```
+Strategist  →  writes plans       →  Builder reads them
+Builder     →  writes scores      →  Strategist reads them next cycle
+Sweep       →  writes state       →  Strategist reads it
+Scout       →  writes positions   →  Builder reads them
+Meta        →  grades everyone    →  fixes broken prompts
+```
+
+If one agent fails, the others keep working. Meta catches silent failures within 48 hours.
+
+## Anti-gaming (scores you can trust)
+
+AI agents love to game metrics. rhino-os fights back:
+
+- **Cosmetic-only detection** — moved some comments around but nothing real? Flagged.
+- **Inflation cap** — score jumped 15+ points in one commit? Warning.
+- **Plateau detection** — same score for 5 runs? You're stuck, not stable.
+- **Stage ceilings** — your MVP scoring 95/100? Something's wrong.
+
+Scores are diagnostic instruments, not goals.
+
+## Knowledge compounds
+
+Every session builds on the last:
+- Experiment learnings (what worked, what didn't, and why)
+- Market positions (evidence-backed strategic claims)
+- Design preferences (accumulated taste signals)
+- Session context (last session summary injected into the next one)
+
+## Customize everything
+
+| File | What it controls |
+|------|-----------------|
+| `config/rhino.yml` | Budgets, scoring thresholds, integrity guards |
+| `agents/*.md` | Agent prompts — edit directly to change behavior |
+| `programs/*.md` | Multi-step workflows — the actual brain |
+| `skills/*/SKILL.md` | Slash command entry points |
 
 See [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md) for details.
-
-## Experiment loop
-
-The core pattern (inspired by [Karpathy's autoresearch](https://x.com/kaboroevich)): modify → measure → keep/discard → log → repeat.
-
-```
-rhino go .              # strategy → build, no human gate
-rhino dashboard         # score history, experiments, dimensions
-rhino dashboard --html  # visual dashboard
-```
-
-Every experiment is logged to `.claude/experiments/` as a TSV with commit, score, delta, status, and description. The system tracks keep rate (target: 40%) and flags if you're being too conservative or too ambitious.
 
 ## Uninstall
 
 ```bash
-./uninstall.sh  # removes symlinks + LaunchAgents, preserves knowledge files
+./uninstall.sh  # removes symlinks + LaunchAgents, keeps your knowledge files
 ```
 
 ## License
