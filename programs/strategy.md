@@ -321,8 +321,11 @@ Log this prediction. Compare after sprint. Update the model.
 ```
 
 ## When to run this
-- Start of a new sprint
-- After an eval
+
+This program is executed by the `/plan` command. It can also be run directly by agents that need strategy logic.
+
+- Start of a new sprint (via `/plan`)
+- After a review surfaces new gaps (via `/plan` reading `review-gaps.md`)
 - When unsure what to work on
 - When 3+ experiments are discarded in a row — the strategy is wrong, not the experiments
 - When the product model hasn't been updated in 2+ sprints

@@ -21,14 +21,14 @@ rhino-os turns a task executor into a **self-improving product engineer.**
 ## How it works (30 seconds)
 
 ```
-You: "run strategy"
-rhino-os: scans your project, finds the biggest bottleneck, writes a sprint plan
+You: "/plan"
+rhino-os: checks health, reads yesterday's gaps, writes a sprint plan
 
-You: "let's build"
-rhino-os: builds it, scores the result, keeps or discards, logs what it learned
+You: "/build"
+rhino-os: builds it, scores every change, keeps or discards, logs what it learned
 
-You: "rhino go ."
-rhino-os: does both with no human gate. point it at a project and go to sleep.
+You: "/go"
+rhino-os: plan → build → review → repeat. walk away and go to sleep.
 ```
 
 That's it. Three commands.
@@ -36,28 +36,24 @@ That's it. Three commands.
 ## The loop
 
 ```
-strategy → plan → build → score → keep or discard → repeat
-    ↑                                                    |
-    └────────────── learnings feed back ─────────────────┘
+plan → build → review → plan (next day)
+  ↑                         |
+  └── review gaps feed ─────┘
 ```
 
 Every cycle, rhino-os gets smarter about your project. It remembers what worked, what didn't, and why.
 
 ## What's inside
 
-### The loop (slash commands in Claude Code)
+### The daily loop (5 commands)
 
-| Command | What it does |
-|---------|-------------|
-| `/strategy` | Finds the biggest bottleneck, writes a sprint plan |
-| `/build` | Builds the plan, scores every change, keeps good ones, discards bad ones |
-| `/experiment` | Autonomous hypothesis testing — informed search, not random guessing |
-| `/eval` | Ship-readiness check — deterministic + functional + ceiling tests |
-| `/design` | UI/UX audit against 11 taste dimensions, finds violations at file:line |
-| `/sweep` | Daily health check — finds issues across all projects |
-| `/scout` | Researches your market — what competitors do, what users expect |
-| `/meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
-| `/go` | Full autopilot — strategy + build + score, no human gate |
+| Command | When | What it does |
+|---------|------|-------------|
+| `/plan` | Morning | Checks health, reads yesterday's gaps, runs strategy. Today's task list. |
+| `/build` | During day | Builds the plan, scores every change, keeps good ones, discards bad ones |
+| `/research` | When stuck | Researches taste dimensions, market landscape, or any topic |
+| `/review` | End of day | Scores + taste + eval. Extracts gaps. Writes tomorrow's input for `/plan`. |
+| `/go` | Walk away | Plan → build → review → repeat. Full autopilot. |
 
 ### Measurement (CLI)
 
@@ -77,18 +73,16 @@ Every cycle, rhino-os gets smarter about your project. It remembers what worked,
 | `rhino config` | Show current configuration from rhino.yml |
 | `rhino dashboard` | Score + experiments + evals unified view |
 
-### More slash commands
+### Utility commands
 
 | Command | What it does |
 |---------|-------------|
-| `/score` | Structural score with trend and integrity warnings |
-| `/taste` | Visual taste eval with weakest dimension and fix suggestion |
-| `/status` | System dashboard — all projects, agents, scores |
 | `/setup` | Onboard a new project |
-| `/council` | Agent brain summary — what each agent recommends |
+| `/status` | System dashboard — all projects, agents, scores |
+| `/meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
 | `/docs` | Generate context documents (platform-docs, architecture, styleguide) |
+| `/council` | Agent brain summary — what each agent recommends |
 | `/smart-commit` | Conventional commit tied to active plan |
-| `/todofocus` | Am I on track? Scope enforcement |
 
 ## Proof it works
 
@@ -145,7 +139,7 @@ rhino setup .
 
 If you use [OpenClaw](https://github.com/openclaw/openclaw), rhino-os skills work out of the box.
 
-**Why:** Both systems use the same `skills/*/SKILL.md` format. rhino-os ships 20 skills that OpenClaw can pick up directly — including `/build`, `/strategy`, `/sweep`, `/scout`, `/experiment`, `/design`, `/meta`, `/eval`, `/go`, and more.
+**Why:** Both systems use the same `skills/*/SKILL.md` format. rhino-os ships 11 skills that OpenClaw can pick up directly — including `/plan`, `/build`, `/review`, `/research`, `/go`, `/meta`, and more.
 
 **How to use with OpenClaw:**
 

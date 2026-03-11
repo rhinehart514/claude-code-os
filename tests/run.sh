@@ -182,9 +182,14 @@ for agent in builder scout strategist design-engineer sweep meta; do
     assert_file "agents/$agent.md exists" "$RHINO_DIR/agents/$agent.md"
 done
 
-# All skills (core + new)
-for skill in eval product-eval experiment smart-commit todofocus product-2026 build strategy design sweep scout meta init go status score taste docs council; do
+# All user-facing skills (5 primary + 6 utility)
+for skill in plan build research review go setup status meta docs council smart-commit; do
     assert_file "skills/$skill/SKILL.md exists" "$RHINO_DIR/skills/$skill/SKILL.md"
+done
+
+# All internal skills
+for skill in eval product-eval experiment todofocus product-2026 strategy design sweep scout init score taste research-taste; do
+    assert_file "skills/_internal/$skill/SKILL.md exists" "$RHINO_DIR/skills/_internal/$skill/SKILL.md"
 done
 
 # All hooks (including new autonomy_gate)
@@ -192,9 +197,10 @@ for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideat
     assert_file "hooks/$hook exists" "$RHINO_DIR/hooks/$hook"
 done
 
-# Both programs
+# All programs
 assert_file "programs/build.md exists" "$HOME/.claude/programs/build.md"
 assert_file "programs/strategy.md exists" "$HOME/.claude/programs/strategy.md"
+assert_file "programs/review.md exists" "$HOME/.claude/programs/review.md"
 
 # --- 1.2 Syntax checks (every script parses) ---
 assert_cmd "bin/rhino parses (bash -n)" bash -n "$RHINO_DIR/bin/rhino"
@@ -263,9 +269,9 @@ fi
 for file in \
     "$HOME/.claude/programs/build.md" \
     "$HOME/.claude/programs/strategy.md" \
-    "$RHINO_DIR/skills/eval/SKILL.md" \
-    "$RHINO_DIR/skills/product-eval/SKILL.md" \
-    "$RHINO_DIR/skills/experiment/SKILL.md" \
+    "$RHINO_DIR/skills/_internal/eval/SKILL.md" \
+    "$RHINO_DIR/skills/_internal/product-eval/SKILL.md" \
+    "$RHINO_DIR/skills/_internal/experiment/SKILL.md" \
     "$RHINO_DIR/agents/meta.md" \
     "$RHINO_DIR/agents/design-engineer.md"; do
     fname=$(basename "$file")
@@ -464,13 +470,13 @@ else
 fi
 
 # --- 2.11 Experiment skill has integrity guards ---
-if grep -q "SUSPECT\|integrity warning" "$RHINO_DIR/skills/experiment/SKILL.md" 2>/dev/null; then
+if grep -q "SUSPECT\|integrity warning" "$RHINO_DIR/skills/_internal/experiment/SKILL.md" 2>/dev/null; then
     assert "experiment skill has SUSPECT status for integrity warnings" 0
 else
     assert "experiment skill has SUSPECT status for integrity warnings" 1
 fi
 
-if grep -q "tool-measured scores\|Prefer tool" "$RHINO_DIR/skills/experiment/SKILL.md" 2>/dev/null; then
+if grep -q "tool-measured scores\|Prefer tool" "$RHINO_DIR/skills/_internal/experiment/SKILL.md" 2>/dev/null; then
     assert "experiment skill prefers tool-measured over self-assessment" 0
 else
     assert "experiment skill prefers tool-measured over self-assessment" 1
@@ -511,6 +517,7 @@ done
 # --- 2.14 Cross-consistency: every skill referenced in CLAUDE.md has a SKILL.md ---
 for skill_dir in "$RHINO_DIR/skills"/*/; do
     skill_name=$(basename "$skill_dir")
+    [[ "$skill_name" == "_internal" ]] && continue
     if [[ -f "$skill_dir/SKILL.md" ]]; then
         assert "skill $skill_name has SKILL.md" 0
     else
@@ -654,7 +661,7 @@ done
 
 # --- 2.22 Boundary: no program or agent instructs writing to CLAUDE.md ---
 CLAUDE_MD_WRITERS=""
-for md_file in "$RHINO_DIR/programs"/*.md "$RHINO_DIR/agents"/*.md "$RHINO_DIR/skills"/*/SKILL.md; do
+for md_file in "$RHINO_DIR/programs"/*.md "$RHINO_DIR/agents"/*.md "$RHINO_DIR/skills"/*/SKILL.md "$RHINO_DIR/skills/_internal"/*/SKILL.md; do
     [[ -f "$md_file" ]] || continue
     base=$(basename "$(dirname "$md_file")")/$(basename "$md_file")
     # Match "update/write/edit CLAUDE.md" but exclude negations and meta-references (describing the rule itself)
@@ -754,7 +761,7 @@ fi
 
 # --- 2.33 Skills read experiment learnings before acting ---
 SKILLS_WITH_LEARNINGS=0
-for skill_file in eval/SKILL.md product-eval/SKILL.md design/SKILL.md strategy/SKILL.md build/SKILL.md experiment/SKILL.md; do
+for skill_file in _internal/eval/SKILL.md _internal/product-eval/SKILL.md _internal/design/SKILL.md _internal/strategy/SKILL.md build/SKILL.md _internal/experiment/SKILL.md plan/SKILL.md review/SKILL.md research/SKILL.md; do
     if grep -q "experiment-learnings" "$RHINO_DIR/skills/$skill_file" 2>/dev/null; then
         SKILLS_WITH_LEARNINGS=$((SKILLS_WITH_LEARNINGS + 1))
     fi
@@ -766,7 +773,7 @@ else
 fi
 
 # --- 2.34 Experiment skill references thinking protocol ---
-if grep -q "thinking.md" "$RHINO_DIR/skills/experiment/SKILL.md" 2>/dev/null; then
+if grep -q "thinking.md" "$RHINO_DIR/skills/_internal/experiment/SKILL.md" 2>/dev/null; then
     assert "experiment skill references thinking protocol" 0
 else
     assert "experiment skill references thinking protocol" 1
@@ -816,7 +823,8 @@ fi
 
 # --- 2.38 Enhanced skills read workspace.json ---
 SKILLS_WITH_WORKSPACE=0
-for skill_dir in "$RHINO_DIR/skills"/*/; do
+for skill_dir in "$RHINO_DIR/skills"/*/ "$RHINO_DIR/skills/_internal"/*/; do
+    [[ ! -d "$skill_dir" ]] && continue
     skill_file="$skill_dir/SKILL.md"
     [[ -f "$skill_file" ]] || continue
     if grep -q "workspace.json\|autonomy" "$skill_file" 2>/dev/null; then
@@ -831,8 +839,15 @@ fi
 
 # --- 2.39 Enhanced skills have brain read/write ---
 SKILLS_WITH_BRAIN=0
-for skill in build strategy experiment eval design sweep scout meta; do
+for skill in build plan review research go; do
     skill_file="$RHINO_DIR/skills/$skill/SKILL.md"
+    [[ -f "$skill_file" ]] || continue
+    if grep -q "brains/" "$skill_file" 2>/dev/null; then
+        SKILLS_WITH_BRAIN=$((SKILLS_WITH_BRAIN + 1))
+    fi
+done
+for skill in strategy experiment eval design sweep scout meta; do
+    skill_file="$RHINO_DIR/skills/_internal/$skill/SKILL.md"
     [[ -f "$skill_file" ]] || continue
     if grep -q "brains/" "$skill_file" 2>/dev/null; then
         SKILLS_WITH_BRAIN=$((SKILLS_WITH_BRAIN + 1))

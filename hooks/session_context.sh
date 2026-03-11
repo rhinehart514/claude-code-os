@@ -106,7 +106,7 @@ else
 ## Learning Agenda (no active plan yet)
 $AGENDA_HEADER
 ($unchecked graduation criteria remaining — full agenda at $LEARNING_AGENDA)
-Run /experiment to start learning (NOT /strategy yet).
+Run /build in experiment mode to start learning (NOT /plan yet).
 "
         fi
     fi
@@ -228,7 +228,7 @@ if [[ -d "$TASTE_KNOWLEDGE_DIR" ]]; then
             CONTEXT+="
 ## Taste Knowledge: ${researched_count}/11 dimensions researched"
             if (( stale_count > 0 )); then
-                CONTEXT+=" (${stale_count} stale — run /research-taste stale)"
+                CONTEXT+=" (${stale_count} stale — run /research stale)"
             fi
             CONTEXT+="
 "

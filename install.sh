@@ -123,9 +123,22 @@ fi
 # --- 4. Symlink skills as commands ---
 echo ""
 echo -e "${BOLD}Skills:${NC}"
+
+# Clean up old symlinks for skills that moved to _internal
+for old_cmd in strategy sweep todofocus experiment design score taste eval product-eval scout research-taste init product-2026; do
+    old_cmd_file="$CLAUDE_DIR/commands/$old_cmd/SKILL.md"
+    if [[ -L "$old_cmd_file" || -f "$old_cmd_file" ]]; then
+        $DRY_RUN || rm -f "$old_cmd_file"
+        $DRY_RUN || rmdir "$CLAUDE_DIR/commands/$old_cmd" 2>/dev/null || true
+        action "removed old command: $old_cmd"
+    fi
+done
+
 for skill_dir in "$RHINO_DIR"/skills/*/; do
     [[ ! -d "$skill_dir" ]] && continue
     skill_name="$(basename "$skill_dir")"
+    # Skip _internal directory — these are not user-invocable
+    [[ "$skill_name" == "_internal" ]] && continue
     skill_file="$skill_dir/SKILL.md"
     [[ ! -f "$skill_file" ]] && continue
 

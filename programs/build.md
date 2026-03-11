@@ -21,7 +21,7 @@ Before ANY implementation: write a prediction. After scoring: compare to reality
 ## Setup
 
 1. If `.claude/experiments/baseline.json` doesn't exist, run `rhino setup .` first.
-2. Read `.claude/plans/active-plan.md` — your contract. If it doesn't exist, run strategy program first.
+2. Read `.claude/plans/active-plan.md` — your contract. If it doesn't exist, run `/plan` first.
 3. Read the project's `CLAUDE.md` — eval scores, sprint priority, "do not build" list.
 4. Run `rhino score .` to get the current baseline. Record it.
 
@@ -611,6 +611,9 @@ This is the "De-Sloppify pattern" — let the builder be thorough and creative, 
 
 ## After the session
 
+Run `/review` to measure results, extract gaps, and bridge to tomorrow's `/plan`.
+
+If running inline (not via `/review`):
 1. Run `rhino score .` + `rhino taste eval` — compare to baseline
 2. Post taste eval screenshots + experiment log for human review
 4. `rhino visuals [dir]` to update GitHub badges if needed

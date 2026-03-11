@@ -20,44 +20,42 @@ Log predictions to `~/.claude/knowledge/predictions.tsv`. After compaction, re-r
 
 # How To Work
 
-## Skills — Your Commands
+## Commands — 5 Primary + 6 Utility
 
-| Skill | What it does |
-|-------|-------------|
-| `/strategy` | What should we build? Maps creation loop, finds bottleneck, produces sprint plan. |
-| `/build` | Build it. Reads plan, detects scope, executes, scores, keeps or discards. |
-| `/experiment [dim]` | Autoresearch loop. Informed search, not random guessing. |
-| `/eval` | Ship-readiness check. Deterministic + functional + ceiling tests. |
-| `/design` | UI/UX audit against 11 taste dimensions. Finds violations, fixes them. |
-| `/meta` | Self-improvement. Grades agents, applies fixes, tracks whether fixes worked. |
-| `/product-eval` | Full product audit. "Would anyone use this?" |
-| `/sweep` | Daily triage. GREEN/YELLOW/RED/GRAY across all projects. |
-| `/scout` | Landscape intelligence. What works in 2026. |
-| `/go` | Autonomous build loop. Strategy→build→score→taste→repeat. |
-| `/score` | Structural quality score. |
-| `/taste` | Visual product quality eval. |
+### Primary (the daily loop)
+| Command | When | What it does |
+|---------|------|-------------|
+| `/plan` | Morning | Checks health, reads yesterday's gaps, runs strategy if needed. Today's task list. |
+| `/build` | During day | Builds the plan. Scores every change, keeps or discards. Experiments when stuck. |
+| `/research` | When stuck | Researches taste dimensions, market landscape, or any topic. |
+| `/review` | End of day | Scores + taste + eval. Extracts gaps. Writes tomorrow's input for `/plan`. |
+| `/go` | Walk away | Plan → build → review → repeat. Fully autonomous. |
+
+### Utility (always available)
+| Command | What it does |
+|---------|-------------|
+| `/setup` | Onboard a new project into rhino-os. |
 | `/status` | System dashboard — all projects, agents, scores. |
+| `/meta` | Self-improvement. Grades agents, applies fixes. |
 | `/docs` | Generate context documents (platform-docs, architecture, styleguide). |
 | `/council` | Agent brain summary — what each agent recommends. |
 | `/smart-commit` | Conventional commit tied to active plan. |
-| `/todofocus` | Am I on track? Scope enforcement. |
-| `/setup` | Onboard a new project into rhino-os. |
-| `/research-taste` | Research taste dimensions — patterns, exemplars, anti-patterns from the web. |
 
 ## The Loop
 ```
-/strategy → sprint plan → /build (change → score → keep/discard) → /eval → /strategy
+/plan (morning) → /build (during day) → /review (end of day) → /plan (next morning)
 ```
+
+Review writes gaps → plan reads them → tasks flow naturally.
 
 ## Quick Reference
 - Quick fix (typo, obvious bug, one-liner): just do it
+- Start your day: `/plan`
 - Non-trivial feature: `/build` (auto-starts in gate mode)
-- Scope check: `/todofocus`
-- Readiness check: `/eval`
+- Stuck on something: `/research`
+- End of day: `/review`
+- Full autopilot: `/go`
 - Commit: `/smart-commit`
-- Market intelligence: `/scout`
-- Daily triage: `/sweep`
-- UI/UX work: `/design`
 - System overview: `/status`
 
 ## Founder Trust

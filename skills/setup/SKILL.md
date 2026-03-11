@@ -140,6 +140,39 @@ Deliberate exploration targeting the unknowns above (not random building):
 
 When graduation criteria are all checked off and a real plan exists in `.claude/plans/active-plan.md`, the agenda stops showing in session context.
 
+## Step 7c: Generate First Milestone
+
+Generate `.claude/plans/milestones.md` — the progress container that flows between all skills.
+
+The first milestone is stage-aware:
+- **mvp** → "Ship v0.1" — DoD: core loop works, one user completes flow, deployable
+- **early** → "Close the loop" — DoD: creation + sharing + return all work
+- **growth** → "Scale [weakest link]" — DoD: based on bottleneck analysis
+- **mature** → "Optimize [metric]" — DoD: measurable improvement target
+
+Write:
+```markdown
+# Milestones — [project-name]
+
+## Current: [stage-appropriate milestone name]
+Target: [what "done" looks like — 1 sentence, user-visible]
+Started: [date]
+Progress: 0/[N] done criteria met
+
+### Definition of Done
+- [ ] [concrete, testable criterion]
+- [ ] [concrete, testable criterion]
+- [ ] [concrete, testable criterion]
+
+### Sprints
+
+## Shipped
+
+## Ideas (not commitments)
+```
+
+Tell the founder: "Edit the milestone and Definition of Done — the point is having a container, not prescribing the destination."
+
 ## Step 8: Register in Workspace
 
 Run workspace registration. Source the workspace helper and register:

@@ -87,9 +87,10 @@ check "build.md has first-build skip rules" "$(grep -q 'FIRST BUILD' "$RHINO_DIR
 echo ""
 echo -e "${BOLD}5. Skills have conditional loading${NC}"
 
-check "strategy skill loads correctly" "$([ -f "$RHINO_DIR/skills/strategy/SKILL.md" ] && echo 0 || echo 1)"
+check "strategy skill loads correctly" "$([ -f "$RHINO_DIR/skills/_internal/strategy/SKILL.md" ] && echo 0 || echo 1)"
 check "build skill loads correctly" "$([ -f "$RHINO_DIR/skills/build/SKILL.md" ] && echo 0 || echo 1)"
-check "strategy skill references cold-start" "$(grep -q -i 'cold.start\|first.run\|no.*learnings\|empty.*state' "$RHINO_DIR/skills/strategy/SKILL.md" 2>/dev/null && echo 0 || echo 1)"
+check "plan skill loads correctly" "$([ -f "$RHINO_DIR/skills/plan/SKILL.md" ] && echo 0 || echo 1)"
+check "strategy skill references cold-start" "$(grep -q -i 'cold.start\|first.run\|no.*learnings\|empty.*state' "$RHINO_DIR/skills/_internal/strategy/SKILL.md" 2>/dev/null && echo 0 || echo 1)"
 check "build skill references cold-start" "$(grep -q -i 'cold.start\|first.run\|first.build\|no.*history' "$RHINO_DIR/skills/build/SKILL.md" 2>/dev/null && echo 0 || echo 1)"
 
 echo ""

@@ -6,55 +6,62 @@ user-invocable: true
 
 # Status — System Dashboard
 
-Show a unified view of the rhino-os system state.
+Show a unified view of the rhino-os system state. Lead with what the founder cares about — progress, not internals.
 
-## 1. Workspace Overview
+## 1. Project Progress (always first)
 
-Read `~/.claude/state/workspace.json`. For each active project:
+For the focus project (from `~/.claude/state/workspace.json`), read `.claude/plans/milestones.md` and show:
+
 ```
-[project-name] ([stage]) — autonomy: [level], experimentation: [level]
-  Path: [path]
-  Last score: [score or "never"]
-  Last taste: [taste or "never"]
-  [FOCUS] ← if this is the focus project
+## [project-name] — [stage]
+
+Milestone: [name] — [X/Y done] — [N days in]
+Sprint: [title] — [X/Y tasks]
+Health: GREEN | Score: [X] | Taste: [X]
+Ideas queued: [N]
+
+Trajectory (last 5):
+  Score: [val] → [val] → [val] → [val] → [val]
+  Taste: [val] → [val] → [val] → [val] → [val]
 ```
 
-## 2. Agent Council
+If no milestones.md exists, show score/taste/plan progress without milestone context.
+
+## 2. Other Active Projects
+
+For each non-focus active project in workspace.json:
+```
+[project-name] ([stage]) — Score: [X] | Taste: [X]
+```
+
+## 3. Active Plan
+
+Read `.claude/plans/active-plan.md` for the current project. Show title and task progress.
+
+## 4. Agent Council
 
 Read all brain files from `~/.claude/state/brains/*.json`. For each:
 ```
 [agent]: [next_move]
   Last run: [timestamp]
-  Bias: [bias_awareness summary]
 ```
 
-## 3. Latest Sweep
+## 5. Knowledge & System Health (verbose)
 
-Read `~/.claude/state/sweep-latest.md`. Show the first 10 lines (summary + classification).
+Show by default as a compact summary. Full detail with `--verbose`:
 
-## 4. Score & Taste
-
-For the focus project, show:
-- Latest score from `.claude/cache/score-cache.json` or recent score run
-- Latest taste from `.claude/evals/reports/taste-*.json`
-- Integrity warnings if any
-- Trend (improving/declining/flat)
-
-## 5. Active Plan
-
-Read `.claude/plans/active-plan.md` for the current project. Show title and task progress.
-
-## 6. Knowledge Health
-
+**Knowledge**:
 - Experiment learnings: line count + last updated
 - Predictions: accuracy percentage
 - Patterns: count of confirmed patterns
 
-## 7. System Health
-
+**System**:
 - Claude CLI: installed? version?
 - rhino-os version
 - Hooks: count of active hooks in settings.json
 - Symlinks: count of valid agent/program symlinks
 
-Present everything in a clean, scannable format. Group by section with clear headers.
+**Latest Sweep**:
+Read `~/.claude/state/sweep-latest.md`. Show classification only (GREEN/YELLOW/RED). Full sweep with `--verbose`.
+
+Present everything in a clean, scannable format. Progress first, internals last.
