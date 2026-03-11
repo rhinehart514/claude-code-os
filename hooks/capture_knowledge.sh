@@ -97,7 +97,24 @@ $plan_title
 "
 fi
 
-# 4. Taste signals recorded today
+# 4. Plan progress — completed vs remaining tasks
+if [[ -n "$PLAN_FILE" ]]; then
+    completed_tasks=$(grep -c '\[x\]' "$PLAN_FILE" 2>/dev/null || echo "0")
+    remaining_tasks=$(grep -c '\[ \]' "$PLAN_FILE" 2>/dev/null || echo "0")
+    if [[ "$completed_tasks" -gt 0 || "$remaining_tasks" -gt 0 ]]; then
+        CAPTURE+="### Progress
+$completed_tasks done, $remaining_tasks remaining
+"
+    fi
+    next_task=$(grep -m1 '\[ \]' "$PLAN_FILE" 2>/dev/null | sed 's/.*\[ \] //')
+    if [[ -n "$next_task" ]]; then
+        CAPTURE+="### Next
+$next_task
+"
+    fi
+fi
+
+# 5. Taste signals recorded today
 TASTE_FILE="$KNOWLEDGE_DIR/taste.jsonl"
 if [[ -f "$TASTE_FILE" ]] && command -v jq &>/dev/null; then
     today_taste=$(grep "$TODAY" "$TASTE_FILE" 2>/dev/null | head -5)
@@ -107,6 +124,28 @@ if [[ -f "$TASTE_FILE" ]] && command -v jq &>/dev/null; then
             CAPTURE+="### Taste signals
 $taste_summary
 "
+        fi
+    fi
+fi
+
+# 6. Founder taste capture — detect taste statements in recent session artifacts
+# Look for taste-related keywords in recent changes to CLAUDE.md, plans, or docs
+FOUNDER_TASTE_FILE="$KNOWLEDGE_DIR/founder-taste.md"
+if git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree &>/dev/null; then
+    # Check recent commit messages and diffs for taste signals
+    taste_keywords="looks like|feels like|I like how|I want it to|should look|should feel|too cluttered|too sparse|too generic|more like|inspired by|Linear|Notion|Discord|Arc|beautiful|ugly|clean|messy|polished|rough"
+    recent_taste=$(git -C "$PROJECT_DIR" log --oneline -5 --since="30 minutes ago" --format="%s" 2>/dev/null | grep -iE "$taste_keywords" | head -3)
+    if [[ -n "$recent_taste" ]]; then
+        CAPTURE+="### Taste Preferences Detected
+$recent_taste
+"
+        # Append to founder-taste.md if it exists
+        if [[ -f "$FOUNDER_TASTE_FILE" ]]; then
+            {
+                echo "- [auto-captured $TODAY]: $recent_taste"
+                echo "  - Context: commit message in $PROJECT_NAME"
+                echo "  - Strength: weak (auto-detected, needs confirmation)"
+            } >> "$FOUNDER_TASTE_FILE"
         fi
     fi
 fi

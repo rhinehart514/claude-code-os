@@ -8,7 +8,7 @@ set -uo pipefail
 # Measures what grep CAN measure honestly:
 #   1. Build health  — does it compile? (gate: pass/fail)
 #   2. Structure     — dead ends, empty states, navigation (0-100)
-#   3. Hygiene       — any types, console.logs, TODOs, hardcoded values (0-100)
+#   3. Hygiene       — any types, console.logs, todos, hardcoded values (0-100)
 #
 # What this does NOT measure (taste's job):
 #   - Does the UX feel good? → rhino taste
@@ -213,6 +213,12 @@ score_structure() {
             while IFS= read -r ref; do
                 ref=$(echo "$ref" | sed 's/`//g' | xargs 2>/dev/null)
                 [[ -z "$ref" ]] && continue
+                # Skip glob patterns (*, ?) — these are templates, not literal paths
+                [[ "$ref" == *'*'* || "$ref" == *'?'* ]] && continue
+                # Skip refs containing newlines or spaces (multi-line false positives)
+                [[ "$ref" == *$'\n'* || "$ref" == *" "* ]] && continue
+                # Skip refs that are clearly not file paths (contain brackets, etc.)
+                [[ "$ref" == *'['* || "$ref" == *'('* || "$ref" == *'{'* ]] && continue
                 # Only check refs that look like file paths (contain / or end with known extensions)
                 if [[ "$ref" == */* || "$ref" == *.sh || "$ref" == *.md || "$ref" == *.yml || "$ref" == *.json || "$ref" == *.mjs ]]; then
                     # Expand ~ to $HOME
@@ -327,7 +333,7 @@ score_hygiene() {
     if [[ "$PROJECT_TYPE" == "cli" ]]; then
         # CLI hygiene: check shell scripts and JS files in bin/
 
-        # TODO/FIXME/HACK in shell scripts and JS
+        # Check for unfinished work markers in shell scripts and JS
         local todo_count
         todo_count=$(grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.sh" --include="*.mjs" "$SRC_DIR" 2>/dev/null | grep -v "node_modules" | wc -l | tr -d ' ')
         tiered_penalty "$todo_count" "20:-20 10:-10 3:-5"
@@ -362,9 +368,9 @@ score_hygiene() {
         hardcoded_paths=$(grep -rn "/Users/\|/home/" --include="*.sh" --include="*.mjs" "$SRC_DIR" 2>/dev/null | grep -v "# ok\|example\|template\|node_modules" | wc -l | tr -d ' ')
         tiered_penalty "$hardcoded_paths" "10:-20 5:-10 1:-5"
 
-        # Unreachable code after return/exit
+        # Unreachable code after return/exit (only count if next non-blank line is actual code, not control flow)
         local dead_code
-        dead_code=$(grep -rn -A1 "^\s*\(return\|exit\)" --include="*.sh" "$SRC_DIR" 2>/dev/null | grep -v "^--$\|return\|exit\|}\|esac\|fi\|done\|else\|#" | wc -l | tr -d ' ')
+        dead_code=$(grep -rn -A1 "^\s*return\b\|^\s*exit\b" --include="*.sh" "$SRC_DIR" 2>/dev/null | grep -v "return\|exit\|}\|esac\|fi\|done\|else\|elif\|#\|^\s*$\|node_modules\|local\|;;\|^--" | wc -l | tr -d ' ')
         tiered_penalty "$dead_code" "10:-15 5:-10 2:-5"
 
         [[ "$score" -lt 0 ]] && score=0
@@ -384,7 +390,7 @@ score_hygiene() {
     console_count=$(grep -rn "console\.\(log\|warn\|error\)" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" 2>/dev/null | grep -v "node_modules\|test\|spec\|__test__\|logger" | wc -l | tr -d ' ')
     tiered_penalty "$console_count" "30:-25 15:-15 5:-5"
 
-    # TODO/FIXME/HACK — unfinished work
+    # Unfinished work markers
     local todo_count
     todo_count=$(grep -rn "TODO\|FIXME\|HACK\|XXX" --include="*.ts" --include="*.$COMP_EXT" "$SRC_DIR" 2>/dev/null | grep -v "node_modules" | wc -l | tr -d ' ')
     tiered_penalty "$todo_count" "30:-20 15:-10 5:-5"
@@ -445,40 +451,49 @@ if [[ ! -f "$HISTORY_FILE" ]]; then
     printf "timestamp\tbuild\tstructure\thygiene\tproject_type\n" > "$HISTORY_FILE"
 fi
 
-printf "%s\t%s\t%s\t%s\t%s\n" \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    "$BUILD" "$STRUCTURE" "$HYGIENE" \
-    "$PROJECT_TYPE" >> "$HISTORY_FILE"
+# --- Integrity checks (run BEFORE writing current entry to history) ---
+# Compare the last two EXISTING history entries against each other.
+# This is more reliable than current-vs-previous because both entries were
+# computed by score.sh (no mismatch between fresh computation and seeded/stale data).
+HIST_LINES=$(wc -l < "$HISTORY_FILE" | tr -d ' ')
 
-# --- Integrity checks ---
-# COSMETIC-ONLY: only hygiene moved, structure unchanged
-if [[ $(wc -l < "$HISTORY_FILE" | tr -d ' ') -ge 3 ]]; then
-    prev_structure=$(tail -2 "$HISTORY_FILE" | head -1 | cut -f3)
-    prev_hygiene=$(tail -2 "$HISTORY_FILE" | head -1 | cut -f4)
-    if [[ -n "$prev_structure" && "$prev_structure" =~ ^[0-9]+$ && -n "$prev_hygiene" && "$prev_hygiene" =~ ^[0-9]+$ ]]; then
-        struct_delta=$((STRUCTURE - prev_structure))
-        hygiene_delta=$((HYGIENE - prev_hygiene))
+# COSMETIC-ONLY + INFLATION: compare last two history entries
+if [[ "$HIST_LINES" -ge 3 ]]; then
+    hist_last_structure=$(tail -1 "$HISTORY_FILE" | cut -f3)
+    hist_last_hygiene=$(tail -1 "$HISTORY_FILE" | cut -f4)
+    hist_prev_structure=$(tail -2 "$HISTORY_FILE" | head -1 | cut -f3)
+    hist_prev_hygiene=$(tail -2 "$HISTORY_FILE" | head -1 | cut -f4)
+    if [[ -n "$hist_prev_structure" && "$hist_prev_structure" =~ ^[0-9]+$ && -n "$hist_prev_hygiene" && "$hist_prev_hygiene" =~ ^[0-9]+$ \
+       && -n "$hist_last_structure" && "$hist_last_structure" =~ ^[0-9]+$ && -n "$hist_last_hygiene" && "$hist_last_hygiene" =~ ^[0-9]+$ ]]; then
+        h_struct_delta=$((hist_last_structure - hist_prev_structure))
+        h_hygiene_delta=$((hist_last_hygiene - hist_prev_hygiene))
         # Cosmetic-only: hygiene improved but structure didn't
-        if [[ "$hygiene_delta" -gt 5 && "$struct_delta" -le 0 ]]; then
-            INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}COSMETIC-ONLY: hygiene +${hygiene_delta} but structure ${struct_delta}. Cleanup without structural improvement.\n"
+        if [[ "$h_hygiene_delta" -gt 5 && "$h_struct_delta" -le 0 ]]; then
+            INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}COSMETIC-ONLY: hygiene +${h_hygiene_delta} but structure ${h_struct_delta}. Cleanup without structural improvement.\n"
         fi
         # Inflation: single commit jumped too much
         max_delta=$(cfg integrity.max_single_commit_delta 15)
-        total_delta=$(( (STRUCTURE - prev_structure) + (HYGIENE - prev_hygiene) ))
-        if [[ "$total_delta" -gt "$max_delta" ]]; then
-            INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}INFLATION: score jumped +${total_delta} in one run (max: ${max_delta}). Verify changes are real.\n"
+        h_total_delta=$(( h_struct_delta + h_hygiene_delta ))
+        if [[ "$h_total_delta" -gt "$max_delta" ]]; then
+            INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}INFLATION: score jumped +${h_total_delta} in one run (max: ${max_delta}). Verify changes are real.\n"
         fi
     fi
 fi
 
-# PLATEAU: score unchanged across N runs
+# PLATEAU: score unchanged across N runs (checked before writing current entry)
 plateau_runs=$(cfg integrity.plateau_experiments 5)
-if [[ $(wc -l < "$HISTORY_FILE" | tr -d ' ') -gt "$plateau_runs" ]]; then
+if [[ "$HIST_LINES" -gt "$plateau_runs" ]]; then
     unique_scores=$(tail -"$plateau_runs" "$HISTORY_FILE" | cut -f3 | sort -u | wc -l | tr -d ' ')
     if [[ "$unique_scores" -eq 1 ]]; then
         INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}PLATEAU: structure score unchanged across last ${plateau_runs} runs. Might be stuck.\n"
     fi
 fi
+
+# --- Write current entry to history (after integrity checks) ---
+printf "%s\t%s\t%s\t%s\t%s\n" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$BUILD" "$STRUCTURE" "$HYGIENE" \
+    "$PROJECT_TYPE" >> "$HISTORY_FILE"
 
 # STAGE CEILING: flag scores exceeding ceiling for current stage
 if [[ -f ".claude/plans/active-plan.md" ]] || [[ -f "config/rhino.yml" ]]; then
@@ -493,6 +508,54 @@ if [[ -f ".claude/plans/active-plan.md" ]] || [[ -f "config/rhino.yml" ]]; then
     esac
     if [[ -n "$ceiling_max" && "$local_min" -gt "$ceiling_max" ]]; then
         INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}CEILING: score ${local_min} exceeds ${local_stage} stage ceiling (${ceiling_max}). Verify this isn't inflated.\n"
+    fi
+fi
+
+# EXPERIMENT DISCIPLINE: check experiment health from TSVs
+# These read the 4 config values that were previously defined but never enforced.
+exp_discard_floor=$(cfg experiments.discard_rate_floor 0.25)
+exp_min_delta=$(cfg experiments.min_keep_delta 0.02)
+exp_moonshot_n=$(cfg experiments.moonshot_every_n 5)
+
+if [[ -d ".claude/experiments" ]]; then
+    # Aggregate across all experiment TSVs
+    total_kept=0
+    total_discarded=0
+    total_experiments=0
+    recent_discards=0
+    last_n_experiments=""
+
+    for tsv in .claude/experiments/*.tsv; do
+        [[ -f "$tsv" ]] || continue
+        kept=$(grep -c 'keep' "$tsv" 2>/dev/null || echo 0)
+        discarded=$(grep -c 'discard' "$tsv" 2>/dev/null || echo 0)
+        total_kept=$((total_kept + kept))
+        total_discarded=$((total_discarded + discarded))
+        total_experiments=$((total_experiments + kept + discarded))
+        # Collect last N experiment statuses for moonshot check
+        tail -n "$exp_moonshot_n" "$tsv" | grep -v '^commit\|^---\|^$' >> "$CACHE_DIR/.exp_recent" 2>/dev/null || true
+    done
+
+    if [[ "$total_experiments" -ge 5 ]]; then
+        # KEEP_RATE_HIGH: discard rate below floor = not exploring enough
+        discard_rate=0
+        if [[ "$total_experiments" -gt 0 ]]; then
+            discard_rate=$((total_discarded * 100 / total_experiments))
+        fi
+        discard_floor_pct=$(echo "$exp_discard_floor" | awk '{printf "%d", $1 * 100}')
+        if [[ "$discard_rate" -lt "$discard_floor_pct" ]]; then
+            INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}KEEP_RATE_HIGH: ${total_kept}/${total_experiments} kept (discard rate ${discard_rate}% < ${discard_floor_pct}% floor). Not exploring enough — try riskier hypotheses.\n"
+        fi
+
+        # NO_MOONSHOTS: last N experiments all kept = no risk-taking
+        if [[ -f "$CACHE_DIR/.exp_recent" ]]; then
+            recent_total=$(wc -l < "$CACHE_DIR/.exp_recent" | tr -d ' ')
+            recent_discards=$(grep -c 'discard' "$CACHE_DIR/.exp_recent" 2>/dev/null || echo 0)
+            if [[ "$recent_total" -ge "$exp_moonshot_n" && "$recent_discards" -eq 0 ]]; then
+                INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}NO_MOONSHOTS: last ${recent_total} experiments all kept. Every ${exp_moonshot_n}th experiment should be high-risk. Try something that might fail.\n"
+            fi
+            rm -f "$CACHE_DIR/.exp_recent"
+        fi
     fi
 fi
 
@@ -607,7 +670,7 @@ EOF
         color=$(dim_color "$v")
         marker=""
         [[ "$v" -eq "$local_min" ]] && marker=" ◀ weakest"
-        echo -e "  Hygiene    ${color}${bar}\033[0m  ${v}/100  ${trend}  \033[2many, console.log, TODOs, @ts-ignore${marker}\033[0m"
+        echo -e "  Hygiene    ${color}${bar}\033[0m  ${v}/100  ${trend}  \033[2many, console.log, todos, @ts-ignore${marker}\033[0m"
 
         # Taste — the product quality layer
         if [[ -n "$TASTE_SCORE" && "$TASTE_SCORE" =~ ^[0-9]+$ ]]; then

@@ -1,346 +1,242 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# install.sh — Install rhino-os into ~/.claude/
+# install.sh — One-command setup for rhino-os.
+# Idempotent — safe to re-run.
 #
-# What this does:
-# 1. Backs up existing files before overwriting
-# 2. Symlinks individual files (not directories) from repo into ~/.claude/
-# 3. Merges settings.json (preserves your existing hooks and config)
-# 4. Seeds knowledge directories from templates
-# 5. Installs LaunchAgents on macOS (optional)
-#
-# Safe to re-run (idempotent).
-#
-# Usage: ./install.sh [--no-launchd] [--no-backup]
+# Usage:
+#   ./install.sh           # install everything
+#   ./install.sh --check   # dry-run, show what would happen
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+RHINO_DIR="$SCRIPT_DIR"
 CLAUDE_DIR="$HOME/.claude"
-BACKUP_DIR="$CLAUDE_DIR/.backup-$(date +%Y%m%d-%H%M%S)"
-INSTALL_LAUNCHD=true
-CREATE_BACKUP=true
+DRY_RUN=false
 
-# Parse args
 for arg in "$@"; do
-    case $arg in
-        --no-launchd) INSTALL_LAUNCHD=false ;;
-        --no-backup) CREATE_BACKUP=false ;;
-        --help|-h)
-            echo "Usage: ./install.sh [--no-launchd] [--no-backup]"
-            echo ""
-            echo "Options:"
-            echo "  --no-launchd  Skip installing macOS LaunchAgents"
-            echo "  --no-backup   Skip backing up existing files"
-            exit 0
-            ;;
+    case "$arg" in
+        --check|--dry-run) DRY_RUN=true ;;
     esac
 done
 
-echo "=== rhino-os installer ==="
-echo "Source: $SCRIPT_DIR"
-echo "Target: $CLAUDE_DIR"
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+action() {
+    if $DRY_RUN; then
+        echo -e "  ${DIM}[dry-run]${NC} $1"
+    else
+        echo -e "  ${GREEN}✓${NC} $1"
+    fi
+}
+
+skip() {
+    echo -e "  ${DIM}[skip]${NC} $1 (already exists)"
+}
+
+# --- 1. Create directories ---
+echo -e "${BOLD}Setting up rhino-os...${NC}"
 echo ""
 
-# Ensure target directories exist
-mkdir -p "$CLAUDE_DIR"/{agents/refs,skills,rules,hooks,evals/rubrics,evals/reports,knowledge,logs,state,plans}
-
-# --- Helper functions ---
-
-backup_if_exists() {
-    local target="$1"
-    if [[ -e "$target" && ! -L "$target" && "$CREATE_BACKUP" == "true" ]]; then
-        mkdir -p "$BACKUP_DIR"
-        local rel_path="${target#$CLAUDE_DIR/}"
-        local backup_path="$BACKUP_DIR/$rel_path"
-        mkdir -p "$(dirname "$backup_path")"
-        cp -a "$target" "$backup_path"
-        echo "  backed up: $rel_path"
+for dir in \
+    "$CLAUDE_DIR/state" \
+    "$CLAUDE_DIR/state/brains" \
+    "$CLAUDE_DIR/knowledge" \
+    "$CLAUDE_DIR/knowledge/meta" \
+    "$CLAUDE_DIR/knowledge/sessions" \
+    "$CLAUDE_DIR/logs" \
+    "$CLAUDE_DIR/programs" \
+    "$CLAUDE_DIR/agents" \
+    "$CLAUDE_DIR/agents/refs" \
+    "$CLAUDE_DIR/agents/docs" \
+    "$CLAUDE_DIR/commands" \
+    "$CLAUDE_DIR/plans"; do
+    if [[ ! -d "$dir" ]]; then
+        $DRY_RUN || mkdir -p "$dir"
+        action "mkdir $dir"
     fi
-}
-
-symlink_file() {
-    local source="$1"
-    local target="$2"
-
-    # Skip if already correctly linked
-    if [[ -L "$target" && "$(readlink "$target")" == "$source" ]]; then
-        echo "  already linked: $(basename "$target")"
-        return
-    fi
-
-    backup_if_exists "$target"
-    ln -sf "$source" "$target"
-    echo "  linked: $(basename "$target")"
-}
-
-# --- 1. Programs (the core of rhino-os) ---
-echo "Installing programs..."
-mkdir -p "$CLAUDE_DIR/programs"
-for program in "$SCRIPT_DIR"/programs/*.md; do
-    name="$(basename "$program")"
-    symlink_file "$program" "$CLAUDE_DIR/programs/$name"
 done
 
-# --- 2. Agents (legacy, still functional) ---
-echo "Installing agents..."
-for agent in "$SCRIPT_DIR"/agents/*.md; do
+# --- 2. Symlink programs ---
+echo ""
+echo -e "${BOLD}Programs:${NC}"
+for prog in "$RHINO_DIR"/programs/*.md; do
+    [[ ! -f "$prog" ]] && continue
+    name="$(basename "$prog")"
+    target="$CLAUDE_DIR/programs/$name"
+    if [[ -L "$target" && "$(readlink "$target")" == "$prog" ]]; then
+        skip "programs/$name"
+    else
+        $DRY_RUN || ln -sf "$prog" "$target"
+        action "programs/$name -> $prog"
+    fi
+done
+
+# --- 3. Symlink agents ---
+echo ""
+echo -e "${BOLD}Agents:${NC}"
+for agent in "$RHINO_DIR"/agents/*.md; do
+    [[ ! -f "$agent" ]] && continue
     name="$(basename "$agent")"
-    symlink_file "$agent" "$CLAUDE_DIR/agents/$name"
-done
-
-# Agent refs (reference docs agents depend on)
-if [[ -d "$SCRIPT_DIR/agents/refs" ]]; then
-    mkdir -p "$CLAUDE_DIR/agents/refs"
-    for ref in "$SCRIPT_DIR"/agents/refs/*.md; do
-        name="$(basename "$ref")"
-        symlink_file "$ref" "$CLAUDE_DIR/agents/refs/$name"
-    done
-fi
-
-# --- 3. Skills ---
-echo "Installing skills..."
-for skill_dir in "$SCRIPT_DIR"/skills/*/; do
-    skill_name="$(basename "$skill_dir")"
-    mkdir -p "$CLAUDE_DIR/skills/$skill_name"
-    if [[ -f "$skill_dir/SKILL.md" ]]; then
-        symlink_file "$skill_dir/SKILL.md" "$CLAUDE_DIR/skills/$skill_name/SKILL.md"
-    fi
-done
-
-# --- 3. Rules ---
-echo "Installing rules..."
-for rule in "$SCRIPT_DIR"/rules/*.md; do
-    name="$(basename "$rule")"
-    symlink_file "$rule" "$CLAUDE_DIR/rules/$name"
-done
-
-# --- 4. Hooks ---
-echo "Installing hooks..."
-for hook in "$SCRIPT_DIR"/hooks/*; do
-    name="$(basename "$hook")"
-    symlink_file "$hook" "$CLAUDE_DIR/hooks/$name"
-    chmod +x "$CLAUDE_DIR/hooks/$name"
-done
-
-# --- 5. Eval rubrics ---
-echo "Installing eval rubrics..."
-for rubric in "$SCRIPT_DIR"/evals/rubrics/*.md; do
-    name="$(basename "$rubric")"
-    symlink_file "$rubric" "$CLAUDE_DIR/evals/rubrics/$name"
-done
-
-# --- 6. CLAUDE.md ---
-echo "Installing CLAUDE.md..."
-if [[ -e "$CLAUDE_DIR/CLAUDE.md" && ! -L "$CLAUDE_DIR/CLAUDE.md" ]]; then
-    echo "  CLAUDE.md exists and is not a symlink."
-    echo "  Your existing CLAUDE.md is preserved. Template available at:"
-    echo "  $SCRIPT_DIR/config/CLAUDE.md"
-else
-    symlink_file "$SCRIPT_DIR/config/CLAUDE.md" "$CLAUDE_DIR/CLAUDE.md"
-fi
-
-# --- 7. Settings.json (merge hooks additively, don't overwrite) ---
-echo "Merging settings.json..."
-if [[ -f "$CLAUDE_DIR/settings.json" ]]; then
-    if command -v jq &> /dev/null; then
-        backup_if_exists "$CLAUDE_DIR/settings.json"
-
-        # Additive merge: add template hooks that don't exist in user config
-        # For each hook in template, check if command already exists in user config
-        jq -s '
-          # Start with user config
-          .[1] as $user | .[0] as $template |
-          $user |
-          # For each hook type (PreToolUse, PostToolUse, Stop), add missing hooks
-          .hooks.PreToolUse |= (
-            . as $existing |
-            ($existing | map(.hooks // [] | map(.command // "")) | flatten) as $cmds |
-            ($template.hooks.PreToolUse // [] | map(
-              select(.hooks as $h | $cmds | any(. == ($h[0].command // "")) | not)
-            )) as $new |
-            $existing + $new
-          ) |
-          .hooks.PostToolUse |= (
-            . as $existing |
-            ($existing | map(.hooks // [] | map(.command // "")) | flatten) as $cmds |
-            ($template.hooks.PostToolUse // [] | map(
-              select(.hooks as $h | $cmds | any(. == ($h[0].command // "")) | not)
-            )) as $new |
-            $existing + $new
-          ) |
-          # Merge non-hooks keys from template (add missing, dont overwrite existing)
-          ($template | del(.hooks)) as $tmpl_base |
-          ($tmpl_base * (. | del(.hooks))) as $merged_base |
-          $merged_base + {hooks: .hooks}
-        ' "$SCRIPT_DIR/config/settings.json" \
-          "$CLAUDE_DIR/settings.json" \
-          > "$CLAUDE_DIR/settings.json.tmp"
-        mv "$CLAUDE_DIR/settings.json.tmp" "$CLAUDE_DIR/settings.json"
-        echo "  merged settings.json (hooks added additively, existing preserved)"
+    target="$CLAUDE_DIR/agents/$name"
+    if [[ -L "$target" && "$(readlink "$target")" == "$agent" ]]; then
+        skip "agents/$name"
     else
-        echo "  WARNING: jq not installed. Skipping settings merge."
-        echo "  Install jq: brew install jq"
-        echo "  Then re-run ./install.sh"
+        $DRY_RUN || ln -sf "$agent" "$target"
+        action "agents/$name -> $agent"
     fi
-else
-    cp "$SCRIPT_DIR/config/settings.json" "$CLAUDE_DIR/settings.json"
-    echo "  created settings.json from template"
-fi
+done
 
-# --- 8. config.json (merge MCP servers) ---
-echo "Merging config.json..."
-if [[ -f "$CLAUDE_DIR/config.json" ]]; then
-    if command -v jq &> /dev/null; then
-        backup_if_exists "$CLAUDE_DIR/config.json"
-        # Additive merge: template MCP servers + user MCP servers (user wins on conflict)
-        jq -s '.[0].mcpServers as $tmpl | .[1] | .mcpServers = ($tmpl + .mcpServers)' \
-            "$SCRIPT_DIR/config/config.json" \
-            "$CLAUDE_DIR/config.json" \
-            > "$CLAUDE_DIR/config.json.tmp"
-        # Expand $HOME in paths (MCP server args use $HOME)
-        sed "s|\$HOME|$HOME|g" "$CLAUDE_DIR/config.json.tmp" > "$CLAUDE_DIR/config.json.tmp2"
-        mv "$CLAUDE_DIR/config.json.tmp2" "$CLAUDE_DIR/config.json"
-        rm -f "$CLAUDE_DIR/config.json.tmp"
-        echo "  merged config.json (MCP servers added additively, yours preserved)"
+# Agent refs
+for ref in "$RHINO_DIR"/agents/refs/*.md; do
+    [[ ! -f "$ref" ]] && continue
+    name="$(basename "$ref")"
+    target="$CLAUDE_DIR/agents/refs/$name"
+    if [[ -L "$target" && "$(readlink "$target")" == "$ref" ]]; then
+        skip "agents/refs/$name"
     else
-        echo "  WARNING: jq not installed. Skipping config merge."
+        $DRY_RUN || ln -sf "$ref" "$target"
+        action "agents/refs/$name -> $ref"
     fi
-else
-    sed "s|\$HOME|$HOME|g" "$SCRIPT_DIR/config/config.json" > "$CLAUDE_DIR/config.json"
-    echo "  created config.json from template"
-fi
+done
 
-# --- 9. Seed knowledge directories ---
-echo "Seeding knowledge directories..."
-
-seed_knowledge_dir() {
-    local agent_name="$1"
-    local display_name="$2"
-    mkdir -p "$CLAUDE_DIR/knowledge/$agent_name"
-
-    # Seed from agent-specific knowledge if it exists
-    if [[ -d "$SCRIPT_DIR/knowledge/$agent_name" ]]; then
-        for seed_file in "$SCRIPT_DIR"/knowledge/"$agent_name"/*; do
-            [[ ! -f "$seed_file" ]] && continue
-            name="$(basename "$seed_file")"
-            target="$CLAUDE_DIR/knowledge/$agent_name/$name"
-            if [[ ! -f "$target" ]]; then
-                cp "$seed_file" "$target"
-                echo "  seeded: $agent_name/$name"
-            else
-                echo "  exists: $agent_name/$name (preserved)"
-            fi
-        done
-    fi
-
-    # Seed from template if agent-specific doesn't exist
-    for template_file in "$SCRIPT_DIR"/knowledge/_template/*.md; do
-        [[ ! -f "$template_file" ]] && continue
-        name="$(basename "$template_file")"
-        [[ "$name" == "README.md" ]] && continue
-        target="$CLAUDE_DIR/knowledge/$agent_name/$name"
-        if [[ ! -f "$target" ]]; then
-            cp "$template_file" "$target"
-            if command -v sed &> /dev/null; then
-                sed -i '' "s/\[Agent Name\]/$display_name/g" "$target" 2>/dev/null || \
-                sed -i "s/\[Agent Name\]/$display_name/g" "$target" 2>/dev/null || true
-            fi
-            echo "  seeded: $agent_name/$name"
+# Agent docs
+if [[ -d "$RHINO_DIR/agents/docs" ]]; then
+    for doc in "$RHINO_DIR"/agents/docs/*.md; do
+        [[ ! -f "$doc" ]] && continue
+        name="$(basename "$doc")"
+        target="$CLAUDE_DIR/agents/docs/$name"
+        if [[ -L "$target" && "$(readlink "$target")" == "$doc" ]]; then
+            skip "agents/docs/$name"
         else
-            echo "  exists: $agent_name/$name (preserved)"
+            $DRY_RUN || ln -sf "$doc" "$target"
+            action "agents/docs/$name -> $doc"
         fi
     done
-}
+fi
 
-seed_knowledge_dir "scout" "Scout"
-seed_knowledge_dir "design-engineer" "Design Engineer"
+# --- 4. Symlink skills as commands ---
+echo ""
+echo -e "${BOLD}Skills:${NC}"
+for skill_dir in "$RHINO_DIR"/skills/*/; do
+    [[ ! -d "$skill_dir" ]] && continue
+    skill_name="$(basename "$skill_dir")"
+    skill_file="$skill_dir/SKILL.md"
+    [[ ! -f "$skill_file" ]] && continue
 
-# Seed intelligence layer data (landscape.json, etc.)
-echo "Seeding intelligence layer data..."
-for seed_file in "$SCRIPT_DIR"/knowledge/*.json; do
-    [[ ! -f "$seed_file" ]] && continue
-    name="$(basename "$seed_file")"
-    target="$CLAUDE_DIR/knowledge/$name"
-    if [[ ! -f "$target" ]]; then
-        cp "$seed_file" "$target"
-        echo "  seeded: $name"
+    cmd_dir="$CLAUDE_DIR/commands/$skill_name"
+    cmd_file="$cmd_dir/SKILL.md"
+
+    if [[ -L "$cmd_file" && "$(readlink "$cmd_file")" == "$skill_file" ]]; then
+        skip "commands/$skill_name"
     else
-        echo "  exists: $name (preserved)"
+        $DRY_RUN || mkdir -p "$cmd_dir"
+        $DRY_RUN || ln -sf "$skill_file" "$cmd_file"
+        action "commands/$skill_name -> $skill_file"
     fi
 done
 
-# Migrate old money-scout knowledge → scout
-if [[ -d "$CLAUDE_DIR/knowledge/money-scout" && ! -d "$CLAUDE_DIR/knowledge/scout" ]]; then
-    mv "$CLAUDE_DIR/knowledge/money-scout" "$CLAUDE_DIR/knowledge/scout"
-    echo "  migrated: money-scout → scout"
-fi
+# --- 5. Symlink hooks to ~/.claude/hooks ---
+echo ""
+echo -e "${BOLD}Hooks:${NC}"
+HOOKS_DIR="$CLAUDE_DIR/hooks"
+$DRY_RUN || mkdir -p "$HOOKS_DIR"
 
-# --- 10. Make scripts executable + install rhino CLI ---
-echo "Setting permissions..."
-if ls "$SCRIPT_DIR"/automation/scripts/*.sh &>/dev/null; then
-    chmod +x "$SCRIPT_DIR"/automation/scripts/*.sh
-    echo "  automation scripts marked executable"
-fi
+for hook in "$RHINO_DIR"/hooks/*.sh; do
+    [[ ! -f "$hook" ]] && continue
+    name="$(basename "$hook")"
+    target="$HOOKS_DIR/$name"
+    if [[ -L "$target" && "$(readlink "$target")" == "$hook" ]]; then
+        skip "hooks/$name"
+    else
+        $DRY_RUN || ln -sf "$hook" "$target"
+        $DRY_RUN || chmod +x "$hook"
+        action "hooks/$name -> $hook"
+    fi
+done
 
-# Install rhino CLI + taste evaluator deps
-chmod +x "$SCRIPT_DIR/bin/rhino"
-if [[ -f "$SCRIPT_DIR/bin/package.json" ]]; then
-    (cd "$SCRIPT_DIR/bin" && npm install --silent 2>/dev/null) && \
-        echo "  taste evaluator dependencies installed" || \
-        echo "  WARNING: taste deps install failed (run manually: cd bin && npm install)"
-fi
-RHINO_BIN_TARGET="$HOME/bin/rhino"
-mkdir -p "$HOME/bin"
-ln -sf "$SCRIPT_DIR/bin/rhino" "$RHINO_BIN_TARGET"
-echo "  linked: rhino CLI → $RHINO_BIN_TARGET"
-if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
-    echo "  NOTE: Add ~/bin to your PATH if not already present"
-fi
+# --- 6. Symlink bin tools to ~/bin ---
+echo ""
+echo -e "${BOLD}CLI tools:${NC}"
+LOCAL_BIN="$HOME/bin"
+$DRY_RUN || mkdir -p "$LOCAL_BIN"
 
-# --- 11. LaunchAgents (macOS only) ---
-if [[ "$INSTALL_LAUNCHD" == "true" && "$(uname)" == "Darwin" ]]; then
-    echo "Installing LaunchAgents..."
-    LAUNCH_DIR="$HOME/Library/LaunchAgents"
-    mkdir -p "$LAUNCH_DIR"
+for tool in score.sh taste.mjs gen-dashboard.sh; do
+    src="$RHINO_DIR/bin/$tool"
+    [[ ! -f "$src" ]] && continue
+    dest="$LOCAL_BIN/$tool"
+    if [[ -L "$dest" && "$(readlink "$dest")" == "$src" ]]; then
+        skip "~/bin/$tool"
+    else
+        $DRY_RUN || ln -sf "$src" "$dest"
+        action "~/bin/$tool -> $src"
+    fi
+done
 
-    for plist in "$SCRIPT_DIR"/automation/launchd/*.plist; do
-        name="$(basename "$plist")"
-
-        # Unload if already loaded
-        launchctl unload "$LAUNCH_DIR/$name" 2>/dev/null || true
-
-        # Expand $HOME in plist and copy
-        sed "s|\$HOME|$HOME|g" "$plist" > "$LAUNCH_DIR/$name"
-        echo "  installed: $name"
-
-        # Load the agent
-        launchctl load "$LAUNCH_DIR/$name" 2>/dev/null || true
-        echo "  loaded: $name"
-    done
+# Symlink rhino itself
+rhino_dest="$LOCAL_BIN/rhino"
+if [[ -L "$rhino_dest" && "$(readlink "$rhino_dest")" == "$RHINO_DIR/bin/rhino" ]]; then
+    skip "~/bin/rhino"
 else
-    echo "Skipping LaunchAgents (--no-launchd or non-macOS)"
+    $DRY_RUN || ln -sf "$RHINO_DIR/bin/rhino" "$rhino_dest"
+    action "~/bin/rhino -> $RHINO_DIR/bin/rhino"
+fi
+
+# --- 7. Merge settings.json ---
+echo ""
+echo -e "${BOLD}Settings:${NC}"
+SETTINGS_SRC="$RHINO_DIR/config/settings.json"
+SETTINGS_DEST="$CLAUDE_DIR/settings.json"
+
+if [[ -f "$SETTINGS_DEST" ]]; then
+    if command -v jq &>/dev/null; then
+        if grep -q "session_context.sh" "$SETTINGS_DEST" 2>/dev/null; then
+            skip "settings.json (rhino-os hooks already present)"
+        else
+            $DRY_RUN || {
+                tmp="$(mktemp)"
+                jq -s '.[0] * .[1]' "$SETTINGS_DEST" "$SETTINGS_SRC" > "$tmp" && mv "$tmp" "$SETTINGS_DEST"
+            }
+            action "settings.json (merged rhino-os hooks)"
+        fi
+    else
+        echo -e "  ${YELLOW}[warn]${NC} jq not found — cannot merge settings.json. Copy manually."
+    fi
+else
+    $DRY_RUN || cp "$SETTINGS_SRC" "$SETTINGS_DEST"
+    action "settings.json (copied)"
+fi
+
+# --- 8. Set RHINO_DIR in shell profile ---
+echo ""
+echo -e "${BOLD}Environment:${NC}"
+PROFILE=""
+if [[ -f "$HOME/.zshrc" ]]; then
+    PROFILE="$HOME/.zshrc"
+elif [[ -f "$HOME/.bashrc" ]]; then
+    PROFILE="$HOME/.bashrc"
+fi
+
+if [[ -n "$PROFILE" ]]; then
+    if grep -q "RHINO_DIR" "$PROFILE" 2>/dev/null; then
+        skip "RHINO_DIR in $PROFILE"
+    else
+        $DRY_RUN || echo "export RHINO_DIR=\"$RHINO_DIR\"" >> "$PROFILE"
+        action "RHINO_DIR=$RHINO_DIR added to $PROFILE"
+    fi
 fi
 
 # --- Done ---
 echo ""
-echo "=== Installation complete ==="
-
-if [[ -d "$BACKUP_DIR" ]]; then
-    echo "Backups saved to: $BACKUP_DIR"
+if $DRY_RUN; then
+    echo -e "${BOLD}Dry run complete.${NC} Run without --check to apply."
+else
+    echo -e "${BOLD}Done.${NC} Open any project and run ${BLUE}/setup${NC} to onboard it."
+    echo ""
+    echo -e "${DIM}Reload your shell: source $PROFILE${NC}"
 fi
-
-echo ""
-echo "What's installed:"
-echo "  - 3 programs (strategy.md, build.md, meta.md) — the brain (autoresearch pattern)"
-echo "  - 5 agents (strategist, builder = thin wrappers; scout, sweep, design-engineer = standalone)"
-echo "  - 6 skills (eval, experiment, product-eval, smart-commit, todofocus, product-2026)"
-echo "  - 4 hooks (session_context, track_usage, capture_knowledge, enforce_ideation)"
-echo "  - 1 CLI (rhino)"
-echo ""
-echo "How to use:"
-echo "  cd your-project && rhino init .  — bootstrap project (baseline score, dirs, test template)"
-echo "  \"run strategy\"                   — decide what to build"
-echo "  \"let's build\"                    — build it, score it, keep/discard"
-echo "  rhino score .                    — training loss (cheap, every commit)"
-echo "  rhino taste eval                 — eval loss (Playwright + Claude vision)"
-echo "  rhino dashboard                  — score history, experiments, dimensions"

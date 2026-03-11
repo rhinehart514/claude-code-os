@@ -44,6 +44,8 @@ These fire automatically and appear in both visual and JSON output:
 - **COSMETIC-ONLY**: Score rose but only hygiene improved (structure/build flat). Removing console.logs without fixing underlying issues is not improvement.
 - **INFLATION**: Score jumped >15 in one run. Real quality improvement is incremental. Big jumps are usually gaming.
 - **PLATEAU**: Score unchanged across last 5 runs. Incremental changes aren't working — fundamentally different approach needed.
+- **KEEP_RATE_HIGH**: Experiment discard rate below floor (default 25%). The loop isn't exploring — try riskier hypotheses.
+- **NO_MOONSHOTS**: Last N experiments all kept. Every Nth experiment should be high-risk. If nothing ever fails, nothing is being learned.
 
 ## Taste Eval Integrity (taste.mjs)
 
@@ -53,6 +55,15 @@ The taste rubric includes these rules for the evaluating model:
 - Expected distribution: mostly 2s and 3s, maybe one 4, 5s are exceptional.
 - A 4+ overall requires dimension-by-dimension justification against real products (Notion, Linear, Discord).
 - Previous scores don't anchor — evaluate fresh from screenshots.
+
+Runtime integrity detectors (fire automatically after every taste eval):
+
+- **GENEROUS**: Average score exceeds 3.5/5 for non-mature projects. Evaluator is being too kind.
+- **NO_WEAKNESS**: No dimension scored below 4. Every product has at least one weak dimension.
+- **FLAT_EVAL**: All dimensions scored identically. No discrimination = unreliable evaluation.
+- **JUMP**: Overall score jumped >1.5 between consecutive evals. Suspicious without major changes.
+
+Taste integrity warnings appear in the eval output AND in session context. Treat them like score.sh integrity warnings — address before trusting the scores.
 
 ## Eval Integrity (/eval, /product-eval)
 

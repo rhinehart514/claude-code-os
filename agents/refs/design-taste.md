@@ -2,7 +2,7 @@
 
 Subjective evaluation criteria for UI/UX. Not about correctness — about whether it *feels* right.
 
-## The 8 Taste Dimensions
+## The 11 Taste Dimensions
 
 ### 1. Hierarchy (does the eye know where to go?)
 - **5/5**: Clear visual order. Primary action dominates. Supporting content recedes. The page "reads" naturally.
@@ -103,6 +103,30 @@ Subjective evaluation criteria for UI/UX. Not about correctness — about whethe
 - A micro-interaction that surprises (a clever loading animation, a satisfying toggle)
 - A brand illustration style (even a simple one)
 - An unconventional information pattern (bento grid, timeline, kanban)
+
+### 10. Layout Coherence (does the spatial system hold together?)
+- **5/5**: Every page shares the same grid, alignment, and spacing system. Section widths are proportional. Cards align to a visible grid. Gutters are consistent. Mobile layouts thoughtfully reorganize content for thumb reach.
+- **3/5**: Layout mostly works but inconsistencies appear — section widths vary without logic, spacing between elements changes page to page, mobile is just squeezed desktop.
+- **1/5**: No layout system. Columns don't align, section widths are arbitrary, gutters shift between pages. Looks like multiple designers working without a shared spec.
+
+**How to check in code:**
+- Do all pages share the same max-width container?
+- Are grid column counts consistent (or 2-col here, 3-col there, full-width elsewhere)?
+- Are card/section aspect ratios intentional or arbitrary?
+- Does mobile layout reflow or just shrink?
+- Sidebar width, nav height, content margin — same on every route?
+
+### 11. Information Architecture (can you build a mental model?)
+- **5/5**: Navigation maps to what the product does. I can predict where things are before clicking. Related features are grouped. Labels explain themselves. Important things are 1 click deep, not 3.
+- **3/5**: I can find things eventually but grouping feels arbitrary. Some features buried in unexpected places. Labels are vague. I memorize paths instead of predicting them.
+- **1/5**: Cannot form a mental model. Features scattered across random locations. Same concept appears in multiple places. Structure doesn't match what the product does.
+
+**How to check in code:**
+- Does main navigation cover all key destinations? Or are important features in sub-menus/modals?
+- Are related items grouped (creation tools together, settings together)?
+- Can you predict where a feature lives from nav labels alone?
+- Is there a clear organizing principle? (by user type? by action? by content type?)
+- Depth check: is important stuff 3 clicks deep while trivial stuff is on the homepage?
 
 ---
 

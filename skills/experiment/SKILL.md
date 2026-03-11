@@ -6,209 +6,92 @@ user-invocable: true
 
 # Experiment — Informed Search, Not Random Guessing
 
+## Setup
+
+1. **Read your brain**: `~/.claude/state/brains/builder.json` — experiments use the builder brain
+2. **Read experiment learnings**: `~/.claude/knowledge/experiment-learnings.md` — this is your accumulated intelligence
+3. **Read landscape model**: `~/.claude/agents/refs/landscape-2026.md` — what 2026 users expect
+4. **Read workspace**: `~/.claude/state/workspace.json` — get experimentation level for this project:
+   - **conservative** (exploration_floor: 0.1, moonshot_every_n: 10): mostly exploitation, rare moonshots
+   - **balanced** (exploration_floor: 0.3, moonshot_every_n: 5): current defaults
+   - **aggressive** (exploration_floor: 0.5, moonshot_every_n: 3): lots of exploration, frequent moonshots
+5. **Check autonomy**: session override at `~/.claude/state/.session-autonomy`, else workspace.json
+   - `manual`: pause at every keep/discard decision
+   - `guided`: run autonomously, pause at discard decisions
+   - `autonomous`: fully autonomous, never stop
+6. **Read taste knowledge**: If experimenting on a taste dimension, read `~/.claude/knowledge/taste-knowledge/{dimension}.md` — patterns, anti-patterns, exemplars grounded in research. If the file doesn't exist or is stale (>14 days), run inline research: WebSearch for "[dimension] UX best practices 2025 2026", synthesize top patterns, write the knowledge file, then continue.
+
+> **Thinking protocol**: Read `agents/refs/thinking.md`. Every experiment is a prediction. Every result updates the model.
 > **Score integrity**: Read `agents/refs/score-integrity.md`. Prefer tool-measured scores. If integrity warnings fire, mark as SUSPECT.
-> **Landscape model**: Read `agents/refs/landscape-2026.md`. Understand what 2026 users expect before hypothesizing.
 
-You are an autonomous researcher with a memory. You learn from every experiment — kept or discarded — and use that knowledge to generate better hypotheses over time. Random search is for the first 5 experiments. After that, you should be exploiting patterns.
+## Execute
 
-## Step 0: Setup + Load Knowledge
+You are an autonomous researcher with a memory. Read and follow the full experiment protocol below.
+
+### Step 0: Setup + Load Knowledge
 
 1. Read the project's CLAUDE.md — what you're building and for whom
-2. Read `.claude/plans/product-model.md` — the creation loop map. Which link is the bottleneck? Your experiments should target that link.
-3. Read `~/.claude/knowledge/experiment-learnings.md` — **this is your accumulated intelligence.** What works in this codebase? What's a dead end? What change types have the highest keep rate?
-4. Read `.claude/evals/reports/history.jsonl` or `docs/evals/reports/history.jsonl` — dimension scores
-5. Read `.claude/evals/reports/taste-*.json` (most recent) — what the user actually sees
-6. Read `agents/refs/landscape-2026.md` — what wins in 2026
-7. Parse the user's request:
-   - **Target dimension**: any measurable aspect of the project
-   - **Starting score**: from history or `rhino score .`
+2. Read `.claude/plans/product-model.md` — the creation loop map. Which link is the bottleneck?
+3. Read experiment learnings (loaded above)
+4. Read `.claude/evals/reports/history.jsonl` or `docs/evals/reports/history.jsonl`
+5. Read most recent taste report in `.claude/evals/reports/taste-*.json`
+5b. **Load dimension knowledge**: Read `~/.claude/knowledge/taste-knowledge/{target-dimension}.md` if it exists. This grounds your hypothesis in researched patterns rather than guessing. If the file is empty or stale, research inline: WebSearch for patterns, write findings to the knowledge file, then continue.
+6. Parse the user's request: target dimension + starting score
+7. **Read `.claude/plans/learning-agenda.md`** if it exists — check for unchecked graduation criteria
 8. Create experiment branch: `git checkout -b exp/[dimension]/[date]`
-9. Create experiment log at `.claude/experiments/[dimension]-[date].tsv` with header:
-   ```
-   commit	score	delta	status	description	learning
-   ```
-10. Record starting score as baseline entry
+9. Create experiment log at `.claude/experiments/[dimension]-[date].tsv`
 
-### Assess your knowledge state
+**Curriculum mode**: If `learning-agenda.md` exists and has unchecked `- [ ]` graduation criteria:
+- Experiments MUST target the agenda's "What We Don't Know" items, not random dimensions
+- Mode forced to **exploration** regardless of experiment-learnings density
+- After each experiment, check if a graduation criterion was met → check it off (change `- [ ]` to `- [x]`)
+- When all criteria met, announce: "Learning agenda complete. Ready for /strategy."
+- Curriculum mode is self-terminating: once all criteria are checked, normal mode resumes
 
-Before the first experiment, classify yourself:
+10. Classify your knowledge state:
+   - **Exploration mode** (<5 patterns): diverse hypotheses, build the model
+   - **Exploitation mode** (10+ patterns): hypotheses FROM known patterns, maintain exploration_floor
+   - **Mixed** (5-10 patterns): 50/50
 
-- **Exploration mode** (learnings file thin, <5 patterns for this project): Try diverse hypothesis types. Goal = build the model. Try copy, layout, features, polish, interaction — see what the codebase responds to.
-- **Exploitation mode** (learnings file rich, 10+ patterns): Generate hypotheses FROM known patterns. But maintain at least 30% exploration (see `rhino.yml: experiments.exploration_floor`). Pure exploitation converges to safe bets.
-- **Mixed** (5-10 patterns): 50/50. Confirm emerging patterns while discovering new ones.
-
-**Moonshot rule:** Every 5th experiment (see `rhino.yml: experiments.moonshot_every_n`) MUST be high-risk — something you expect to fail >50% of the time. Rethink a flow, try a radically different layout, remove a feature entirely. If your experiment loop rarely fails, it isn't experimenting — it's committing.
-
-Write your mode at the top of the TSV as a note:
-```
----	---	---	mode	[exploration|exploitation|mixed] — [N] known patterns, [M] dead ends
-```
-
-## Step 1: The Loop
+### Step 1: The Loop
 
 LOOP UNTIL INTERRUPTED:
 
-### 1a. Generate Hypothesis (informed, not random)
+**1a. Generate Hypothesis** — four sources: **dimension knowledge (highest weight for taste experiments)**, learnings, product model, taste/score evidence.
+If a taste knowledge file exists for this dimension, your hypothesis MUST cite a specific pattern or anti-pattern from it. "I think X will work because the wayfinding knowledge file shows that [pattern] works in [exemplar]."
+If no knowledge file exists, declare "exploring unknown territory — no researched knowledge for this dimension yet."
+Write hypothesis BEFORE coding with: what, rationale, expected outcome, disproof condition, type.
 
-**Three sources, synthesized:**
+**1b. Ambition check** — rate 1-5. Reject 1-2 (cosmetic). Last 3 were all 3? Next must be 4+.
+Moonshot rule: every Nth experiment (from experimentation level config) MUST be high-risk.
 
-1. **Learnings** (highest weight): What patterns work? What's dead? What change type has the best keep rate?
-2. **Product model**: Which loop link is the bottleneck? Is this experiment targeting it?
-3. **Taste/score evidence**: What does the user see? What's the specific gap?
+**1c. Implement** — focused change, one hypothesis, substantive enough to actually fail.
 
-**Write the hypothesis BEFORE coding:**
-```
-HYPOTHESIS: [what I'm changing]
-RATIONALE: [why — cite a learning, product model insight, or taste finding]
-EXPECTED: [which score improves, roughly how much]
-DISPROOF: [if this happens, the hypothesis is wrong]
-TYPE: [copy | layout | feature | polish | interaction | infrastructure | removal]
-```
+**1d. Commit** — `git commit -m "exp: [hypothesis in 10 words]"`
 
-**Quality gates:**
-- In exploitation mode: MUST cite a learning or pattern. "I think this might work" is not a rationale.
-- In any mode: MUST connect to bottleneck loop link OR justify why not.
-- MUST NOT repeat a dead end from learnings.
-- Can't write a rationale? You don't understand the problem. Read more code first.
+**1e. Measure** — run target dimension eval. Score 0.0-1.0. Be honest.
 
-### 1b. Ambition check
+**1f. Decide + Extract Learning**
+- Score improved >= min_keep_delta → KEEP
+- Below threshold → DISCARD → `git reset --hard HEAD~1`
+- Extract learning: what type, did it work, WHY (the mechanism, not the result)
+- If the experiment discovered a new pattern not in the knowledge file, append it to `~/.claude/knowledge/taste-knowledge/{dimension}.md` under "## Patterns" or "## Anti-Patterns" as appropriate.
 
-Before implementing, rate your hypothesis 1-5:
-- **1-2**: Cosmetic / trivial (padding, color, copy tweak) — REJECT. Not an experiment.
-- **3**: Meaningful change to one component or flow — OK for exploitation mode.
-- **4-5**: Structural change, new interaction pattern, removed feature, rethought flow — REQUIRED for moonshot experiments.
+**1g. Log** — append to TSV
 
-If your last 3 experiments were all ambition level 3, the next one must be 4+.
+**1h. Update Learnings** (every 3 experiments) — update experiment-learnings.md
 
-### 1c. Implement
-Focused change. One hypothesis, but it should be substantive enough to actually fail. Not a refactor.
+**1i. Next** — go to 1a. If 5 discards in a row: re-read product model, switch strategy. If 5 keeps in a row: increase ambition.
 
-### 1c. Commit
-```
-git add [changed files]
-git commit -m "exp: [hypothesis in 10 words]"
-```
+### Step 2: Wrap Up
 
-### 1d. Measure
-Run the target dimension eval. Score 0.0-1.0. Be honest.
+1. Final learnings update to experiment-learnings.md
+2. Post findings (Discussion/PR/markdown)
+3. Summary with what worked, what didn't, model updates
+4. Update history.jsonl
 
-### 1e. Decide + Extract Learning
+## Teardown
 
-**Keep or discard:**
-- Score improved by >= `min_keep_delta` (default 0.02) → **KEEP**
-- Score improved but below min_keep_delta → **DISCARD** (noise, not signal) → `git reset --hard HEAD~1`
-- Score same or worse → **DISCARD** → `git reset --hard HEAD~1`
-- Code broke → **CRASH** → `git reset --hard HEAD~1`
-
-A discard is not a failure. A discard is information. If you're discarding <25% of experiments, you're playing it too safe.
-
-**Extract the learning (MANDATORY):**
-
-Whether kept or discarded, answer three questions:
-1. **What type of change?** (copy/layout/feature/polish/interaction/infrastructure/removal)
-2. **Did it work?** (yes/no/partially — and the delta)
-3. **Why?** One sentence — the mechanism, not just the result.
-
-The "why" is the gradient signal. "Score went up +3" is a result. "Contextual CTAs outperform generic ones because users need a reason specific to their state" is a learning. Learnings transfer. Results don't.
-
-### 1f. Log
-```
-[commit_short]	[score]	[delta]	[keep|discard|crash]	[description]	[learning]
-```
-
-### 1g. Update Learnings (every 3 experiments)
-
-Update `~/.claude/knowledge/experiment-learnings.md`:
-
-```markdown
-## What Works in [project] (updated [date])
-- [pattern]: [evidence] (N exps, K kept) — [confidence: emerging|confirmed|strong]
-
-## Dead Ends in [project]
-- [direction]: [why it fails] (tried N times, last [date])
-
-## Change Type Keep Rates
-| Type | Tried | Kept | Rate | Notes |
-|------|-------|------|------|-------|
-| copy | 8 | 6 | 75% | Highest ROI |
-| layout | 5 | 2 | 40% | Only works for nav |
-
-## Cross-Project Patterns
-- [insight that applies everywhere]
-```
-
-This update IS the gradient step. Skip it and you're back to random search.
-
-### 1h. Next
-Go to 1a. Autonomous. NEVER STOP.
-
-**If 5 in a row discarded:**
-1. Read the 5 learnings. What pattern do the failures share?
-2. Are you targeting the right loop link? Re-read product model.
-3. Switch to a change type with higher keep rate.
-4. If all types failing: bottleneck may have shifted. Flag for strategy re-run.
-
-**If 5 in a row kept:**
-1. You're playing it too safe. Check your ambition levels — are they all 3s?
-2. Next experiment MUST be ambition 4+ (moonshot).
-3. Try removing something, rethinking a flow, or combining two features.
-4. A 100% keep rate means you're committing, not experimenting.
-
-**Every 5 experiments:** Progress note:
-```
----	---	---	note	[start] X.X → [current] X.X after N exps (K kept) | mode: [exploration|exploitation]
-```
-
-**Every 10 experiments:** Synthesis:
-```
----	---	---	synthesis	[summary] | top pattern: [best] | dead end: [worst] | next: [direction]
-```
-
-## Step 2: Wrap Up
-
-1. **Final learnings update.** Push everything to `~/.claude/knowledge/experiment-learnings.md`.
-
-2. **Post findings:**
-   ```bash
-   gh api repos/{owner}/{repo} --jq '.has_discussions'
-   ```
-   Discussion if available, PR if not, markdown file as fallback.
-
-3. **Summary:**
-   ```markdown
-   ## Experiment: [dimension] — [date]
-   **[start] → [best]** over [N] experiments ([K] kept, [D] discarded)
-   **Mode**: [exploration → exploitation | etc.]
-
-   ### What worked (and why)
-   | Delta | Change | Learning |
-   |-------|--------|----------|
-   | +X.XX | [desc] | [transferable insight] |
-
-   ### What didn't work (and why)
-   | Change | Learning |
-   |--------|----------|
-   | [desc] | [why — the mechanism] |
-
-   ### Model update
-   - Confirmed: [patterns that held]
-   - New: [patterns discovered]
-   - Killed: [things that don't work]
-   - Next direction: [informed by all above]
-   ```
-
-4. **Update history.jsonl:**
-   ```json
-   {"date":"[date]","type":"experiment","dimension":"[dim]","start_score":X.X,"best_score":X.X,"experiments":N,"kept":K,"discarded":D,"top_win":"[desc]","top_learning":"[most important insight]"}
-   ```
-
-5. Leave the branch for human review.
-
-## Rules
-
-- **Small changes.** One hypothesis per experiment.
-- **Honest scoring.** Inflated scores poison the learnings model.
-- **Log dead ends.** Dead ends prevent the next agent from wasting cycles.
-- **Never ask.** The human might be asleep.
-- **Branch per dimension.**
-- **Learnings > score.** A session that improves score +2 but produces zero learnings made the system dumber. A session that doesn't move the score but identifies 3 dead ends and 2 working patterns made the system smarter.
+1. **Update brain**: `~/.claude/state/brains/builder.json` with experiment insights as next_move
+2. Leave the experiment branch for human review
+3. Update workspace.json `last_score` if applicable

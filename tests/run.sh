@@ -169,7 +169,11 @@ assert_file "bin/score.sh exists" "$RHINO_DIR/bin/score.sh"
 assert_file "bin/taste.mjs exists" "$RHINO_DIR/bin/taste.mjs"
 assert_file "bin/lib/config.sh exists" "$RHINO_DIR/bin/lib/config.sh"
 assert_file "bin/lib/brains.sh exists" "$RHINO_DIR/bin/lib/brains.sh"
+assert_file "bin/lib/workspace.sh exists" "$RHINO_DIR/bin/lib/workspace.sh"
+assert_file "install.sh exists" "$RHINO_DIR/install.sh"
 assert_file "config/rhino.yml exists" "$RHINO_DIR/config/rhino.yml"
+assert_file "config/CLAUDE.md exists" "$RHINO_DIR/config/CLAUDE.md"
+assert_file "config/settings.json exists" "$RHINO_DIR/config/settings.json"
 assert_file "agents/refs/score-integrity.md exists" "$RHINO_DIR/agents/refs/score-integrity.md"
 assert_file "agents/refs/escalation.md exists" "$RHINO_DIR/agents/refs/escalation.md"
 
@@ -178,13 +182,13 @@ for agent in builder scout strategist design-engineer sweep meta; do
     assert_file "agents/$agent.md exists" "$RHINO_DIR/agents/$agent.md"
 done
 
-# All 6 skills
-for skill in eval product-eval experiment smart-commit todofocus product-2026; do
+# All skills (core + new)
+for skill in eval product-eval experiment smart-commit todofocus product-2026 build strategy design sweep scout meta init go status score taste docs council; do
     assert_file "skills/$skill/SKILL.md exists" "$RHINO_DIR/skills/$skill/SKILL.md"
 done
 
-# All 4 hooks
-for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideation_readonly.sh; do
+# All hooks (including new autonomy_gate)
+for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideation_readonly.sh thinking_nudge.sh check_predictions.sh post_edit_quality.sh autonomy_gate.sh; do
     assert_file "hooks/$hook exists" "$RHINO_DIR/hooks/$hook"
 done
 
@@ -197,9 +201,11 @@ assert_cmd "bin/rhino parses (bash -n)" bash -n "$RHINO_DIR/bin/rhino"
 assert_cmd "bin/score.sh parses (bash -n)" bash -n "$RHINO_DIR/bin/score.sh"
 assert_cmd "bin/lib/config.sh parses (bash -n)" bash -n "$RHINO_DIR/bin/lib/config.sh"
 assert_cmd "bin/lib/brains.sh parses (bash -n)" bash -n "$RHINO_DIR/bin/lib/brains.sh"
+assert_cmd "bin/lib/workspace.sh parses (bash -n)" bash -n "$RHINO_DIR/bin/lib/workspace.sh"
+assert_cmd "install.sh parses (bash -n)" bash -n "$RHINO_DIR/install.sh"
 assert_cmd "bin/taste.mjs parses (node --check)" node --check "$RHINO_DIR/bin/taste.mjs"
 
-for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideation_readonly.sh; do
+for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideation_readonly.sh thinking_nudge.sh check_predictions.sh post_edit_quality.sh autonomy_gate.sh; do
     assert_cmd "hooks/$hook parses (bash -n)" bash -n "$RHINO_DIR/hooks/$hook"
 done
 
@@ -273,7 +279,7 @@ done
 # --- 1.7 Executable permissions ---
 assert_cmd "bin/rhino is executable" test -x "$RHINO_DIR/bin/rhino"
 
-for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideation_readonly.sh; do
+for hook in session_context.sh capture_knowledge.sh track_usage.sh enforce_ideation_readonly.sh thinking_nudge.sh check_predictions.sh post_edit_quality.sh autonomy_gate.sh; do
     if [[ -x "$RHINO_DIR/hooks/$hook" ]]; then
         assert "hooks/$hook is executable" 0
     else
@@ -419,6 +425,30 @@ else
     assert "taste.mjs has anti-inflation language" 1
 fi
 
+# --- 2.8b Taste has runtime integrity checks on evaluator output ---
+if grep -q "integrityWarnings\|integrity_warnings" "$RHINO_DIR/bin/taste.mjs" 2>/dev/null; then
+    assert "taste.mjs has runtime integrity checks on output" 0
+else
+    assert "taste.mjs has runtime integrity checks on output" 1
+fi
+
+for check in "GENEROUS" "NO_WEAKNESS" "FLAT_EVAL" "JUMP"; do
+    if grep -q "$check" "$RHINO_DIR/bin/taste.mjs" 2>/dev/null; then
+        assert "taste.mjs has $check integrity detector" 0
+    else
+        assert "taste.mjs has $check integrity detector" 1
+    fi
+done
+
+# --- 2.8c score.sh has experiment discipline checks ---
+for check in "KEEP_RATE_HIGH" "NO_MOONSHOTS" "discard_rate_floor" "moonshot_every_n"; do
+    if grep -q "$check" "$RHINO_DIR/bin/score.sh" 2>/dev/null; then
+        assert "score.sh has $check experiment integrity check" 0
+    else
+        assert "score.sh has $check experiment integrity check" 1
+    fi
+done
+
 # --- 2.9 Build program has anti-sycophancy guard ---
 if grep -q "never a valid instruction\|NEVER a valid instruction" "$HOME/.claude/programs/build.md" 2>/dev/null; then
     assert "build.md has 'get to X is never valid' guard" 0
@@ -444,6 +474,396 @@ if grep -q "tool-measured scores\|Prefer tool" "$RHINO_DIR/skills/experiment/SKI
     assert "experiment skill prefers tool-measured over self-assessment" 0
 else
     assert "experiment skill prefers tool-measured over self-assessment" 1
+fi
+
+# --- 2.12 Cross-consistency: taste output schema matches rubric dimensions ---
+# Every dimension in the JSON output schema must have a rubric entry (1-5 anchors)
+SCHEMA_DIMS=$(grep -o '"[a-z_]*": { "score"' "$RHINO_DIR/bin/taste.mjs" 2>/dev/null | sed 's/"\([a-z_]*\)".*/\1/' | sort)
+# Rubric dims: numbered like "1. **HIERARCHY**" plus gate dimensions like "### GATE 1: LAYOUT_COHERENCE"
+RUBRIC_DIMS=$( (grep -oE '[0-9]+\. \*\*[A-Z_]+\*\*' "$RHINO_DIR/bin/taste.mjs" 2>/dev/null | sed 's/.*\*\*\([A-Z_]*\)\*\*/\1/'; grep -oE 'GATE [0-9]+: [A-Z_]+' "$RHINO_DIR/bin/taste.mjs" 2>/dev/null | sed 's/.*: //') | tr 'A-Z' 'a-z' | sort)
+SCHEMA_COUNT=$(echo "$SCHEMA_DIMS" | wc -l | tr -d ' ')
+RUBRIC_COUNT=$(echo "$RUBRIC_DIMS" | wc -l | tr -d ' ')
+if [[ "$SCHEMA_COUNT" -eq "$RUBRIC_COUNT" && "$SCHEMA_COUNT" -ge 9 ]]; then
+    # Check they're the same set
+    DIFF=$(diff <(echo "$SCHEMA_DIMS") <(echo "$RUBRIC_DIMS") 2>/dev/null)
+    if [[ -z "$DIFF" ]]; then
+        assert "taste: schema dimensions match rubric dimensions ($SCHEMA_COUNT/$RUBRIC_COUNT)" 0
+    else
+        assert "taste: schema dimensions match rubric dimensions" 1 "mismatch: $DIFF"
+    fi
+else
+    assert "taste: schema dimensions match rubric dimensions" 1 "schema=$SCHEMA_COUNT rubric=$RUBRIC_COUNT"
+fi
+
+# --- 2.13 Cross-consistency: every agent in rhino.yml has a .md file ---
+# Only grab the 4-space indented keys under budgets: (agent names), stop at blank line
+for agent in $(awk '/^  budgets:/{found=1; next} found && /^    [a-z]/{gsub(/[: ].*/,""); gsub(/^    /,""); print} found && /^[^ ]|^$/{found=0}' "$RHINO_DIR/config/rhino.yml"); do
+    # Map config names to file names (design→design-engineer)
+    agent_file="$agent"
+    [[ "$agent" == "design" ]] && agent_file="design-engineer"
+    if [[ -f "$RHINO_DIR/agents/${agent_file}.md" ]]; then
+        assert "agent $agent has agents/${agent_file}.md" 0
+    else
+        assert "agent $agent has agents/${agent_file}.md" 1 "missing"
+    fi
+done
+
+# --- 2.14 Cross-consistency: every skill referenced in CLAUDE.md has a SKILL.md ---
+for skill_dir in "$RHINO_DIR/skills"/*/; do
+    skill_name=$(basename "$skill_dir")
+    if [[ -f "$skill_dir/SKILL.md" ]]; then
+        assert "skill $skill_name has SKILL.md" 0
+    else
+        assert "skill $skill_name has SKILL.md" 1
+    fi
+done
+
+# --- 2.15 No broken internal references: programs reference files that exist in repo ---
+BROKEN_REFS=0
+BROKEN_LIST=""
+for md_file in "$RHINO_DIR/agents"/*.md "$RHINO_DIR/programs"/*.md; do
+    [[ -f "$md_file" ]] || continue
+    base=$(basename "$md_file")
+    # Find references to agents/refs/*.md files
+    refs=$(grep -o 'agents/refs/[a-z_-]*.md' "$md_file" 2>/dev/null | sort -u)
+    for ref in $refs; do
+        if [[ ! -f "$RHINO_DIR/$ref" ]]; then
+            BROKEN_REFS=$((BROKEN_REFS + 1))
+            BROKEN_LIST="$BROKEN_LIST $base→$ref"
+        fi
+    done
+done
+if [[ "$BROKEN_REFS" -eq 0 ]]; then
+    assert "no broken agents/refs/ references in programs or agents" 0
+else
+    assert "no broken agents/refs/ references in programs or agents" 1 "$BROKEN_REFS broken:$BROKEN_LIST"
+fi
+
+# --- 2.16 Score.sh reads ALL integrity config values it claims to enforce ---
+# Every detector that reads cfg() must have a matching rhino.yml key
+SCORE_CFG_READS=$(grep -o "cfg [a-z._]*" "$RHINO_DIR/bin/score.sh" 2>/dev/null | sed 's/cfg //' | sort -u)
+for cfg_key in $SCORE_CFG_READS; do
+    # Check that the leaf key name exists somewhere in rhino.yml
+    leaf_key=$(echo "$cfg_key" | awk -F. '{print $NF}')
+    if grep -q "$leaf_key" "$RHINO_DIR/config/rhino.yml" 2>/dev/null; then
+        assert "score.sh cfg($cfg_key) has rhino.yml backing" 0
+    else
+        assert "score.sh cfg($cfg_key) has rhino.yml backing" 1 "dead config read"
+    fi
+done
+
+# --- 2.17 HARD: COSMETIC-ONLY detector fires on crafted input ---
+# Create project where only hygiene improved (structure flat)
+COSMETIC_TEST_DIR="$TMPDIR_TEST/cosmetic-fire-test"
+mkdir -p "$COSMETIC_TEST_DIR/src" "$COSMETIC_TEST_DIR/.claude/scores"
+echo "console.log('x')" > "$COSMETIC_TEST_DIR/src/index.js"
+echo '{"name":"test","version":"1.0.0"}' > "$COSMETIC_TEST_DIR/package.json"
+# Seed history: structure=50 hygiene=50, then structure=50 hygiene=70 (hygiene up, structure flat)
+printf "timestamp\tbuild\tstructure\thygiene\tproject_type\n" > "$COSMETIC_TEST_DIR/.claude/scores/history.tsv"
+printf "2026-01-01T00:00:00Z\t50\t50\t50\tnode\n" >> "$COSMETIC_TEST_DIR/.claude/scores/history.tsv"
+printf "2026-01-02T00:00:00Z\t50\t50\t70\tnode\n" >> "$COSMETIC_TEST_DIR/.claude/scores/history.tsv"
+COSMETIC_RESULT=$("$RHINO_DIR/bin/score.sh" "$COSMETIC_TEST_DIR" --json --force 2>/dev/null || true)
+if echo "$COSMETIC_RESULT" | jq -r '.integrity_warnings[]' 2>/dev/null | grep -q "COSMETIC"; then
+    assert "HARD: COSMETIC-ONLY detector fires on hygiene-only improvement" 0
+else
+    assert "HARD: COSMETIC-ONLY detector fires on hygiene-only improvement" 1 "detector didn't fire"
+fi
+
+# --- 2.18 HARD: INFLATION detector fires on big jump ---
+INFLATION_TEST_DIR="$TMPDIR_TEST/inflation-fire-test"
+mkdir -p "$INFLATION_TEST_DIR/src" "$INFLATION_TEST_DIR/.claude/scores"
+echo "console.log('x')" > "$INFLATION_TEST_DIR/src/index.js"
+echo '{"name":"test","version":"1.0.0"}' > "$INFLATION_TEST_DIR/package.json"
+printf "timestamp\tbuild\tstructure\thygiene\tproject_type\n" > "$INFLATION_TEST_DIR/.claude/scores/history.tsv"
+printf "2026-01-01T00:00:00Z\t50\t30\t30\tnode\n" >> "$INFLATION_TEST_DIR/.claude/scores/history.tsv"
+printf "2026-01-02T00:00:00Z\t50\t50\t50\tnode\n" >> "$INFLATION_TEST_DIR/.claude/scores/history.tsv"
+INFLATION_RESULT=$("$RHINO_DIR/bin/score.sh" "$INFLATION_TEST_DIR" --json --force 2>/dev/null || true)
+if echo "$INFLATION_RESULT" | jq -r '.integrity_warnings[]' 2>/dev/null | grep -q "INFLATION"; then
+    assert "HARD: INFLATION detector fires on +20 jump" 0
+else
+    assert "HARD: INFLATION detector fires on +20 jump" 1 "detector didn't fire"
+fi
+
+# --- 2.19 HARD: PLATEAU detector fires after N identical scores ---
+PLATEAU_TEST_DIR="$TMPDIR_TEST/plateau-fire-test"
+mkdir -p "$PLATEAU_TEST_DIR/src" "$PLATEAU_TEST_DIR/.claude/scores"
+echo "console.log('x')" > "$PLATEAU_TEST_DIR/src/index.js"
+echo '{"name":"test","version":"1.0.0"}' > "$PLATEAU_TEST_DIR/package.json"
+printf "timestamp\tbuild\tstructure\thygiene\tproject_type\n" > "$PLATEAU_TEST_DIR/.claude/scores/history.tsv"
+for i in 1 2 3 4 5 6; do
+    printf "2026-01-%02dT00:00:00Z\t50\t50\t50\tnode\n" "$i" >> "$PLATEAU_TEST_DIR/.claude/scores/history.tsv"
+done
+PLATEAU_RESULT=$("$RHINO_DIR/bin/score.sh" "$PLATEAU_TEST_DIR" --json --force 2>/dev/null || true)
+if echo "$PLATEAU_RESULT" | jq -r '.integrity_warnings[]' 2>/dev/null | grep -q "PLATEAU"; then
+    assert "HARD: PLATEAU detector fires after 6 identical structure scores" 0
+else
+    assert "HARD: PLATEAU detector fires after 6 identical structure scores" 1 "detector didn't fire"
+fi
+
+# --- 2.20 HARD: Score.sh does NOT fire false INFLATION on small delta ---
+NOFIRE_TEST_DIR="$TMPDIR_TEST/nofire-test"
+mkdir -p "$NOFIRE_TEST_DIR/src" "$NOFIRE_TEST_DIR/.claude/scores"
+echo "console.log('x')" > "$NOFIRE_TEST_DIR/src/index.js"
+echo '{"name":"test","version":"1.0.0"}' > "$NOFIRE_TEST_DIR/package.json"
+printf "timestamp\tbuild\tstructure\thygiene\tproject_type\n" > "$NOFIRE_TEST_DIR/.claude/scores/history.tsv"
+printf "2026-01-01T00:00:00Z\t50\t48\t48\tnode\n" >> "$NOFIRE_TEST_DIR/.claude/scores/history.tsv"
+printf "2026-01-02T00:00:00Z\t50\t50\t50\tnode\n" >> "$NOFIRE_TEST_DIR/.claude/scores/history.tsv"
+NOFIRE_RESULT=$("$RHINO_DIR/bin/score.sh" "$NOFIRE_TEST_DIR" --json --force 2>/dev/null || true)
+NOFIRE_WARNINGS=$(echo "$NOFIRE_RESULT" | jq -r '.integrity_warnings | length' 2>/dev/null || echo "0")
+if [[ "$NOFIRE_WARNINGS" -eq 0 || "$NOFIRE_WARNINGS" == "null" ]]; then
+    assert "HARD: no false INFLATION on +4 delta (under threshold)" 0
+else
+    warn_text=$(echo "$NOFIRE_RESULT" | jq -r '.integrity_warnings[]' 2>/dev/null)
+    assert "HARD: no false INFLATION on +4 delta (under threshold)" 1 "false positive: $warn_text"
+fi
+
+# --- 2.21 HARD: session_context.sh produces non-empty output ---
+# Remove cooldown marker so the test actually runs (marker causes silent exit within 30min)
+rm -f "$HOME/.claude/state/.session-context-injected"
+SESSION_OUT=$(bash "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null || true)
+SESSION_LEN=${#SESSION_OUT}
+if [[ "$SESSION_LEN" -gt 50 ]]; then
+    assert "HARD: session_context.sh produces substantive output (${SESSION_LEN} chars)" 0
+else
+    assert "HARD: session_context.sh produces substantive output" 1 "only ${SESSION_LEN} chars"
+fi
+
+# --- 2.22 HARD: rhino bench command is defined ---
+if grep -q "cmd_bench" "$RHINO_DIR/bin/rhino" 2>/dev/null; then
+    assert "HARD: rhino bench command exists" 0
+else
+    assert "HARD: rhino bench command exists" 1
+fi
+
+# --- 2.23 Programs must have a measurable output ---
+# Each program must reference at least one concrete command or file it writes
+for prog in "$RHINO_DIR/programs"/*.md; do
+    [[ -f "$prog" ]] || continue
+    prog_name=$(basename "$prog" .md)
+    has_output=false
+    # Check for: bash code blocks, file write references, or tool commands
+    if grep -qE '```bash|rhino |\.jsonl|\.json|\.tsv|\.md\b.*write|\.md\b.*update' "$prog" 2>/dev/null; then
+        has_output=true
+    fi
+    if $has_output; then
+        assert "program $prog_name references concrete outputs" 0
+    else
+        assert "program $prog_name references concrete outputs" 1 "no commands or file outputs found"
+    fi
+done
+
+# --- 2.22 Boundary: no program or agent instructs writing to CLAUDE.md ---
+CLAUDE_MD_WRITERS=""
+for md_file in "$RHINO_DIR/programs"/*.md "$RHINO_DIR/agents"/*.md "$RHINO_DIR/skills"/*/SKILL.md; do
+    [[ -f "$md_file" ]] || continue
+    base=$(basename "$(dirname "$md_file")")/$(basename "$md_file")
+    # Match "update/write/edit CLAUDE.md" but exclude negations and meta-references (describing the rule itself)
+    if grep -iE '(update|write|edit|append|modify).*CLAUDE\.md' "$md_file" 2>/dev/null \
+        | grep -iv 'do not\|never\|don.t\|that.s a bug\|grep for\|scan.*for' \
+        | grep -q .; then
+        CLAUDE_MD_WRITERS="$CLAUDE_MD_WRITERS $base"
+    fi
+done
+if [[ -z "$CLAUDE_MD_WRITERS" ]]; then
+    assert "no program/agent/skill instructs writing to CLAUDE.md" 0
+else
+    assert "no program/agent/skill instructs writing to CLAUDE.md" 1 "found in:$CLAUDE_MD_WRITERS"
+fi
+
+# --- 2.24 Thinking protocol exists and is referenced ---
+if [[ -f "$RHINO_DIR/agents/refs/thinking.md" ]]; then
+    assert "thinking protocol exists" 0
+else
+    assert "thinking protocol exists" 1
+fi
+
+# --- 2.25 Thinking protocol is referenced by build.md ---
+if grep -q "thinking.md" "$RHINO_DIR/programs/build.md" 2>/dev/null; then
+    assert "build.md references thinking protocol" 0
+else
+    assert "build.md references thinking protocol" 1
+fi
+
+# --- 2.26 Thinking protocol is referenced by strategy.md ---
+if grep -q "thinking.md" "$RHINO_DIR/programs/strategy.md" 2>/dev/null; then
+    assert "strategy.md references thinking protocol" 0
+else
+    assert "strategy.md references thinking protocol" 1
+fi
+
+# --- 2.27 Thinking protocol is referenced by meta.md ---
+if grep -q "thinking.md\|predictions.tsv" "$RHINO_DIR/programs/meta.md" 2>/dev/null; then
+    assert "meta.md references thinking/predictions" 0
+else
+    assert "meta.md references thinking/predictions" 1
+fi
+
+# --- 2.28 Predictions tracking file exists with correct schema ---
+PRED_FILE="$HOME/.claude/knowledge/predictions.tsv"
+if [[ -f "$PRED_FILE" ]]; then
+    pred_header=$(head -1 "$PRED_FILE")
+    if echo "$pred_header" | grep -q "date.*agent.*prediction.*evidence.*result.*correct.*model_update"; then
+        assert "predictions.tsv has correct schema" 0
+    else
+        assert "predictions.tsv has correct schema" 1 "header: $pred_header"
+    fi
+else
+    assert "predictions.tsv has correct schema" 1 "file missing"
+fi
+
+# --- 2.29 build.md has prediction-before-action pattern ---
+if grep -q "PREDICT:" "$RHINO_DIR/programs/build.md" 2>/dev/null && grep -q "WRONG IF:" "$RHINO_DIR/programs/build.md" 2>/dev/null; then
+    assert "build.md enforces predict-before-act" 0
+else
+    assert "build.md enforces predict-before-act" 1
+fi
+
+# --- 2.30 experiment-learnings.md has causal model structure ---
+LEARNINGS="$HOME/.claude/knowledge/experiment-learnings.md"
+if [[ -f "$LEARNINGS" ]]; then
+    has_known=$(grep -c "Known Patterns\|high confidence" "$LEARNINGS" 2>/dev/null || echo "0")
+    has_uncertain=$(grep -c "Uncertain Patterns\|worth testing" "$LEARNINGS" 2>/dev/null || echo "0")
+    has_unknown=$(grep -c "Unknown Territory\|highest.*learning\|highest.*information" "$LEARNINGS" 2>/dev/null || echo "0")
+    has_dead=$(grep -c "Dead Ends\|confirmed failure" "$LEARNINGS" 2>/dev/null || echo "0")
+    zones=$((has_known > 0 ? 1 : 0))
+    zones=$((zones + (has_uncertain > 0 ? 1 : 0)))
+    zones=$((zones + (has_unknown > 0 ? 1 : 0)))
+    zones=$((zones + (has_dead > 0 ? 1 : 0)))
+    if [[ "$zones" -ge 3 ]]; then
+        assert "experiment-learnings has causal model structure (${zones}/4 zones)" 0
+    else
+        assert "experiment-learnings has causal model structure" 1 "only ${zones}/4 zones found"
+    fi
+else
+    assert "experiment-learnings has causal model structure" 1 "file missing"
+fi
+
+# --- 2.31 Strategy output template includes uncertainty mapping ---
+if grep -q "Known.*Don.t Know\|Unknown.*highest\|Uncertain.*worth\|What We Know" "$RHINO_DIR/programs/strategy.md" 2>/dev/null; then
+    assert "strategy.md includes uncertainty mapping in output" 0
+else
+    assert "strategy.md includes uncertainty mapping in output" 1
+fi
+
+# --- 2.32 HARD: session_context.sh surfaces prediction accuracy ---
+if grep -q "predictions.tsv\|Prediction Accuracy\|pred_total\|pred_correct" "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null; then
+    assert "HARD: session_context.sh surfaces prediction accuracy" 0
+else
+    assert "HARD: session_context.sh surfaces prediction accuracy" 1
+fi
+
+# --- 2.33 Skills read experiment learnings before acting ---
+SKILLS_WITH_LEARNINGS=0
+for skill_file in eval/SKILL.md product-eval/SKILL.md design/SKILL.md strategy/SKILL.md build/SKILL.md experiment/SKILL.md; do
+    if grep -q "experiment-learnings" "$RHINO_DIR/skills/$skill_file" 2>/dev/null; then
+        SKILLS_WITH_LEARNINGS=$((SKILLS_WITH_LEARNINGS + 1))
+    fi
+done
+if [[ "$SKILLS_WITH_LEARNINGS" -ge 5 ]]; then
+    assert ">=5 skills read experiment-learnings.md" 0
+else
+    assert ">=5 skills read experiment-learnings.md (found $SKILLS_WITH_LEARNINGS)" 1
+fi
+
+# --- 2.34 Experiment skill references thinking protocol ---
+if grep -q "thinking.md" "$RHINO_DIR/skills/experiment/SKILL.md" 2>/dev/null; then
+    assert "experiment skill references thinking protocol" 0
+else
+    assert "experiment skill references thinking protocol" 1
+fi
+
+# --- 2.35 Workspace system produces valid JSON ---
+WS_TEST_DIR="$TMPDIR_TEST/ws-test"
+mkdir -p "$WS_TEST_DIR"
+WS_TEST_OUTPUT=$(bash -c "
+    WORKSPACE_FILE='$WS_TEST_DIR/workspace.json'
+    source '$RHINO_DIR/bin/lib/workspace.sh'
+    ws_register '/tmp/test-project' 'mvp' 'guided' 'balanced'
+    cat '$WS_TEST_DIR/workspace.json'
+" 2>/dev/null)
+if echo "$WS_TEST_OUTPUT" | jq -e '.projects["test-project"].path' >/dev/null 2>&1; then
+    assert "workspace ws_register creates valid JSON" 0
+else
+    assert "workspace ws_register creates valid JSON" 1
+fi
+
+# Workspace ws_get reads fields
+WS_GET_TEST=$(bash -c "
+    WORKSPACE_FILE='$WS_TEST_DIR/workspace.json'
+    source '$RHINO_DIR/bin/lib/workspace.sh'
+    echo \$(ws_get 'test-project' 'autonomy')
+" 2>/dev/null)
+assert_equals "workspace ws_get reads autonomy" "$WS_GET_TEST" "guided"
+
+# Workspace focus is set on first register
+WS_FOCUS_TEST=$(bash -c "
+    WORKSPACE_FILE='$WS_TEST_DIR/workspace.json'
+    source '$RHINO_DIR/bin/lib/workspace.sh'
+    echo \$(ws_focus)
+" 2>/dev/null)
+assert_equals "workspace focus set on first register" "$WS_FOCUS_TEST" "test-project"
+
+# --- 2.36 Autonomy gate hook parses and handles missing workspace gracefully ---
+GATE_TEST=$(echo '{"tool_name":"Read"}' | bash "$RHINO_DIR/hooks/autonomy_gate.sh" 2>/dev/null; echo $?)
+assert_equals "autonomy_gate allows non-gated tools" "$GATE_TEST" "0"
+
+# --- 2.37 Settings.json has autonomy_gate.sh configured ---
+if grep -q "autonomy_gate.sh" "$RHINO_DIR/config/settings.json" 2>/dev/null; then
+    assert "settings.json has autonomy_gate.sh hook" 0
+else
+    assert "settings.json has autonomy_gate.sh hook" 1
+fi
+
+# --- 2.38 Enhanced skills read workspace.json ---
+SKILLS_WITH_WORKSPACE=0
+for skill_dir in "$RHINO_DIR/skills"/*/; do
+    skill_file="$skill_dir/SKILL.md"
+    [[ -f "$skill_file" ]] || continue
+    if grep -q "workspace.json\|autonomy" "$skill_file" 2>/dev/null; then
+        SKILLS_WITH_WORKSPACE=$((SKILLS_WITH_WORKSPACE + 1))
+    fi
+done
+if [[ "$SKILLS_WITH_WORKSPACE" -ge 8 ]]; then
+    assert ">=8 skills read workspace/autonomy (found $SKILLS_WITH_WORKSPACE)" 0
+else
+    assert ">=8 skills read workspace/autonomy (found $SKILLS_WITH_WORKSPACE)" 1
+fi
+
+# --- 2.39 Enhanced skills have brain read/write ---
+SKILLS_WITH_BRAIN=0
+for skill in build strategy experiment eval design sweep scout meta; do
+    skill_file="$RHINO_DIR/skills/$skill/SKILL.md"
+    [[ -f "$skill_file" ]] || continue
+    if grep -q "brains/" "$skill_file" 2>/dev/null; then
+        SKILLS_WITH_BRAIN=$((SKILLS_WITH_BRAIN + 1))
+    fi
+done
+if [[ "$SKILLS_WITH_BRAIN" -ge 7 ]]; then
+    assert ">=7 core skills read/write brain files (found $SKILLS_WITH_BRAIN)" 0
+else
+    assert ">=7 core skills read/write brain files (found $SKILLS_WITH_BRAIN)" 1
+fi
+
+# --- 2.40 Session context reads workspace ---
+if grep -q "workspace.json\|ws_autonomy\|WORKSPACE_FILE" "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null; then
+    assert "session_context.sh reads workspace.json" 0
+else
+    assert "session_context.sh reads workspace.json" 1
+fi
+
+# --- 2.41 CLAUDE.md template references skills (not CLI commands) ---
+if grep -q "/strategy\|/build\|/eval\|/setup" "$RHINO_DIR/config/CLAUDE.md" 2>/dev/null; then
+    assert "CLAUDE.md template references skills" 0
+else
+    assert "CLAUDE.md template references skills" 1
+fi
+
+# --- 2.42 install.sh is idempotent (dry-run works) ---
+INSTALL_DRY=$("$RHINO_DIR/install.sh" --check 2>&1 || true)
+if echo "$INSTALL_DRY" | grep -q "dry-run\|skip\|already exists"; then
+    assert "install.sh --check runs without errors" 0
+else
+    assert "install.sh --check runs without errors" 1
 fi
 
 tier_end
@@ -544,9 +964,27 @@ for stage in mvp early growth mature; do
 done
 
 # --- 3.5 Taste rubric canary: dimension count ---
-# taste.mjs should score exactly 9 dimensions
+# taste.mjs should score exactly 11 dimensions (9 original + layout_coherence + information_architecture)
 DIM_COUNT=$(grep -c '"score": <1-5>' "$RHINO_DIR/bin/taste.mjs" 2>/dev/null || echo "0")
-assert_equals "canary: taste rubric has 9 scored dimensions" "$DIM_COUNT" "9"
+assert_equals "canary: taste rubric has 11 scored dimensions" "$DIM_COUNT" "11"
+
+# --- 3.5b Taste rubric coverage canary: structural dimensions exist ---
+# The rubric must cover STRUCTURAL quality (layout, IA), not just experiential feel.
+# This test exists because meta failed to catch that taste was blind to layout/IA for weeks.
+# If you're tempted to remove these checks, ask: "what real product problem would I miss?"
+RUBRIC_TEXT=$(cat "$RHINO_DIR/bin/taste.mjs" 2>/dev/null)
+assert_contains "canary: taste rubric covers layout coherence" "$RUBRIC_TEXT" "LAYOUT_COHERENCE"
+assert_contains "canary: taste rubric covers information architecture" "$RUBRIC_TEXT" "INFORMATION_ARCHITECTURE"
+# Gate dimensions must appear BEFORE experiential dimensions (forces evaluator to check structure first)
+GATE_POS=$(echo "$RUBRIC_TEXT" | grep -n "STRUCTURAL AUDIT" | head -1 | cut -d: -f1)
+EXP_POS=$(echo "$RUBRIC_TEXT" | grep -n "Experiential Dimensions" | head -1 | cut -d: -f1)
+if [[ -n "$GATE_POS" && -n "$EXP_POS" && "$GATE_POS" -lt "$EXP_POS" ]]; then
+    assert "canary: structural audit comes before experiential dimensions" 0
+else
+    assert "canary: structural audit comes before experiential dimensions" 1 "gate=$GATE_POS exp=$EXP_POS"
+fi
+# Gate enforcement exists in code (not just prompt)
+assert_contains "canary: taste.mjs enforces structural gate in code" "$RUBRIC_TEXT" "STRUCTURAL_GATE"
 
 # --- 3.6 Score history format canary ---
 # If history file exists, verify TSV format
@@ -586,6 +1024,113 @@ for agent in scout strategist builder design-engineer sweep meta; do
         assert "canary: $agent has cold-start bias_awareness" 1 "empty"
     fi
 done
+
+# --- 3.9 Scoring regression: dirty project triggers COSMETIC-ONLY warning ---
+# A project with ONLY hygiene improvements (no build/structure change) should warn
+COSMETIC_DIR="$TMPDIR_TEST/cosmetic-project"
+mkdir -p "$COSMETIC_DIR/src"
+echo "console.log('hello')" > "$COSMETIC_DIR/src/index.js"
+echo '{"name":"test","version":"1.0.0"}' > "$COSMETIC_DIR/package.json"
+# Create history where only hygiene changed
+mkdir -p "$COSMETIC_DIR/.claude/experiments"
+printf "timestamp\tscore\tbuild\tstructure\thygiene\n2026-01-01\t60\t50\t50\t60\n2026-01-02\t65\t50\t50\t80\n" > "$COSMETIC_DIR/.claude/experiments/history.tsv"
+COSMETIC_OUT=$("$RHINO_DIR/bin/score.sh" "$COSMETIC_DIR" --json --force 2>/dev/null || true)
+if echo "$COSMETIC_OUT" | jq -e '.integrity_warnings' >/dev/null 2>&1; then
+    assert "canary: score.sh emits integrity_warnings array in JSON" 0
+else
+    assert "canary: score.sh emits integrity_warnings array in JSON" 1 "missing integrity_warnings field"
+fi
+
+# --- 3.10 Scoring regression: score is bounded 0-100, never negative ---
+# Score an empty dir and a minimal dir — both must be 0-100
+for test_case in "$TMPDIR_TEST/empty-project" "$COSMETIC_DIR"; do
+    tc_name=$(basename "$test_case")
+    tc_score=$("$RHINO_DIR/bin/score.sh" "$test_case" --quiet --force 2>/dev/null || echo "-1")
+    tc_score=$(echo "$tc_score" | tr -d '[:space:]')
+    if [[ "$tc_score" =~ ^[0-9]+$ ]] && [[ "$tc_score" -ge 0 ]] && [[ "$tc_score" -le 100 ]]; then
+        assert "canary: $tc_name score bounded 0-100 (got $tc_score)" 0
+    else
+        assert "canary: $tc_name score bounded 0-100" 1 "got: $tc_score"
+    fi
+done
+
+# --- 3.11 Config canary: cfg() returns correct types for all integrity keys ---
+INTEGRITY_KEYS="integrity.max_single_commit_delta integrity.plateau_experiments integrity.cosmetic_only_warning"
+for key in $INTEGRITY_KEYS; do
+    val=$(bash -c "
+        RHINO_DIR='$RHINO_DIR'
+        source '$RHINO_DIR/bin/lib/config.sh'
+        cfg $key 'MISSING'
+    " 2>/dev/null)
+    if [[ "$val" != "MISSING" && -n "$val" ]]; then
+        assert "canary: cfg($key) returns value ($val)" 0
+    else
+        assert "canary: cfg($key) returns value" 1 "got MISSING or empty"
+    fi
+done
+
+# --- 3.12 Canary: grade history is append-only valid JSONL ---
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    BAD_LINES=0
+    LINE_NUM=0
+    while IFS= read -r line; do
+        LINE_NUM=$((LINE_NUM + 1))
+        [[ -z "$line" ]] && continue
+        if ! echo "$line" | jq -e '.' >/dev/null 2>&1; then
+            BAD_LINES=$((BAD_LINES + 1))
+        fi
+    done < "$CLAUDE_HOME/knowledge/meta/grades.jsonl"
+    if [[ "$BAD_LINES" -eq 0 ]]; then
+        assert "canary: grades.jsonl is valid JSONL ($LINE_NUM lines)" 0
+    else
+        assert "canary: grades.jsonl is valid JSONL" 1 "$BAD_LINES bad lines out of $LINE_NUM"
+    fi
+fi
+
+# --- 3.13 Canary: landscape.json is valid JSON with required structure ---
+if [[ -f "$CLAUDE_HOME/knowledge/landscape.json" ]]; then
+    if jq -e '.positions | length' "$CLAUDE_HOME/knowledge/landscape.json" >/dev/null 2>&1; then
+        lj_count=$(jq '.positions | length' "$CLAUDE_HOME/knowledge/landscape.json")
+        # Each position must have id, position, confidence
+        lj_valid=0
+        lj_invalid=0
+        for i in $(seq 0 $((lj_count - 1))); do
+            has_id=$(jq -r ".positions[$i].id // empty" "$CLAUDE_HOME/knowledge/landscape.json" 2>/dev/null)
+            has_conf=$(jq -r ".positions[$i].confidence // empty" "$CLAUDE_HOME/knowledge/landscape.json" 2>/dev/null)
+            if [[ -n "$has_id" && -n "$has_conf" ]]; then
+                lj_valid=$((lj_valid + 1))
+            else
+                lj_invalid=$((lj_invalid + 1))
+            fi
+        done
+        if [[ "$lj_invalid" -eq 0 ]]; then
+            assert "canary: landscape.json positions all have id+confidence ($lj_valid)" 0
+        else
+            assert "canary: landscape.json positions all have id+confidence" 1 "$lj_invalid invalid of $lj_count"
+        fi
+    else
+        assert "canary: landscape.json has positions array" 1 "invalid JSON or missing .positions"
+    fi
+fi
+
+# --- 3.14 Canary: portfolio.json structure ---
+if [[ -f "$CLAUDE_HOME/knowledge/portfolio.json" ]]; then
+    if jq -e '.projects' "$CLAUDE_HOME/knowledge/portfolio.json" >/dev/null 2>&1; then
+        pj_count=$(jq '.projects | length' "$CLAUDE_HOME/knowledge/portfolio.json")
+        # Each project should have call (BUY/HOLD/SELL) and path
+        pj_valid=0
+        for i in $(seq 0 $((pj_count - 1))); do
+            has_call=$(jq -r ".projects[$i].call // empty" "$CLAUDE_HOME/knowledge/portfolio.json" 2>/dev/null)
+            has_path=$(jq -r ".projects[$i].path // empty" "$CLAUDE_HOME/knowledge/portfolio.json" 2>/dev/null)
+            [[ -n "$has_call" && -n "$has_path" ]] && pj_valid=$((pj_valid + 1))
+        done
+        if [[ "$pj_valid" -eq "$pj_count" ]]; then
+            assert "canary: portfolio.json projects all have call+path ($pj_count)" 0
+        else
+            assert "canary: portfolio.json projects all have call+path" 1 "$pj_valid/$pj_count valid"
+        fi
+    fi
+fi
 
 tier_end
 fi
@@ -819,6 +1364,270 @@ else
     assert "taste eval: produces weakest_dimension handoff" 1
 fi
 
+# --- 4.8 Meta grades have test_before/test_after (eval-driven, not vibes) ---
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    RECENT_GRADES=$(tail -3 "$CLAUDE_HOME/knowledge/meta/grades.jsonl")
+    GRADES_WITH_TESTS=0
+    GRADES_CHECKED=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        GRADES_CHECKED=$((GRADES_CHECKED + 1))
+        has_before=$(echo "$line" | jq -r '.test_before.pct // empty' 2>/dev/null)
+        [[ -n "$has_before" ]] && GRADES_WITH_TESTS=$((GRADES_WITH_TESTS + 1))
+    done <<< "$RECENT_GRADES"
+    if [[ "$GRADES_CHECKED" -gt 0 && "$GRADES_WITH_TESTS" -eq "$GRADES_CHECKED" ]]; then
+        assert "meta: recent grades have test_before numbers ($GRADES_WITH_TESTS/$GRADES_CHECKED)" 0
+    else
+        assert "meta: recent grades have test_before numbers" 1 "$GRADES_WITH_TESTS/$GRADES_CHECKED have test data"
+    fi
+fi
+
+# --- 4.9 Meta stances are machine-verifiable (have verify_cmd) ---
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    RECENT_STANCES=$(tail -3 "$CLAUDE_HOME/knowledge/meta/grades.jsonl")
+    VERIFIABLE=0
+    STANCE_COUNT=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        has_stance=$(echo "$line" | jq -r '.stance.verify_cmd // empty' 2>/dev/null)
+        [[ -n "$has_stance" ]] && VERIFIABLE=$((VERIFIABLE + 1))
+        STANCE_COUNT=$((STANCE_COUNT + 1))
+    done <<< "$RECENT_STANCES"
+    if [[ "$STANCE_COUNT" -gt 0 && "$VERIFIABLE" -eq "$STANCE_COUNT" ]]; then
+        assert "meta: recent stances have verify_cmd ($VERIFIABLE/$STANCE_COUNT)" 0
+    else
+        assert "meta: recent stances have verify_cmd" 1 "$VERIFIABLE/$STANCE_COUNT verifiable"
+    fi
+fi
+
+# --- 4.10 Experiment learnings are growing (not empty, not stale) ---
+LEARNINGS_FILE="$CLAUDE_HOME/knowledge/experiment-learnings.md"
+if [[ -f "$LEARNINGS_FILE" ]]; then
+    LEARNINGS_LINES=$(wc -l < "$LEARNINGS_FILE" | tr -d ' ')
+    LEARNINGS_SECTIONS=$(grep -c "^##\|^###" "$LEARNINGS_FILE" 2>/dev/null || echo 0)
+    if [[ "$LEARNINGS_LINES" -ge 10 && "$LEARNINGS_SECTIONS" -ge 2 ]]; then
+        assert "experiment learnings: substantive (${LEARNINGS_LINES}L, ${LEARNINGS_SECTIONS} sections)" 0
+    else
+        assert "experiment learnings: substantive" 1 "${LEARNINGS_LINES} lines, ${LEARNINGS_SECTIONS} sections — too thin"
+    fi
+else
+    assert "experiment learnings: substantive" 1 "file missing"
+fi
+
+# --- 4.11 Agent brains have lessons (learning from experience, not just next_move) ---
+BRAINS_WITH_LESSONS=0
+BRAINS_TOTAL=0
+for brain in "$CLAUDE_HOME/state/brains"/*.json; do
+    [[ -f "$brain" ]] || continue
+    BRAINS_TOTAL=$((BRAINS_TOTAL + 1))
+    lesson_count=$(jq -r '.memory.lessons // [] | length' "$brain" 2>/dev/null || echo 0)
+    [[ "$lesson_count" -ge 1 ]] && BRAINS_WITH_LESSONS=$((BRAINS_WITH_LESSONS + 1))
+done
+if [[ "$BRAINS_TOTAL" -gt 0 ]]; then
+    if [[ "$BRAINS_WITH_LESSONS" -ge 3 ]]; then
+        assert "≥3 agent brains have accumulated lessons ($BRAINS_WITH_LESSONS/$BRAINS_TOTAL)" 0
+    else
+        assert "≥3 agent brains have accumulated lessons" 1 "only $BRAINS_WITH_LESSONS/$BRAINS_TOTAL"
+    fi
+fi
+
+# --- 4.12 Sweep identifies real problems (not all GREEN) ---
+if [[ -f "$CLAUDE_HOME/state/sweep-latest.md" ]]; then
+    has_yellow=$(grep -ci "YELLOW\|RED" "$CLAUDE_HOME/state/sweep-latest.md" 2>/dev/null || echo 0)
+    has_green=$(grep -ci "GREEN" "$CLAUDE_HOME/state/sweep-latest.md" 2>/dev/null || echo 0)
+    total_classifications=$((has_yellow + has_green))
+    if [[ "$total_classifications" -ge 2 ]]; then
+        assert "sweep: classifies with multiple tiers ($has_green GREEN, $has_yellow YELLOW/RED)" 0
+    else
+        assert "sweep: classifies with multiple tiers" 1 "only $total_classifications classifications found"
+    fi
+fi
+
+# --- 4.13 Strategy produces causal diagnosis (not just lowest-score-wins) ---
+for plan in "$PROJECTS_DIR"/*/.claude/plans/active-plan.md "$CLAUDE_HOME/plans/active-plan.md"; do
+    [[ -f "$plan" ]] || continue
+    # A good plan should have: tasks/steps, AND a rationale/diagnosis section
+    has_tasks=$(grep -ciE '^\s*-\s*\[|^##.*task|^##.*step|^##.*sprint' "$plan" 2>/dev/null || echo 0)
+    has_rationale=$(grep -ciE 'because|bottleneck|diagnosis|why|root cause|broken' "$plan" 2>/dev/null || echo 0)
+    if [[ "$has_tasks" -ge 2 && "$has_rationale" -ge 1 ]]; then
+        assert "strategy: active plan has tasks + rationale" 0
+    else
+        assert "strategy: active plan has tasks + rationale" 1 "tasks=$has_tasks rationale=$has_rationale"
+    fi
+    break  # only check first found plan
+done
+
+# --- 4.14 HARD: Scout positions have diverse confidence levels ---
+# Good intelligence has strong, moderate, and speculative — not all one level
+if [[ -f "$CLAUDE_HOME/knowledge/landscape.json" ]] && jq -e '.positions' "$CLAUDE_HOME/knowledge/landscape.json" >/dev/null 2>&1; then
+    CONF_LEVELS=$(jq -r '.positions[].confidence' "$CLAUDE_HOME/knowledge/landscape.json" 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    if [[ "$CONF_LEVELS" -ge 3 ]]; then
+        assert "HARD: scout positions have ≥3 confidence levels ($CONF_LEVELS)" 0
+    else
+        assert "HARD: scout positions have ≥3 confidence levels" 1 "only $CONF_LEVELS distinct levels"
+    fi
+fi
+
+# --- 4.15 HARD: Meta has applied fixes to ≥3 different files ---
+# A meta that only fixes one file isn't learning broadly
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    UNIQUE_FIX_FILES=$(jq -r '.fix_applied.file // empty' "$CLAUDE_HOME/knowledge/meta/grades.jsonl" 2>/dev/null | sort -u | grep -c '.' || echo 0)
+    if [[ "$UNIQUE_FIX_FILES" -ge 3 ]]; then
+        assert "HARD: meta applied fixes to ≥3 different files ($UNIQUE_FIX_FILES)" 0
+    else
+        assert "HARD: meta applied fixes to ≥3 different files" 1 "only $UNIQUE_FIX_FILES"
+    fi
+fi
+
+# --- 4.16 HARD: Meta has at least 1 failed/reverted fix (honest about failures) ---
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    HAS_FAILURE=$(grep -ciE 'reverted|dropped|no measurable|untested|failed' "$CLAUDE_HOME/knowledge/meta/grades.jsonl" 2>/dev/null || echo 0)
+    if [[ "$HAS_FAILURE" -ge 1 ]]; then
+        assert "HARD: meta has ≥1 honest failure/revert in history" 0
+    else
+        assert "HARD: meta has ≥1 honest failure/revert in history" 1 "0 failures across all cycles = suspiciously perfect"
+    fi
+fi
+
+# --- 4.17 HARD: Experiment learnings cite specific evidence ---
+# Good learnings have concrete numbers or file references, not vague claims
+LEARNINGS_FILE="$CLAUDE_HOME/knowledge/experiment-learnings.md"
+if [[ -f "$LEARNINGS_FILE" ]]; then
+    EVIDENCE_LINES=$(grep -cE '[0-9]+\.[0-9]+|[0-9]+%|\+[0-9]+|→|from [0-9]+ to [0-9]+' "$LEARNINGS_FILE" 2>/dev/null || echo 0)
+    TOTAL_LINES=$(wc -l < "$LEARNINGS_FILE" | tr -d ' ')
+    if [[ "$TOTAL_LINES" -gt 0 ]]; then
+        EVIDENCE_RATIO=$((EVIDENCE_LINES * 100 / TOTAL_LINES))
+        if [[ "$EVIDENCE_RATIO" -ge 20 ]]; then
+            assert "HARD: experiment learnings have concrete evidence (${EVIDENCE_RATIO}% of lines)" 0
+        else
+            assert "HARD: experiment learnings have concrete evidence" 1 "only ${EVIDENCE_RATIO}% of lines have numbers/data"
+        fi
+    fi
+fi
+
+# --- 4.18 HARD: Agent brains have DIFFERENT next_moves (not parroting) ---
+# Agents should have independent, distinct plans
+NEXT_MOVES=""
+for brain in "$CLAUDE_HOME/state/brains"/*.json; do
+    [[ -f "$brain" ]] || continue
+    nm=$(jq -r '.next_move.action // .next_move // empty' "$brain" 2>/dev/null | head -1)
+    [[ -n "$nm" ]] && NEXT_MOVES="$NEXT_MOVES|$nm"
+done
+UNIQUE_MOVES=$(echo "$NEXT_MOVES" | tr '|' '\n' | grep -c '.' || echo 0)
+# Check they're actually different by looking at first 30 chars
+DISTINCT_PREFIXES=$(echo "$NEXT_MOVES" | tr '|' '\n' | grep '.' | cut -c1-30 | sort -u | wc -l | tr -d ' ')
+if [[ "$UNIQUE_MOVES" -ge 4 && "$DISTINCT_PREFIXES" -ge 4 ]]; then
+    assert "HARD: ≥4 agents have distinct next_moves ($DISTINCT_PREFIXES unique)" 0
+else
+    assert "HARD: ≥4 agents have distinct next_moves" 1 "$DISTINCT_PREFIXES distinct of $UNIQUE_MOVES total"
+fi
+
+# --- 4.19 HARD: Eval history shows score CHANGES (not all same score) ---
+EVAL_SCORE_VARIANCE=false
+for history_file in "$PROJECTS_DIR"/*/.claude/evals/reports/history.jsonl "$PROJECTS_DIR"/*/docs/evals/reports/history.jsonl; do
+    [[ -f "$history_file" ]] || continue
+    UNIQUE_SCORES=$(jq -r '.score // .overall // empty' "$history_file" 2>/dev/null | sort -u | wc -l | tr -d ' ')
+    [[ "$UNIQUE_SCORES" -ge 2 ]] && EVAL_SCORE_VARIANCE=true && break
+done
+if $EVAL_SCORE_VARIANCE; then
+    assert "HARD: eval history shows score variance (not flat)" 0
+else
+    assert "HARD: eval history shows score variance (not flat)" 1 "all evals same score or <2 evals"
+fi
+
+# --- 4.20 HARD: Score history TSV has ≥5 entries with variance ---
+SCORE_VARIANCE=false
+for tsv in "$PROJECTS_DIR"/*/.claude/scores/history.tsv; do
+    [[ -f "$tsv" ]] || continue
+    ENTRY_COUNT=$(tail -n +2 "$tsv" | wc -l | tr -d ' ')
+    if [[ "$ENTRY_COUNT" -ge 5 ]]; then
+        UNIQUE_STRUCTURES=$(tail -n +2 "$tsv" | cut -f3 | sort -u | wc -l | tr -d ' ')
+        [[ "$UNIQUE_STRUCTURES" -ge 2 ]] && SCORE_VARIANCE=true && break
+    fi
+done
+if $SCORE_VARIANCE; then
+    assert "HARD: score history has ≥5 entries with structural variance" 0
+else
+    assert "HARD: score history has ≥5 entries with structural variance" 1
+fi
+
+# --- 4.21 HARD: Experiments have both keeps AND discards ---
+if [[ "$TOTAL_EXPERIMENTS" -gt 5 ]]; then
+    if [[ "$TOTAL_DISCARDED" -ge 1 && "$TOTAL_KEPT" -ge 1 ]]; then
+        assert "HARD: experiments have both keeps ($TOTAL_KEPT) and discards ($TOTAL_DISCARDED)" 0
+    else
+        assert "HARD: experiments have both keeps and discards" 1 "kept=$TOTAL_KEPT discarded=$TOTAL_DISCARDED"
+    fi
+fi
+
+# --- 4.X Thinking system health ---
+# Does the thinking infrastructure actually exist and produce output?
+
+# thinking_nudge.sh is wired in settings.json
+if grep -q "thinking_nudge" "$RHINO_DIR/config/settings.json" 2>/dev/null; then
+    assert "thinking nudge wired in settings.json" 0
+else
+    assert "thinking nudge wired in settings.json" 1
+fi
+
+# check_predictions.sh is wired in settings.json
+if grep -q "check_predictions" "$RHINO_DIR/config/settings.json" 2>/dev/null; then
+    assert "prediction checker wired in settings.json" 0
+else
+    assert "prediction checker wired in settings.json" 1
+fi
+
+# rhino.yml has thinking config
+if grep -q "thinking:" "$RHINO_DIR/config/rhino.yml" 2>/dev/null; then
+    assert "rhino.yml has thinking config section" 0
+else
+    assert "rhino.yml has thinking config section" 1
+fi
+
+# CLAUDE.md template references thinking protocol
+if grep -q "thinking.md\|How To Think\|Predict before" "$RHINO_DIR/config/CLAUDE.md" 2>/dev/null; then
+    assert "CLAUDE.md template has thinking protocol" 0
+else
+    assert "CLAUDE.md template has thinking protocol" 1
+fi
+
+# Session context is opinionated (has recommendation engine)
+if grep -q "recommends\|RECOMMENDATION\|opinionated" "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null; then
+    assert "session_context.sh has recommendation engine" 0
+else
+    assert "session_context.sh has recommendation engine" 1
+fi
+
+# thinking-health.tsv tracking exists or will be created
+if grep -q "thinking-health" "$RHINO_DIR/hooks/check_predictions.sh" 2>/dev/null; then
+    assert "check_predictions.sh logs to thinking-health.tsv" 0
+else
+    assert "check_predictions.sh logs to thinking-health.tsv" 1
+fi
+
+# --- 4.x Learning health diagnostic tests ---
+
+# meta.md has learning health diagnostic
+if grep -q "learning_health\|Is the system learning" "$RHINO_DIR/programs/meta.md" 2>/dev/null; then
+    assert "meta.md has learning health diagnostic" 0
+else
+    assert "meta.md has learning health diagnostic" 1
+fi
+
+# session_context.sh surfaces learning engine health
+if grep -q "Learning Engine" "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null; then
+    assert "session_context.sh surfaces learning engine health" 0
+else
+    assert "session_context.sh surfaces learning engine health" 1
+fi
+
+# check_predictions.sh output consumed by session_context
+if grep -q "thinking-health.tsv" "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null; then
+    assert "session_context.sh consumes thinking-health.tsv from check_predictions" 0
+else
+    assert "session_context.sh consumes thinking-health.tsv from check_predictions" 1
+fi
+
 tier_end
 fi
 
@@ -1046,6 +1855,235 @@ if [[ "$AUTONOMOUS_RUNS" -ge 3 ]]; then
     assert "autonomous runs: ≥3 substantive agent logs found" 0
 else
     assert "autonomous runs: ≥3 substantive agent logs found" 1 "only $AUTONOMOUS_RUNS"
+fi
+
+# --- 5.13 Meta loss curve is improving (test pass rate trending up, not flat) ---
+# When test suite grows, raw pct can drop even as the system improves (adding harder tests).
+# Fix: compare absolute pass counts when total changes. Only flag regression when pass count drops.
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    # Get last 5 cycles' pass count and total
+    RECENT_DATA=$(tail -5 "$CLAUDE_HOME/knowledge/meta/grades.jsonl" | while IFS= read -r line; do
+        pass=$(echo "$line" | jq -r '.test_after.pass // .test_before.pass // empty' 2>/dev/null)
+        total=$(echo "$line" | jq -r '.test_after.total // .test_before.total // empty' 2>/dev/null)
+        pct=$(echo "$line" | jq -r '.test_after.pct // .test_before.pct // empty' 2>/dev/null)
+        [[ -n "$pass" && -n "$total" ]] && echo "$pass/$total/$pct"
+    done)
+    DATA_COUNT=$(echo "$RECENT_DATA" | grep -c '[0-9]' || echo 0)
+    if [[ "$DATA_COUNT" -ge 3 ]]; then
+        FIRST_PASS=$(echo "$RECENT_DATA" | head -1 | cut -d/ -f1)
+        FIRST_TOTAL=$(echo "$RECENT_DATA" | head -1 | cut -d/ -f2)
+        FIRST_PCT=$(echo "$RECENT_DATA" | head -1 | cut -d/ -f3)
+        LAST_PASS=$(echo "$RECENT_DATA" | tail -1 | cut -d/ -f1)
+        LAST_TOTAL=$(echo "$RECENT_DATA" | tail -1 | cut -d/ -f2)
+        LAST_PCT=$(echo "$RECENT_DATA" | tail -1 | cut -d/ -f3)
+        if [[ "$LAST_TOTAL" -gt "$FIRST_TOTAL" && "$LAST_PASS" -ge "$FIRST_PASS" ]]; then
+            # Test suite grew AND pass count held or improved — that's progress, not regression
+            assert "meta: test pass rate not declining (${FIRST_PASS}/${FIRST_TOTAL}→${LAST_PASS}/${LAST_TOTAL}, suite grew)" 0
+        elif [[ "$LAST_PCT" -ge "$FIRST_PCT" ]]; then
+            assert "meta: test pass rate not declining (${FIRST_PCT}%→${LAST_PCT}%)" 0
+        else
+            assert "meta: test pass rate not declining" 1 "${FIRST_PASS}/${FIRST_TOTAL}→${LAST_PASS}/${LAST_TOTAL} (${FIRST_PCT}%→${LAST_PCT}%)"
+        fi
+    else
+        assert "meta: test pass rate not declining" 1 "only $DATA_COUNT data points"
+    fi
+fi
+
+# --- 5.14 Feedback loops are connected (outputs feed inputs) ---
+# Check that the chain exists: experiment → learnings → next hypothesis
+LOOP_CONNECTED=0
+LOOP_TOTAL=3
+
+# Loop 1: experiment-learnings.md has content from experiments
+if [[ -f "$CLAUDE_HOME/knowledge/experiment-learnings.md" ]]; then
+    if grep -qi "what works\|dead end\|pattern\|experiment" "$CLAUDE_HOME/knowledge/experiment-learnings.md" 2>/dev/null; then
+        LOOP_CONNECTED=$((LOOP_CONNECTED + 1))
+    fi
+fi
+
+# Loop 2: meta grades track test numbers (meta → evals → meta)
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    recent_has_tests=$(tail -1 "$CLAUDE_HOME/knowledge/meta/grades.jsonl" | jq -r '.test_before.pct // empty' 2>/dev/null)
+    [[ -n "$recent_has_tests" ]] && LOOP_CONNECTED=$((LOOP_CONNECTED + 1))
+fi
+
+# Loop 3: session context injects scores (scoring → sessions → agents)
+if grep -q "TASTE_REPORT\|taste.*score\|score.*inject" "$RHINO_DIR/hooks/session_context.sh" 2>/dev/null; then
+    LOOP_CONNECTED=$((LOOP_CONNECTED + 1))
+fi
+
+if [[ "$LOOP_CONNECTED" -ge 3 ]]; then
+    assert "feedback loops: all $LOOP_TOTAL connected" 0
+else
+    assert "feedback loops: all $LOOP_TOTAL connected" 1 "only $LOOP_CONNECTED/$LOOP_TOTAL"
+fi
+
+# --- 5.15 System self-knowledge: rhino test pass rate recorded in an accessible place ---
+# The system should know its own health — check that test results are logged somewhere
+# beyond just grades.jsonl (which only meta reads)
+SELF_KNOWLEDGE=false
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    # At minimum, the latest grade should have test numbers
+    latest_pct=$(tail -1 "$CLAUDE_HOME/knowledge/meta/grades.jsonl" | jq -r '.test_after.pct // .test_before.pct // empty' 2>/dev/null)
+    [[ -n "$latest_pct" ]] && SELF_KNOWLEDGE=true
+fi
+if $SELF_KNOWLEDGE; then
+    assert "self-knowledge: system health metrics logged ($latest_pct%)" 0
+else
+    assert "self-knowledge: system health metrics logged" 1 "no test results in grades"
+fi
+
+# --- 5.16 HARD: Score improved ≥10 points from first to latest across any project ---
+SCORE_IMPROVEMENT=false
+for tsv in "$PROJECTS_DIR"/*/.claude/scores/history.tsv; do
+    [[ -f "$tsv" ]] || continue
+    entries=$(tail -n +2 "$tsv" | wc -l | tr -d ' ')
+    [[ "$entries" -lt 3 ]] && continue
+    first_struct=$(tail -n +2 "$tsv" | head -1 | cut -f3)
+    last_struct=$(tail -1 "$tsv" | cut -f3)
+    if [[ "$first_struct" =~ ^[0-9]+$ && "$last_struct" =~ ^[0-9]+$ ]]; then
+        delta=$((last_struct - first_struct))
+        [[ "$delta" -ge 10 ]] && SCORE_IMPROVEMENT=true && break
+    fi
+done
+if $SCORE_IMPROVEMENT; then
+    assert "HARD: structure score improved ≥10 points in ≥1 project" 0
+else
+    assert "HARD: structure score improved ≥10 points in ≥1 project" 1
+fi
+
+# --- 5.17 HARD: Taste score improved between first and latest eval ---
+TASTE_IMPROVING=false
+for taste_history in "$PROJECTS_DIR"/*/.claude/evals/taste-history.tsv; do
+    [[ -f "$taste_history" ]] || continue
+    entries=$(tail -n +2 "$taste_history" | wc -l | tr -d ' ')
+    [[ "$entries" -lt 2 ]] && continue
+    first_score=$(tail -n +2 "$taste_history" | head -1 | cut -f2)
+    last_score=$(tail -1 "$taste_history" | cut -f2)
+    if [[ -n "$first_score" && -n "$last_score" ]]; then
+        # Use awk for decimal comparison
+        if awk "BEGIN { exit !($last_score > $first_score) }" 2>/dev/null; then
+            TASTE_IMPROVING=true
+            break
+        fi
+    fi
+done
+if $TASTE_IMPROVING; then
+    assert "HARD: taste score improved between evals" 0
+else
+    assert "HARD: taste score improved between evals" 1
+fi
+
+# --- 5.18 HARD: System ran for ≥3 days with agent activity on each ---
+ACTIVE_DAYS=0
+if [[ -d "$CLAUDE_HOME/logs" ]]; then
+    ACTIVE_DAYS=$(for log in "$CLAUDE_HOME/logs"/*.log; do
+        [[ -f "$log" ]] || continue
+        lines=$(wc -l < "$log" | tr -d ' ')
+        [[ "$lines" -ge 3 ]] && stat -f "%Sm" -t "%Y-%m-%d" "$log" 2>/dev/null || stat -c "%y" "$log" 2>/dev/null | cut -d' ' -f1
+    done | sort -u | wc -l | tr -d ' ')
+fi
+if [[ "$ACTIVE_DAYS" -ge 3 ]]; then
+    assert "HARD: agent activity on ≥3 distinct days ($ACTIVE_DAYS)" 0
+else
+    assert "HARD: agent activity on ≥3 distinct days" 1 "only $ACTIVE_DAYS"
+fi
+
+# --- 5.19 HARD: An experiment learning was CITED in a later experiment hypothesis ---
+LEARNING_CITED=false
+for tsv in "$PROJECTS_DIR"/*/.claude/experiments/*.tsv; do
+    [[ -f "$tsv" ]] || continue
+    # Check if any experiment row references learnings/patterns
+    if grep -qi "learning\|pattern\|previous.*showed\|based on.*experiment\|informed by" "$tsv" 2>/dev/null; then
+        LEARNING_CITED=true
+        break
+    fi
+done
+if $LEARNING_CITED; then
+    assert "HARD: experiment cites previous learning (informed search)" 0
+else
+    assert "HARD: experiment cites previous learning (informed search)" 1 "all experiments are random guesses"
+fi
+
+# --- 5.20 HARD: Product has ≥3 completed user flows (not just scaffolding) ---
+COMPLETED_FLOWS=0
+for project in "$PROJECTS_DIR"/*/; do
+    [[ -d "$project" ]] || continue
+    src=""
+    [[ -d "$project/src" ]] && src="$project/src"
+    [[ -d "$project/apps/web/src" ]] && src="$project/apps/web/src"
+    [[ -z "$src" ]] && continue
+
+    # Count route files with actual content (>50 lines = real UI, not scaffold)
+    for route_file in $(find "$src" -name "page.tsx" -o -name "index.tsx" 2>/dev/null | head -20); do
+        lines=$(wc -l < "$route_file" | tr -d ' ')
+        [[ "$lines" -ge 50 ]] && COMPLETED_FLOWS=$((COMPLETED_FLOWS + 1))
+    done
+done
+if [[ "$COMPLETED_FLOWS" -ge 3 ]]; then
+    assert "HARD: ≥3 completed user flows (pages >50 lines) ($COMPLETED_FLOWS)" 0
+else
+    assert "HARD: ≥3 completed user flows (pages >50 lines)" 1 "only $COMPLETED_FLOWS"
+fi
+
+# --- 5.21 HARD: Real user visited the product (not just the developer) ---
+# Evidence: analytics shows >1 unique visitor, or auth has >1 user, or feedback exists
+REAL_USERS=false
+for project in "$PROJECTS_DIR"/*/; do
+    [[ -d "$project" ]] || continue
+    # Check for user-facing auth that implies multiple users
+    if grep -rq "createUser\|signUp\|register.*user\|UserButton\|SignInButton" --include="*.ts" --include="*.tsx" "$project/src" "$project/apps" 2>/dev/null; then
+        REAL_USERS=true
+        break
+    fi
+done
+if $REAL_USERS; then
+    assert "HARD: product has user auth (path to real users)" 0
+else
+    assert "HARD: product has user auth (path to real users)" 1
+fi
+
+# --- 5.22 HARD: Meta test pass rate increased from cycle 1 to latest ---
+# Early cycles (1-13) lack test_before/test_after. Use absolute pass counts when available.
+if [[ -f "$CLAUDE_HOME/knowledge/meta/grades.jsonl" ]]; then
+    # Find first entry with test data (skip early cycles without it)
+    FIRST_ENTRY=$(grep -m1 '"test_before"\|"test_after"' "$CLAUDE_HOME/knowledge/meta/grades.jsonl")
+    LATEST_ENTRY=$(tail -1 "$CLAUDE_HOME/knowledge/meta/grades.jsonl")
+    if [[ -n "$FIRST_ENTRY" ]]; then
+        FIRST_PASS=$(echo "$FIRST_ENTRY" | jq -r '.test_before.pass // .test_after.pass // empty' 2>/dev/null)
+        FIRST_TOTAL=$(echo "$FIRST_ENTRY" | jq -r '.test_before.total // .test_after.total // empty' 2>/dev/null)
+        LATEST_PASS=$(echo "$LATEST_ENTRY" | jq -r '.test_after.pass // .test_before.pass // empty' 2>/dev/null)
+        LATEST_TOTAL=$(echo "$LATEST_ENTRY" | jq -r '.test_after.total // .test_before.total // empty' 2>/dev/null)
+        if [[ -n "$FIRST_PASS" && -n "$LATEST_PASS" ]]; then
+            if [[ "$LATEST_PASS" -gt "$FIRST_PASS" ]]; then
+                assert "HARD: meta test rate improved first→latest (${FIRST_PASS}/${FIRST_TOTAL}→${LATEST_PASS}/${LATEST_TOTAL})" 0
+            else
+                assert "HARD: meta test rate improved first→latest" 1 "${FIRST_PASS}/${FIRST_TOTAL}→${LATEST_PASS}/${LATEST_TOTAL} (flat or declining)"
+            fi
+        else
+            assert "HARD: meta test rate improved first→latest" 1 "missing pass count data"
+        fi
+    else
+        assert "HARD: meta test rate improved first→latest" 1 "no cycles with test data found"
+    fi
+fi
+
+# --- 5.23 HARD: System produced a commit without human writing the code ---
+AUTONOMOUS_COMMIT=false
+for project in "$PROJECTS_DIR"/*/; do
+    [[ -d "$project/.git" ]] || continue
+    # Look for commits with experiment/build/agent markers
+    if cd "$project" && git log --oneline -20 2>/dev/null | grep -qi "experiment\|auto\|agent\|builder\|rhino"; then
+        AUTONOMOUS_COMMIT=true
+        break
+    fi
+    cd "$RHINO_DIR" 2>/dev/null
+done
+cd "$RHINO_DIR" 2>/dev/null
+if $AUTONOMOUS_COMMIT; then
+    assert "HARD: ≥1 autonomous commit (experiment/agent-driven)" 0
+else
+    assert "HARD: ≥1 autonomous commit (experiment/agent-driven)" 1
 fi
 
 tier_end

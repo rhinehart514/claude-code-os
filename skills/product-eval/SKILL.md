@@ -7,6 +7,7 @@ user-invocable: true
 # Product Eval — Would Anyone Care?
 
 > **Score integrity**: Read `agents/refs/score-integrity.md`. Scores are diagnostic, not goals.
+> **Founder trust**: Your job is to INFORM, not to pressure. Report what you observe — scores, gaps, competitive position. NEVER prescribe urgency ("ship today", "deploy now", "this needs to go live"). NEVER tell the founder what to prioritize or when to act. They may be exploring, prototyping, or deliberately working on something else. State the product's readiness and where the gaps are. The founder decides the rest.
 
 This is not a code check. This is a product check. You are the target user who just got a link. You have the apps they use daily on your phone. You give new apps about 4 seconds.
 
@@ -16,6 +17,7 @@ This is not a code check. This is a product check. You are the target user who j
 2. Read previous product eval reports in `.claude/evals/reports/product-eval-*.md`
 3. Read `.claude/evals/reports/history.jsonl` for recurring ceiling gaps
 4. Read docs like PRODUCT-STRATEGY.md, PERSPECTIVES.md if they exist
+5. Read `~/.claude/knowledge/experiment-learnings.md` — what does the system know about this product?
 
 ## Step 1: The 4-Second Test
 
@@ -139,11 +141,11 @@ Score each 0.0-1.0.
 ### What's Keeping This Generic
 [Ranked list: the specific things making this feel like every other app]
 
-### The 3 Changes That Would Matter Most
-[Not features — product-level shifts that change the trajectory]
-1. [Change]: [Why this changes the outcome, not just the product]
-2. [Change]: [Why]
-3. [Change]: [Why]
+### The 3 Biggest Gaps
+[Not prescriptions — observations about where the product is weakest relative to the bar]
+1. [Gap]: [What a user would feel and why — the mechanism, not a fix]
+2. [Gap]: [What a user would feel and why]
+3. [Gap]: [What a user would feel and why]
 
 ### Ceiling Gaps (feed forward to builder)
 - [gap] → [what the next plan must address]
@@ -155,7 +157,7 @@ Save to `.claude/evals/reports/product-eval-[date].md`
 
 Append to `.claude/evals/reports/history.jsonl`:
 ```json
-{"date":"[date]","type":"product-eval","feature":"full-product","four_second":0.0,"[dim1]":0.0,"[dim2]":0.0,"[dim3]":0.0,"overall":0.0,"verdict":"[SHIP|NOT READY]","top_gaps":["[gap 1]","[gap 2]","[gap 3]"]}
+{"date":"[date]","type":"product-eval","feature":"full-product","four_second":0.0,"[dim1]":0.0,"[dim2]":0.0,"[dim3]":0.0,"overall":0.0,"verdict":"[READY|NOT READY]","top_gaps":["[gap 1]","[gap 2]","[gap 3]"]}
 ```
 
 Dimension keys are project-specific — use whatever dimensions matter for the product being evaluated. The structure is: score each dimension 0-1, compute overall, identify top gaps.

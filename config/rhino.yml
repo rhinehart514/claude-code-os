@@ -72,7 +72,7 @@ taste:
       - profile
       - settings
 
-  dimensions:                 # the 9 taste dimensions (rubric)
+  dimensions:                 # the 11 taste dimensions (rubric)
     - hierarchy
     - breathing_room
     - contrast
@@ -82,6 +82,21 @@ taste:
     - wayfinding
     - distinctiveness
     - scroll_experience
+    - layout_coherence
+    - information_architecture
+
+# ── Taste Knowledge (research-taste) ────────────────
+taste_knowledge:
+  freshness_ttl_days: 14          # re-research dimension after this many days
+  research_depth: standard        # high-yield / standard / thorough
+  max_sources_per_dimension: 5    # cap URLs fetched per dimension
+  exemplar_products:              # products to compare against (override per project)
+    - Linear
+    - Notion
+    - Discord
+    - Arc
+    - Figma
+  founder_taste_auto_capture: true  # capture taste statements from commits
 
 # ── Knowledge & Decay ──────────────────────────────
 knowledge:
@@ -142,3 +157,43 @@ experiments:
   exploration_floor: 0.30      # minimum 30% exploration even in exploitation mode
   moonshot_every_n: 5          # every Nth experiment must be high-risk (>50% expected failure)
   streak_before_pivot: 5       # discards in a row before switching strategy (was 3)
+
+# ── Context Documents (rhino docs) ────────────────────
+docs:
+  budget_per_doc: 0.75          # USD per doc generation subagent
+  refresh_interval: 5           # auto-refresh every N builds (in rhino go)
+  trigger_platform: "page\\.tsx|route\\.ts|endpoint|controller|handler|api"
+  trigger_architecture: "schema|model|migration|prisma|drizzle|api|types"
+  trigger_styleguide: "tailwind|css|theme|color|font|style|globals"
+
+# ── Continuous Build (rhino go) ──────────────────────
+go:
+  max_iterations: 10            # stop after N iterations
+  plateau_threshold: 3          # consecutive flat scores before stopping
+  taste_every_n: 3              # run taste eval every N iterations
+
+# ── Hooks ────────────────────────────────────────────
+hooks:
+  # Per-edit quality checks (PostToolUse on Edit/Write)
+  post_edit_quality: true       # typecheck, console.log, secrets detection
+  # Thinking nudge (PostToolUse on Edit/Write)
+  thinking_nudge: true          # nudges after N edits without predictions
+  thinking_nudge_edits: 3       # edits before first nudge
+  thinking_nudge_block_edits: 5 # edits before blocking message (if 0 predictions today)
+  thinking_knowledge_edits: 20  # edits before knowledge model nudge
+  # Prediction check (Stop hook)
+  check_predictions: true       # logs thinking health at session end
+  # Cost tracking (Stop hook)
+  track_cost: true              # session cost summary to cost-history.tsv
+  # Pattern extraction (Stop hook)
+  extract_patterns: true        # mine session traces for recurring patterns
+  # Compaction guidance threshold
+  compaction_warning_tools: 50  # warn about compaction after this many tool calls
+
+# ── Thinking ────────────────────────────────────────
+thinking:
+  prediction_accuracy_target: [50, 70]   # ideal calibration range (%)
+  prediction_too_safe: 90                # above this = not learning
+  prediction_broken_model: 30            # below this = model is wrong
+  model_update_required_on_wrong: true   # wrong prediction without model_update = waste
+  unknown_territory_explore_rate: 0.30   # 30% of experiments should target unknowns

@@ -12,6 +12,10 @@
  * This is the expensive eval — run on demand, not every commit.
  * score.sh is the cheap proxy (training loss). This is eval loss.
  *
+ * Auth support: Add an 'auth' section to .claude/taste.yml to inject
+ * cookies/localStorage before screenshotting. This lets taste eval see
+ * authenticated pages (dashboard, profile, settings, etc.)
+ *
  * Usage:
  *   node taste.mjs [project-dir] [--json] [--port 3000] [--url http://localhost:3000]
  *
@@ -94,6 +98,7 @@ let port = null;
 let skipServer = false;
 let force = false;
 let featureFilter = null;
+let researchFirst = false;
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--json") outputMode = "json";
@@ -102,6 +107,7 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === "--url") baseUrl = args[i + 1], skipServer = true, i++;
   else if (args[i] === "--force") force = true;
   else if (args[i] === "--feature") featureFilter = args[i + 1], i++;
+  else if (args[i] === "--research") researchFirst = true;
   else if (args[i] === "--help" || args[i] === "-h") {
     console.log(`Usage: node taste.mjs [project-dir] [options]`);
     console.log(`\nEvaluates product taste by screenshotting every route and judging with Claude vision.`);
@@ -112,6 +118,9 @@ for (let i = 0; i < args.length; i++) {
     console.log(`  --url <url>        Use running server (skip auto-start)`);
     console.log(`  --force            Re-run even if recent eval exists`);
     console.log(`  --feature <name>   Evaluate a single feature (requires .claude/features.yml)`);
+    console.log(`  --research         Remind to run /research-taste before eval for grounded scoring`);
+    console.log(`\nAuth: Add an 'auth' section to .claude/taste.yml with cookies and/or localStorage`);
+    console.log(`  to screenshot authenticated routes (dashboard, profile, settings, etc.)`);
     console.log(`\nRequires: claude CLI (OAuth), playwright (npx playwright install chromium)`);
     process.exit(0);
   }
@@ -120,7 +129,7 @@ for (let i = 0; i < args.length; i++) {
 
 projectDir = resolve(projectDir);
 
-// --- Load taste.yml config (route selection) ---
+// --- Load taste.yml config (route selection + auth) ---
 function loadTasteConfig() {
   const configPaths = [
     join(projectDir, ".claude", "taste.yml"),
@@ -132,19 +141,61 @@ function loadTasteConfig() {
       try {
         const content = readFileSync(p, "utf-8");
         // Simple YAML parser for our flat structure
-        const config = { routes: [], mobile: [] };
+        const config = { routes: [], mobile: [], auth: null };
         let currentKey = null;
+        let authSection = null;
+        let inCookies = false;
+        let inLocalStorage = false;
+        let currentCookie = null;
+
         for (const line of content.split("\n")) {
           const trimmed = line.trim();
           if (trimmed.startsWith("#") || !trimmed) continue;
-          if (trimmed === "routes:") { currentKey = "routes"; continue; }
-          if (trimmed === "mobile:") { currentKey = "mobile"; continue; }
+
+          // Top-level sections
+          if (trimmed === "routes:") { currentKey = "routes"; authSection = null; continue; }
+          if (trimmed === "mobile:") { currentKey = "mobile"; authSection = null; continue; }
+          if (trimmed === "auth:") { currentKey = null; authSection = {}; config.auth = authSection; inCookies = false; inLocalStorage = false; continue; }
+
+          // Route/mobile list items
           if (currentKey && trimmed.startsWith("- ")) {
             const val = trimmed.slice(2).trim().replace(/#.*/, "").trim();
             if (val) config[currentKey].push(val);
+            continue;
+          }
+
+          // Auth sub-sections
+          if (authSection !== null) {
+            if (trimmed === "cookies:") { inCookies = true; inLocalStorage = false; authSection.cookies = authSection.cookies || []; continue; }
+            if (trimmed === "localStorage:") { inLocalStorage = true; inCookies = false; authSection.localStorage = authSection.localStorage || {}; continue; }
+            if (trimmed.startsWith("login_url:")) { authSection.login_url = trimmed.split(":").slice(1).join(":").trim().replace(/["']/g, ""); continue; }
+
+            // Cookie entries (list of objects with name, value, domain, path)
+            if (inCookies) {
+              if (trimmed.startsWith("- name:")) {
+                currentCookie = { name: trimmed.slice(7).trim().replace(/["']/g, "") };
+                authSection.cookies.push(currentCookie);
+              } else if (currentCookie && trimmed.startsWith("value:")) {
+                currentCookie.value = trimmed.slice(6).trim().replace(/["']/g, "");
+              } else if (currentCookie && trimmed.startsWith("domain:")) {
+                currentCookie.domain = trimmed.slice(7).trim().replace(/["']/g, "");
+              } else if (currentCookie && trimmed.startsWith("path:")) {
+                currentCookie.path = trimmed.slice(5).trim().replace(/["']/g, "");
+              }
+              continue;
+            }
+
+            // localStorage entries (key: value pairs)
+            if (inLocalStorage) {
+              const kvMatch = trimmed.match(/^([^:]+):\s*(.+)/);
+              if (kvMatch) {
+                authSection.localStorage[kvMatch[1].trim().replace(/["']/g, "")] = kvMatch[2].trim().replace(/["']/g, "");
+              }
+              continue;
+            }
           }
         }
-        if (config.routes.length > 0) return config;
+        if (config.routes.length > 0 || config.auth) return config;
       } catch {}
     }
   }
@@ -281,10 +332,44 @@ function detectRoutes(srcDir) {
   return { routes: selected, mobileOnly: ["/"] };
 }
 
+// --- Inject auth state into browser context ---
+async function injectAuth(context, page, authConfig, url) {
+  if (!authConfig) return;
+
+  // Inject cookies
+  if (authConfig.cookies?.length) {
+    const parsedUrl = new URL(url);
+    const cookies = authConfig.cookies.map(c => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain || parsedUrl.hostname,
+      path: c.path || "/",
+    }));
+    await context.addCookies(cookies);
+    console.error(`  ${DIM}injected ${cookies.length} auth cookie(s)${NC}`);
+  }
+
+  // Inject localStorage (requires navigating first, then setting values)
+  if (authConfig.localStorage && Object.keys(authConfig.localStorage).length > 0) {
+    // Navigate to base URL to set localStorage on the correct origin
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: cfg("taste.timeouts.page_load", 30000) });
+    await page.evaluate((items) => {
+      for (const [key, value] of Object.entries(items)) {
+        localStorage.setItem(key, value);
+      }
+    }, authConfig.localStorage);
+    console.error(`  ${DIM}injected ${Object.keys(authConfig.localStorage).length} localStorage item(s)${NC}`);
+  }
+}
+
 // --- Screenshot routes ---
-async function screenshotRoutes(browser, url, routeConfig) {
+async function screenshotRoutes(browser, url, routeConfig, authConfig) {
   const screenshots = [];
-  const page = await browser.newPage();
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  // Inject auth before screenshotting
+  await injectAuth(context, page, authConfig, url);
 
   const desktopVp = { width: cfg("taste.viewports.desktop.width", 1440), height: cfg("taste.viewports.desktop.height", 900), name: "desktop" };
   const mobileVp = { width: cfg("taste.viewports.mobile.width", 390), height: cfg("taste.viewports.mobile.height", 844), name: "mobile" };
@@ -317,12 +402,13 @@ async function screenshotRoutes(browser, url, routeConfig) {
   }
 
   await page.close();
+  await context.close();
   return screenshots;
 }
 
 // --- Load intelligence layers ---
 function loadContext() {
-  const ctx = { landscape: null, taste: null, product: null };
+  const ctx = { landscape: null, taste: null, product: null, dimensionKnowledge: {}, founderTaste: null };
 
   // Landscape positions (from scout)
   const landscapePath = join(process.env.HOME, ".claude", "knowledge", "landscape.json");
@@ -345,6 +431,43 @@ function loadContext() {
         try { const j = JSON.parse(l); return `[${j.strength}] ${j.signal}`; } catch { return null; }
       }).filter(Boolean);
       if (signals.length) ctx.taste = signals.join("\n- ");
+    } catch {}
+  }
+
+  // Per-dimension taste knowledge (from /research-taste)
+  const knowledgeDir = join(process.env.HOME, ".claude", "knowledge", "taste-knowledge");
+  const dimensions = [
+    "hierarchy", "breathing_room", "contrast", "polish", "emotional_tone",
+    "information_density", "wayfinding", "distinctiveness", "scroll_experience",
+    "layout_coherence", "information_architecture"
+  ];
+  ctx.dimensionKnowledge = {};
+  for (const dim of dimensions) {
+    const dimPath = join(knowledgeDir, `${dim}.md`);
+    if (existsSync(dimPath)) {
+      try {
+        const content = readFileSync(dimPath, "utf-8");
+        // Extract Patterns and Anti-Patterns sections (most useful for rubric)
+        const patterns = content.match(/## Patterns[\s\S]*?(?=## |$)/)?.[0]?.trim() || "";
+        const antiPatterns = content.match(/## Anti-Patterns[\s\S]*?(?=## |$)/)?.[0]?.trim() || "";
+        const scoringGuide = content.match(/## Scoring Guide[\s\S]*?(?=## |$)/)?.[0]?.trim() || "";
+        if (patterns || antiPatterns || scoringGuide) {
+          ctx.dimensionKnowledge[dim] = { patterns, antiPatterns, scoringGuide };
+        }
+      } catch {}
+    }
+  }
+
+  // Founder taste profile (structured preferences)
+  const founderTastePath = join(process.env.HOME, ".claude", "knowledge", "founder-taste.md");
+  if (existsSync(founderTastePath)) {
+    try {
+      const content = readFileSync(founderTastePath, "utf-8");
+      // Extract the Preferences section
+      const prefs = content.match(/## Preferences[\s\S]*/)?.[0]?.trim() || "";
+      if (prefs && !prefs.includes("No preferences recorded yet")) {
+        ctx.founderTaste = prefs;
+      }
     } catch {}
   }
 
@@ -394,13 +517,72 @@ ${ctx.product}
 `;
   }
 
+  let knowledgeSection = "";
+  if (ctx.dimensionKnowledge && Object.keys(ctx.dimensionKnowledge).length > 0) {
+    knowledgeSection = `\n## Researched Taste Knowledge (use this to ground your evaluation)
+The following dimensions have been researched with specific patterns, anti-patterns, and exemplars. Use this knowledge to make your evaluation SPECIFIC and GROUNDED rather than generic. When you score a dimension that has research, cite the specific pattern or anti-pattern you observed.\n`;
+    for (const [dim, knowledge] of Object.entries(ctx.dimensionKnowledge)) {
+      knowledgeSection += `\n### ${dim.toUpperCase()}\n`;
+      if (knowledge.patterns) knowledgeSection += `${knowledge.patterns}\n`;
+      if (knowledge.antiPatterns) knowledgeSection += `${knowledge.antiPatterns}\n`;
+      if (knowledge.scoringGuide) knowledgeSection += `${knowledge.scoringGuide}\n`;
+    }
+  }
+
+  let founderSection = "";
+  if (ctx.founderTaste) {
+    founderSection = `\n## Founder Taste Calibration (weight these preferences in your scoring)
+${ctx.founderTaste}
+`;
+  }
+
   return `You are a first-time user who just landed on this product. You have never seen it before. You don't know what it does. You don't care about the code, the architecture, or the design system. You care about ONE thing: does this thing give you value fast enough that you'd come back?
 
 You have the attention span of someone with 40 browser tabs open. You will leave in 5 seconds if you don't understand what this is and what to do next.
-${productSection}${marketSection}${tasteSection}
+${productSection}${marketSection}${tasteSection}${knowledgeSection}${founderSection}
 You are looking at screenshots of this application. Score each dimension 1-5 based on your EXPERIENCE as a real user seeing this cold — calibrated against products you actually use daily (Instagram, Discord, Notion, Linear, Arc). Those are the bar. Not "good for a student project." Not "good for an early product."
 
-## Dimensions
+## STRUCTURAL AUDIT — Do This FIRST (before scoring anything else)
+
+Before you score ANY of the experiential dimensions below, you must complete this structural audit. These two dimensions are GATES — if either scores 1-2, it caps the overall score at 2 regardless of how good individual screens feel. A product with broken layout or incoherent IA cannot score well overall. Pretty screens on a broken skeleton are lipstick on a pig.
+
+### GATE 1: LAYOUT_COHERENCE (does the spatial system make sense?)
+
+Look at ALL the screenshots together. Compare them side by side in your mind. Answer these questions BEFORE assigning a score:
+
+1. **Grid consistency**: Do all pages share the same max-width? Same column structure? Or does one page use a centered narrow column while another goes full-width for no reason?
+2. **Spacing system**: Are gaps between sections consistent across pages? Or does page A have tight spacing while page B is drowning in whitespace?
+3. **Component sizing**: Are cards, buttons, inputs the same size across routes? Or does a card on one page look completely different from a card on another?
+4. **Sidebar/nav dimensions**: If there's a sidebar or top nav, is it the same width/height on every page? Do content margins match?
+5. **Mobile adaptation**: Does the mobile layout RETHINK content for thumb reach and small screens? Or does it just squeeze the desktop layout until it breaks?
+6. **Proportions**: Do hero sections, content areas, and footers have intentional proportional relationships? Or are heights/widths arbitrary?
+
+Score:
+   5 = Airtight spatial system — I can see the same grid DNA on every page. Proportions are intentional. Mobile is rethought, not squeezed.
+   3 = Mostly coherent but I spotted inconsistencies — a section that's wider than it should be, spacing that shifts between pages, mobile that just shrinks.
+   1 = No layout system. Every page looks like it was built independently. Columns don't align, widths are random, gutters shift. This is spatial chaos.
+
+### GATE 2: INFORMATION_ARCHITECTURE (can I build a mental model of this product?)
+
+Look at the navigation, labels, and page structure across ALL screenshots. Answer these questions BEFORE assigning a score:
+
+1. **Mental model**: Can you describe this product's organizing principle in one sentence? (e.g., "organized by: spaces → channels → messages" or "organized by: projects → tasks → subtasks") If you can't articulate it, the IA is broken.
+2. **Navigation coverage**: Does the main nav reach all key destinations? Or are important features buried 3 clicks deep, behind modals, or hidden in hamburger menus?
+3. **Grouping logic**: Are related features near each other? Or is "Create" in the sidebar but "Edit" in a completely different section?
+4. **Label clarity**: Can you predict what's behind each nav item from the label alone? Or are there vague labels like "More", "Hub", "Explore" that could mean anything?
+5. **Depth sanity**: Is the most important functionality at the top level? Or do trivial settings get prime nav real estate while core features are buried?
+6. **Consistency**: Does the same concept appear in multiple places under different names? Are there redundant paths to the same destination?
+
+Score:
+   5 = Crystal clear mental model — I can predict where everything lives. Navigation maps directly to what the product does. Labels are self-explanatory. Depth matches importance.
+   3 = I can navigate but the logic is fuzzy — some features are in unexpected places, labels require guessing, I have to remember paths rather than predict them.
+   1 = No mental model possible. Features scattered randomly. Navigation doesn't map to the product's purpose. I would have to search/guess to find basic functionality.
+
+**GATE RULE**: If EITHER layout_coherence or information_architecture scores ≤ 2, the overall score is CAPPED at 2. Rationale: a product with broken spatial structure or incoherent IA will confuse users no matter how polished individual screens are. Fix the skeleton before decorating.
+
+---
+
+## Experiential Dimensions (score these AFTER the structural audit)
 
 1. **HIERARCHY** (do I know what this is and where to look?)
    5 = I understood what this product does and what to do first within 3 seconds
@@ -441,6 +623,11 @@ You are looking at screenshots of this application. Score each dimension 1-5 bas
    5 = This looks like ITSELF — I'd recognize it with the logo hidden
    3 = Competent but I've seen this template before — it's every shadcn/tailwind app
    1 = Pure framework defaults — literally indistinguishable from a tutorial project
+
+9. **SCROLL_EXPERIENCE** (does scrolling feel intentional or accidental?)
+   5 = Scrolling reveals content in a rhythm that keeps me engaged — sections arrive at the right pace, nothing feels too long or too short, sticky elements help me stay oriented
+   3 = Scrolling works but nothing is designed around it — content just stacks vertically with no pacing, I lose track of where I am on long pages
+   1 = Scrolling feels broken — endless empty space, sections that don't end, no landmarks, I'd stop scrolling and leave
 
 ## Research-Grounded Evaluation (CRITICAL)
 
@@ -502,7 +689,9 @@ Cite the specific element that makes each screen NOT slop, or say "nothing — t
     "information_density": { "score": <1-5>, "evidence": "<what you experienced>" },
     "wayfinding": { "score": <1-5>, "evidence": "<what you experienced>" },
     "distinctiveness": { "score": <1-5>, "evidence": "<what you experienced>" },
-    "scroll_experience": { "score": <1-5>, "evidence": "<what you experienced scrolling through — section pacing, sticky headers, parallax, content reveal>" }
+    "scroll_experience": { "score": <1-5>, "evidence": "<what you experienced scrolling through — section pacing, sticky headers, parallax, content reveal>" },
+    "layout_coherence": { "score": <1-5>, "evidence": "<what you observed about grid, alignment, spacing consistency across pages — cite specific mismatches>" },
+    "information_architecture": { "score": <1-5>, "evidence": "<what you observed about nav structure, content grouping, label clarity, mental model — cite where you got lost or where things don't belong>" }
   },
   "strongest": "<which dimension and why — as a user>",
   "weakest": "<which dimension and the specific moment you felt it fail>",
@@ -654,6 +843,12 @@ async function main() {
 
   console.error(`${BOLD}=== rhino taste — visual product evaluation ===${NC}\n`);
 
+  if (researchFirst) {
+    console.error(`${YELLOW}--research flag: run /research-taste before taste eval for grounded scoring${NC}`);
+    console.error(`${DIM}  Skipping auto-research (requires interactive Claude session)${NC}`);
+    console.error(`${DIM}  Run: /research-taste all${NC}`);
+  }
+
   // --- Freshness check ---
   const reportDir = join(projectDir, ".claude", "evals", "reports");
   const CACHE_MAX_AGE = cfg("taste.cache_ttl", 7200) * 1000;
@@ -740,10 +935,17 @@ async function main() {
     const browser = await chromium.launch({ headless: true });
     stopSpinner("browser ready");
 
+    // Load auth config from taste.yml
+    const tasteConfig = loadTasteConfig();
+    const authConfig = tasteConfig?.auth || null;
+    if (authConfig) {
+      console.error(`  ${GREEN}✓${NC} auth config loaded (${authConfig.cookies?.length || 0} cookies, ${Object.keys(authConfig.localStorage || {}).length} localStorage items)`);
+    }
+
     // Screenshot routes
     const totalShots = routes.length + mobileCount;
     startSpinner(`screenshotting ${totalShots} views (${routes.length} desktop + ${mobileCount} mobile)...`);
-    const screenshots = await screenshotRoutes(browser, url, routeConfig);
+    const screenshots = await screenshotRoutes(browser, url, routeConfig, authConfig);
     stopSpinner(`captured ${screenshots.length} screenshots`);
 
     await browser.close();
@@ -759,6 +961,73 @@ async function main() {
     startSpinner("evaluating with Claude vision (this takes ~30s)...");
     const result = await evaluateWithClaude(screenshots, routes, screenshotDir);
     stopSpinner("evaluation complete");
+
+    // --- Integrity checks on evaluator output ---
+    // taste.mjs must validate its own output, just like score.sh does.
+    // The rubric tells Claude to be honest. This code VERIFIES it was.
+    const integrityWarnings = [];
+
+    if (result.dimensions) {
+      const scores = Object.values(result.dimensions).map(d => d.score);
+      const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      const min = Math.min(...scores);
+      const max = Math.max(...scores);
+      const allSame = new Set(scores).size === 1;
+
+      // Check 1: Suspiciously generous (avg > 3.5 for non-mature products)
+      const stage = cfg("project.stage", "mvp");
+      const generousThreshold = stage === "mature" ? 4.0 : 3.5;
+      if (avg > generousThreshold) {
+        integrityWarnings.push(`GENEROUS: avg ${avg.toFixed(1)}/5 exceeds ${generousThreshold} threshold for ${stage} stage. Expected mostly 2s and 3s.`);
+      }
+
+      // Check 2: No weakness found (every product has weaknesses)
+      if (min >= 4) {
+        integrityWarnings.push(`NO_WEAKNESS: lowest dimension is ${min}/5. Every product has at least one dimension below 4. Evaluator may be inflating.`);
+      }
+
+      // Check 3: No discrimination (all scores the same = bad evaluation)
+      if (allSame && scores.length > 3) {
+        integrityWarnings.push(`FLAT_EVAL: all ${scores.length} dimensions scored ${scores[0]}/5. No discrimination between dimensions = unreliable evaluation.`);
+      }
+
+      // Check 4: Structural gate — layout_coherence and information_architecture cap overall
+      const layoutScore = result.dimensions.layout_coherence?.score;
+      const iaScore = result.dimensions.information_architecture?.score;
+      const gateMin = Math.min(layoutScore || 5, iaScore || 5);
+      if (gateMin <= 2 && result.overall > 2) {
+        const gateLabel = (layoutScore <= 2 && iaScore <= 2) ? "layout_coherence AND information_architecture"
+          : layoutScore <= 2 ? "layout_coherence" : "information_architecture";
+        integrityWarnings.push(`STRUCTURAL_GATE: ${gateLabel} scored ${gateMin}/5. Overall capped from ${result.overall} to 2. Fix the skeleton before decorating.`);
+        result.overall_uncapped = result.overall;
+        result.overall = 2;
+      }
+
+      // Check 5: Score jump vs previous eval (if taste-history.tsv exists)
+      const historyPath = join(projectDir, ".claude", "evals", "taste-history.tsv");
+      if (existsSync(historyPath)) {
+        const lines = readFileSync(historyPath, "utf-8").trim().split("\n");
+        if (lines.length >= 2) { // header + at least one prior entry
+          const lastLine = lines[lines.length - 1].split("\t");
+          const prevOverall = parseFloat(lastLine[1]);
+          if (!isNaN(prevOverall) && result.overall) {
+            const delta = result.overall - prevOverall;
+            if (delta > 1.5) {
+              integrityWarnings.push(`JUMP: overall ${prevOverall.toFixed(1)} → ${result.overall}/5 (+${delta.toFixed(1)}). Jumps >1.5 between evals are suspicious without major changes.`);
+            }
+          }
+        }
+      }
+    }
+
+    if (integrityWarnings.length > 0) {
+      result.integrity_warnings = integrityWarnings;
+      console.error(`\n  ${YELLOW}⚠ Taste Integrity Warnings:${NC}`);
+      for (const w of integrityWarnings) {
+        console.error(`    ${YELLOW}· ${w}${NC}`);
+      }
+      console.error("");
+    }
 
     // Add metadata
     result.meta = {

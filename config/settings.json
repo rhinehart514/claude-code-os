@@ -16,6 +16,15 @@
         ]
       },
       {
+        "matcher": "Agent|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/autonomy_gate.sh"
+          }
+        ]
+      },
+      {
         "matcher": "",
         "hooks": [
           {
@@ -34,6 +43,19 @@
             "command": "~/.claude/hooks/track_usage.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post_edit_quality.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/thinking_nudge.sh"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -43,6 +65,18 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/capture_knowledge.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/track_cost.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/extract_patterns.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/check_predictions.sh"
           }
         ]
       }

@@ -82,6 +82,8 @@ Check: `~/.claude/evals/reports/` for recent eval results.
 
 When unsure → RED.
 
+**YELLOW escalation rule:** If the same item has been YELLOW for 5+ consecutive sweeps, escalate to RED on the next sweep. Include "YELLOW for N sweeps — escalating" in the description. Persistent YELLOWs that never resolve mean sweep's mechanism (flagging) isn't working — the item needs human judgment, not another notification.
+
 You MUST use all 4 tiers in your output. If you have zero YELLOW items, explicitly state "No YELLOW items found" — don't just skip the section. Skipping a tier means you didn't check for it.
 
 ## Step 3: Execute GREEN and YELLOW

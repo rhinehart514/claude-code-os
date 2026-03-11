@@ -45,22 +45,56 @@ Every cycle, rhino-os gets smarter about your project. It remembers what worked,
 
 ## What's inside
 
+### The loop (slash commands in Claude Code)
+
 | Command | What it does |
 |---------|-------------|
-| `rhino strategy` | Looks at your project, finds the biggest bottleneck, writes a sprint plan |
-| `rhino build` | Builds the plan, scores every change, keeps good ones, discards bad ones |
-| `rhino sweep` | Daily health check — finds issues, fixes safe ones, flags risky ones |
-| `rhino scout` | Researches your market — what competitors do, what users expect |
-| `rhino score .` | Instant code quality check (2 seconds, free) |
+| `/strategy` | Finds the biggest bottleneck, writes a sprint plan |
+| `/build` | Builds the plan, scores every change, keeps good ones, discards bad ones |
+| `/experiment` | Autonomous hypothesis testing — informed search, not random guessing |
+| `/eval` | Ship-readiness check — deterministic + functional + ceiling tests |
+| `/design` | UI/UX audit against 11 taste dimensions, finds violations at file:line |
+| `/sweep` | Daily health check — finds issues across all projects |
+| `/scout` | Researches your market — what competitors do, what users expect |
+| `/meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
+| `/go` | Full autopilot — strategy + build + score, no human gate |
+
+### Measurement (CLI)
+
+| Command | What it does |
+|---------|-------------|
+| `rhino score .` | Instant structural quality check (2 seconds, free) |
 | `rhino taste .` | Visual eval — takes screenshots, scores what it *sees* like a real user |
-| `rhino meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
-| `rhino go .` | Full autopilot — strategy + build + score, no human gate |
+| `rhino bench` | Self-eval benchmark — runs the test suite across 5 tiers |
+| `rhino status` | System health — workspace, agents, scores, sweep state |
+
+### System
+
+| Command | What it does |
+|---------|-------------|
+| `rhino setup .` | Onboard a project — detect type, configure, baseline score |
+| `rhino install` | Install/update rhino-os — symlinks, hooks, settings |
+| `rhino config` | Show current configuration from rhino.yml |
+| `rhino dashboard` | Score + experiments + evals unified view |
+
+### More slash commands
+
+| Command | What it does |
+|---------|-------------|
+| `/score` | Structural score with trend and integrity warnings |
+| `/taste` | Visual taste eval with weakest dimension and fix suggestion |
+| `/status` | System dashboard — all projects, agents, scores |
+| `/setup` | Onboard a new project |
+| `/council` | Agent brain summary — what each agent recommends |
+| `/docs` | Generate context documents (platform-docs, architecture, styleguide) |
+| `/smart-commit` | Conventional commit tied to active plan |
+| `/todofocus` | Am I on track? Scope enforcement |
 
 ## Proof it works
 
 Real data from real agent runs. Not vanity metrics.
 
-### Visual taste eval — 8 dimensions scored by Claude vision
+### Visual taste eval — 11 dimensions scored by Claude vision
 
 The system takes Playwright screenshots of your app and scores what it *sees*. 40/100 here. Honest.
 
@@ -97,7 +131,7 @@ Then in any project:
 
 ```bash
 cd ~/your-project
-rhino init .
+rhino setup .
 
 # Open Claude Code and say:
 #   "run strategy"  — to plan
@@ -111,7 +145,7 @@ rhino init .
 
 If you use [OpenClaw](https://github.com/openclaw/openclaw), rhino-os skills work out of the box.
 
-**Why:** Both systems use the same `skills/*/SKILL.md` format. rhino-os ships 7 skills (`/build`, `/strategy`, `/sweep`, `/scout`, `/experiment`, `/design`, `/meta`) that OpenClaw can pick up directly.
+**Why:** Both systems use the same `skills/*/SKILL.md` format. rhino-os ships 20 skills that OpenClaw can pick up directly — including `/build`, `/strategy`, `/sweep`, `/scout`, `/experiment`, `/design`, `/meta`, `/eval`, `/go`, and more.
 
 **How to use with OpenClaw:**
 
@@ -141,9 +175,9 @@ The scoring system (`score.sh`) is a standalone bash script with zero dependenci
 Like training loss vs eval loss in ML:
 
 - **`rhino score .`** — fast, free, every commit. Checks build health, structure, hygiene. Think of it as a linter for your whole project.
-- **`rhino taste .`** — slow, expensive, on demand. Takes real screenshots and scores what it *sees*. 9 dimensions scored 1-5. This is how you know if your app is actually good.
+- **`rhino taste .`** — slow, expensive, on demand. Takes real screenshots and scores what it *sees*. 11 dimensions scored 1-5 (including layout coherence and information architecture). This is how you know if your app is actually good.
 
-## Five agents, one filesystem
+## Six agents, one filesystem
 
 Agents don't call each other. They communicate by reading and writing files:
 
