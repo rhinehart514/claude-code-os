@@ -66,16 +66,17 @@ Triggered by `/plan --brainstorm` OR when Path A detects current sprint is compl
 
 1. Read `.claude/plans/milestones.md` — current milestone, Definition of Done, Ideas section
 2. Read `~/.claude/knowledge/experiment-learnings.md` + product model (`.claude/plans/product-model.md`) + landscape model (`agents/refs/landscape-2026.md`)
-3. Generate **5 options** — each with:
-   - What it does (user-visible outcome)
-   - Which loop link it targets (Create/Share/Discover/Engage/Return)
-   - Estimated effort (1-3 sessions)
-   - Risk/reward (what could go wrong, what we learn)
-4. Present options. Founder picks or riffs → chosen direction becomes next sprint, linked to current milestone
-5. Update `milestones.md`:
+3. Read product-eval reports (`.claude/evals/reports/product-eval-*.md`) for competitive/identity gaps
+4. Generate **5 options** across three strategic layers — not just "what to build":
+   - At least 1 **build option** (product change targeting a loop link)
+   - At least 1 **messaging option** (reframe, reposition, new pitch — no code required)
+   - At least 1 **landscape play** (competitive positioning, wedge strategy, partnership, distribution channel)
+   - Each option includes: what it does (user-visible), which layer (build/messaging/landscape), which loop link it targets, estimated effort (1-3 sessions), risk/reward, a real product that did something similar
+5. Present options. Founder picks or riffs → chosen direction becomes next sprint, linked to current milestone
+6. Update `milestones.md`:
    - Append any interesting rejected ideas to the Ideas section
    - Add chosen sprint to the Sprints section under current milestone
-6. Write sprint to `.claude/plans/active-plan.md` as normal
+7. Write sprint to `.claude/plans/active-plan.md` using full strategy output format (includes messaging + positioning sections)
 
 ### Path C: Learning agenda (first-time project)
 

@@ -68,12 +68,19 @@ Execute scout logic inline (from `skills/_internal/scout/SKILL.md`):
 When triggered by `/research ideas` or `/research brainstorm`:
 
 1. Read product model (`.claude/plans/product-model.md`) — identify weak loop links
-2. Read landscape model (`agents/refs/landscape-2026.md`) — what wins in 2026
-3. **WebSearch** for products solving similar problems to the current project
-4. Synthesize into "patterns other products use for [weak link]"
-5. Write to `~/.claude/knowledge/research/ideation-[date].md`
-6. Read `.claude/plans/milestones.md` — append promising ideas to `## Ideas (not commitments)` section
-   - Format: `- [idea] — [which loop link it targets] (from research)`
+2. Read landscape model (`agents/refs/landscape-2026.md`) — what wins in 2026, use the Position → Strategic Direction Map as generators
+3. Read product-eval reports (`.claude/evals/reports/product-eval-*.md`) — competitive gaps, identity gaps
+4. **WebSearch** for products solving similar problems — focus on three angles:
+   - **Product patterns**: how do similar products solve the weak link?
+   - **Messaging patterns**: how do successful products in this category position themselves? What pitch makes people try it?
+   - **Distribution patterns**: how do products with similar constraints (solo founder, niche, campus) actually get users?
+5. Synthesize into three sections:
+   - "Build patterns: how others solved [weak link]"
+   - "Messaging patterns: how others framed this"
+   - "Distribution patterns: how others got this in front of people"
+6. Write to `~/.claude/knowledge/research/ideation-[date].md`
+7. Read `.claude/plans/milestones.md` — append promising ideas to `## Ideas (not commitments)` section
+   - Format: `- [idea] — [layer: build/messaging/landscape] — [which loop link] (from research)`
 
 ### Auto-detect Logic (no args)
 

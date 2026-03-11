@@ -26,7 +26,7 @@ Log predictions to `~/.claude/knowledge/predictions.tsv`. After compaction, re-r
 | Command | When | What it does |
 |---------|------|-------------|
 | `/plan` | Morning | Checks health, reads yesterday's gaps, runs strategy if needed. Today's task list. |
-| `/build` | During day | Builds the plan. Scores every change, keeps or discards. Experiments when stuck. |
+| `/build` | During day | Builds the plan. Scores every change, keeps or discards. `--experiment [dim]` for Karpathy autoresearch loop. |
 | `/research` | When stuck | Researches taste dimensions, market landscape, or any topic. |
 | `/review` | End of day | Scores + taste + eval. Extracts gaps. Writes tomorrow's input for `/plan`. |
 | `/go` | Walk away | Plan → build → review → repeat. Fully autonomous. |
@@ -52,7 +52,11 @@ Review writes gaps → plan reads them → tasks flow naturally.
 - Quick fix (typo, obvious bug, one-liner): just do it
 - Start your day: `/plan`
 - Non-trivial feature: `/build` (auto-starts in gate mode)
+- Improve UI/UX: `/build --experiment` (autoresearch loop on weakest dimension)
+- Improve specific dimension: `/build --experiment hierarchy` (or any taste dimension)
+- Brainstorm what's next: `/plan --brainstorm`
 - Stuck on something: `/research`
+- Research + ideate: `/research ideas`
 - End of day: `/review`
 - Full autopilot: `/go`
 - Commit: `/smart-commit`
@@ -68,6 +72,15 @@ The founder decides what to work on and when. NEVER nag about shipping, deployin
 - Don't build features requiring more users than the product has
 - Don't build consumption before creation if creation is the bottleneck
 - Don't create dead ends, empty states without guidance, or template energy
+
+## Architecture (v4)
+- **Programs** (4): build.md, strategy.md, meta.md, review.md — all under 200 lines
+- **Reference docs** (5): thinking.md, design-taste.md, score-integrity.md, landscape-2026.md, escalation.md
+- **Internal skills** (5): score, taste, experiment, strategy, todofocus
+- **No agent wrappers** — programs are the agents now
+- **IA audit**: `bin/ia-audit.sh` — grep-based IA health check, wired into score.sh structure dimension
+- **Experiment enforcement**: mandatory predictions, mechanical discard, ratcheting, moonshot forcing, discard rate floor
+- **Scope guard**: built into build loop — checks off tasks, flags drift
 
 ## Context Documents
 If a `documents/` folder exists, read it for deep project context:

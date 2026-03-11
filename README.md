@@ -61,8 +61,8 @@ Every cycle, rhino-os gets smarter about your project. It remembers what worked,
 |---------|-------------|
 | `rhino score .` | Instant structural quality check (2 seconds, free) |
 | `rhino taste .` | Visual eval — takes screenshots, scores what it *sees* like a real user |
-| `rhino bench` | Self-eval benchmark — runs the test suite across 5 tiers |
-| `rhino status` | System health — workspace, agents, scores, sweep state |
+| `rhino bench` | Self-eval benchmark — runs the test suite across 3 tiers |
+| `rhino status` | System health — workspace, scores, sweep state |
 
 ### System
 
@@ -78,8 +78,8 @@ Every cycle, rhino-os gets smarter about your project. It remembers what worked,
 | Command | What it does |
 |---------|-------------|
 | `/setup` | Onboard a new project |
-| `/status` | System dashboard — all projects, agents, scores |
-| `/meta` | Grades its own agents. If one is broken, it fixes the prompt automatically |
+| `/status` | System dashboard — all projects, scores |
+| `/meta` | Self-improvement loop. Grades the system, applies one fix, verifies it worked |
 | `/docs` | Generate context documents (platform-docs, architecture, styleguide) |
 | `/council` | Agent brain summary — what each agent recommends |
 | `/smart-commit` | Conventional commit tied to active plan |
@@ -106,9 +106,9 @@ Meta found that 3 agents were silently crashing. It diagnosed the root cause (CL
 
 ![Self-healing timeline](docs/screenshots/self-healing.png)
 
-### System architecture — four layers
+### System architecture — lean by design
 
-Programs think. Agents act. Skills + scoring measure. Knowledge remembers.
+Four programs. Five reference docs. Five internal skills. Zero agent wrappers. Every file fits in working context.
 
 ![Architecture](docs/screenshots/architecture.png)
 
@@ -168,22 +168,29 @@ The scoring system (`score.sh`) is a standalone bash script with zero dependenci
 
 Like training loss vs eval loss in ML:
 
-- **`rhino score .`** — fast, free, every commit. Checks build health, structure, hygiene. Think of it as a linter for your whole project.
+- **`rhino score .`** — fast, free, every commit. Checks build health, structure (including IA audit), hygiene. Think of it as a linter for your whole project.
 - **`rhino taste .`** — slow, expensive, on demand. Takes real screenshots and scores what it *sees*. 11 dimensions scored 1-5 (including layout coherence and information architecture). This is how you know if your app is actually good.
 
-## Six agents, one filesystem
+## v4 architecture
 
-Agents don't call each other. They communicate by reading and writing files:
+Programs are the brain. No agent wrappers — programs do the thinking directly.
 
 ```
-Strategist  →  writes plans       →  Builder reads them
-Builder     →  writes scores      →  Strategist reads them next cycle
-Sweep       →  writes state       →  Strategist reads it
-Scout       →  writes positions   →  Builder reads them
-Meta        →  grades everyone    →  fixes broken prompts
+programs/          4 files, ~480 lines total (build, strategy, meta, review)
+agents/refs/       5 reference docs (thinking, design-taste, score-integrity, landscape, escalation)
+skills/_internal/  5 skills (score, taste, experiment, strategy, todofocus)
+bin/               score.sh + ia-audit.sh + taste.mjs (measurement layer)
+hooks/             session_context.sh (~110 lines — injects score + plan + warnings)
+tests/             175 tests across 3 tiers, 100% deterministic
 ```
 
-If one agent fails, the others keep working. Meta catches silent failures within 48 hours.
+Experiment enforcement built into the build loop:
+- Mandatory predictions before every change
+- Mechanical keep/discard (no discretion — score went up or it didn't)
+- Ratcheting (keep = commit stays, discard = hard reset)
+- Moonshot forcing (every Nth experiment must be high-risk)
+- Discard rate floor (below 25% = not exploring enough)
+- Scope guard (flags drift from the plan)
 
 ## Anti-gaming (scores you can trust)
 
@@ -193,6 +200,7 @@ AI agents love to game metrics. rhino-os fights back:
 - **Inflation cap** — score jumped 15+ points in one commit? Warning.
 - **Plateau detection** — same score for 5 runs? You're stuck, not stable.
 - **Stage ceilings** — your MVP scoring 95/100? Something's wrong.
+- **IA audit** — orphan routes, dead-end pages, empty states without CTAs penalize structure score.
 
 Scores are diagnostic instruments, not goals.
 
@@ -200,18 +208,18 @@ Scores are diagnostic instruments, not goals.
 
 Every session builds on the last:
 - Experiment learnings (what worked, what didn't, and why)
-- Market positions (evidence-backed strategic claims)
+- Predictions log (calibration signal — are predictions getting more accurate?)
 - Design preferences (accumulated taste signals)
-- Session context (last session summary injected into the next one)
+- Session context (score + plan + warnings injected into every session)
 
 ## Customize everything
 
 | File | What it controls |
 |------|-----------------|
-| `config/rhino.yml` | Budgets, scoring thresholds, integrity guards |
-| `agents/*.md` | Agent prompts — edit directly to change behavior |
+| `config/rhino.yml` | Scoring thresholds, integrity guards, experiment discipline |
 | `programs/*.md` | Multi-step workflows — the actual brain |
 | `skills/*/SKILL.md` | Slash command entry points |
+| `agents/refs/*.md` | Reference docs — design taste, thinking protocol, landscape model |
 
 See [docs/CUSTOMIZATION.md](docs/CUSTOMIZATION.md) for details.
 

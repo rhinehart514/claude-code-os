@@ -2,20 +2,13 @@
 # Meta reads this, tunes it, tracks what changed.
 # Every component reads from here. No more magic numbers.
 
-# ── Agents ──────────────────────────────────────────
-agents:
-  budgets:
-    sweep: 2.00
-    scout: 2.00
-    builder: ~          # unlimited (interactive)
-    strategist: 2.00
-    design: 2.00
-    meta: 3.00
-
-  schedules:            # LaunchAgent cron (for reference — plists are source of truth)
-    sweep: "daily 8:00"
-    scout: "weekly monday 6:00"
-    meta: "monthly 1st 7:00"
+# ── IA Audit (ia-audit.sh) ────────────────────────────
+ia_audit:
+  # Thresholds for structure score penalty
+  # ia_issues = orphans + dead_ends + empty_no_cta
+  high_threshold: 10      # issues > this → -25 structure
+  medium_threshold: 5     # issues > this → -15 structure
+  low_threshold: 0        # issues > this → -5 structure
 
 # ── Scoring (score.sh) ─────────────────────────────
 scoring:

@@ -60,9 +60,36 @@ Know which category your product is in. The acquisition strategy depends entirel
 - **Social proof is everything.** "Your friend just created X" > "Create your first X!" People do what their peers do. Invest in social proof mechanics early.
 - **Institutional partnerships are distribution shortcuts.** If an authority figure endorses your product, you skip the cold-start problem. One partnership > 1000 social posts.
 
+## Using This as a Strategy Generator
+
+Each position below isn't just a filter ("don't do X") — it's a generator ("this implies building Y"). Strategy should read each position and ask: **"what would we build/say/position differently if we took this seriously?"**
+
+### Position → Strategic Direction Map
+
+| Position | Filter (don't do) | Generator (consider doing) |
+|----------|-------------------|---------------------------|
+| Code is free | Don't compete on features alone | Compete on taste, identity, and data moat |
+| Distribution is the bottleneck | Don't build more features before distribution works | Build the distribution INTO the product (sharing is the feature, not a button) |
+| AI-native is expected | Don't ship forms and manual workflows | Make the AI invisible — it just works. The product feels magical, not "AI-powered" |
+| 3-second attention | Don't build onboarding flows | Make the first screen BE the product (not a pitch for the product) |
+| Owned distribution channel | Don't rely on social media algorithms | Build a channel you control (email, push, campus presence, institutional partnerships) |
+| Data moat | Don't build features that work the same with 0 users or 1000 | Build features where each user makes it better for the next one |
+| Template energy kills | Don't ship shadcn defaults | Invest in signature interactions, distinctive visual language, moments of delight |
+
+When strategy generates three futures, at least one should come directly from this table — take a position and follow it to its logical conclusion as a product direction.
+
+### Messaging Implications
+
+Each position also implies a messaging angle:
+- **Code is free** → don't pitch features, pitch outcomes ("X happens automatically")
+- **Distribution is bottleneck** → the pitch should be shareable itself (one sentence someone repeats to a friend)
+- **3-second attention** → landing page should demonstrate, not describe
+- **Template energy** → visual identity IS the marketing (screenshots should be recognizable)
+- **Owned distribution** → messaging should target the channel partner, not just the end user
+
 ## How This Connects to rhino-os
 
-- **Strategy** reads this to understand WHY a dimension matters, not just THAT it's low. "Retention is 0.2" + this document = "retention is 0.2 because the creation loop doesn't close and there's no return trigger."
+- **Strategy** reads this both as constraints AND as generators. Each position suggests a different strategic direction. Strategy's divergent step (Step 3b) should produce at least one future derived from a landscape position.
 - **Builder** reads this to generate better hypotheses. Instead of "add a notification," think "add a contextual return trigger that leverages the user's creation history."
 - **Scout** updates this when evidence changes. Positions get confirmed, revised, or killed.
 - **Meta** validates: are the agents actually using these models, or just reading scores?
