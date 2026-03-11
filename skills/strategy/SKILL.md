@@ -8,6 +8,13 @@ user-invocable: true
 
 ## Setup
 
+### Cold-start check
+If `~/.claude/knowledge/experiment-learnings.md` does not exist or is empty, AND `~/.claude/state/brains/strategist.json` does not exist — this is a **first run**. Load only:
+1. **Read workspace**: `~/.claude/state/workspace.json` — project stage, autonomy
+2. **Check for session override**: `~/.claude/state/.session-autonomy` (if <2h old, use it)
+Then skip to Execute — the program's "First Run Strategy" section handles the rest.
+
+### Returning run (accumulated state exists)
 1. **Read your brain**: `~/.claude/state/brains/strategist.json` — what's your next_move?
 2. **Read experiment learnings**: `~/.claude/knowledge/experiment-learnings.md` — what works in this codebase?
 3. **Read landscape model**: `~/.claude/agents/refs/landscape-2026.md` — what wins in 2026?

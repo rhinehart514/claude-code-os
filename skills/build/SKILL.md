@@ -8,6 +8,13 @@ user-invocable: true
 
 ## Setup
 
+### Cold-start check
+If `~/.claude/knowledge/experiment-learnings.md` does not exist or is empty, AND no `.claude/experiments/*.tsv` files exist — this is a **first build**. Load only:
+1. **Read active plan**: `.claude/plans/active-plan.md` — your contract. No plan? Run `/strategy` first.
+2. **Check autonomy**: Read `~/.claude/state/workspace.json` for this project's autonomy level.
+Then skip to Execute — the program's "Cold Start Detection" section handles the rest.
+
+### Returning build (accumulated state exists)
 1. **Read your brain**: `~/.claude/state/brains/builder.json` — what's your next_move from last run?
 2. **Read experiment learnings**: `~/.claude/knowledge/experiment-learnings.md` — what works here?
 3. **Read landscape model**: `~/.claude/agents/refs/landscape-2026.md` — what 2026 users expect.

@@ -23,10 +23,31 @@ Before ANY implementation: write a prediction. After scoring: compare to reality
 1. If `.claude/experiments/baseline.json` doesn't exist, run `rhino setup .` first.
 2. Read `.claude/plans/active-plan.md` — your contract. If it doesn't exist, run strategy program first.
 3. Read the project's `CLAUDE.md` — eval scores, sprint priority, "do not build" list.
-4. Read experiment history: `.claude/experiments/*.tsv` — what was tried, what worked.
-5. Run `rhino score .` to get the current baseline. Record it.
+4. Run `rhino score .` to get the current baseline. Record it.
+
+### Cold Start Detection
+
+Check for accumulated state:
+```bash
+ls .claude/experiments/*.tsv 2>/dev/null                     # experiment history?
+ls ~/.claude/knowledge/experiment-learnings.md 2>/dev/null    # learnings?
+ls ~/.claude/state/brains/builder.json 2>/dev/null            # brain?
+```
+
+**If ALL three are missing or empty → this is a FIRST BUILD.** Use the simplified flow:
+- Skip "Check Council" (no brains to read)
+- Skip experiment history, taste knowledge, patterns.tsv (none exist yet)
+- Go straight to "The One Loop" — scope will auto-detect as "Build" (plan exists, tasks remain)
+- After each task: just run `rhino score .` — skip taste eval, skip de-sloppify pass
+- After the session: write the builder brain and experiment learnings with what you learned
+
+**If any exist → RETURNING BUILD.** Continue with full setup:
+
+5. Read experiment history: `.claude/experiments/*.tsv` — what was tried, what worked.
 5b. If the active plan targets a taste dimension, read `~/.claude/knowledge/taste-knowledge/{dimension}.md` — use researched patterns to inform implementation. If the plan targets multiple taste dimensions, read all relevant files.
 6. Read `~/.claude/knowledge/patterns.tsv` if it exists — hot files are structural pressure points. Before creating new files, check if a hot file already handles the logic you need. Hot files that keep changing may need refactoring, not more patches.
+
+Then continue to "Check Council."
 
 ## Check Council (before ideating)
 
