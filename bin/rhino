@@ -181,6 +181,20 @@ cmd_self() {
 }
 
 # ============================================================
+# PLAN
+# ============================================================
+cmd_plan() {
+    bash "$RHINO_DIR/bin/plan.sh" "$@"
+}
+
+# ============================================================
+# TODO
+# ============================================================
+cmd_todo() {
+    bash "$RHINO_DIR/bin/todo.sh" "$@"
+}
+
+# ============================================================
 # TEST
 # ============================================================
 cmd_test() {
@@ -240,6 +254,10 @@ cmd_help() {
     echo -e "    bench [dir]     ${DIM}Benchmark card${NC}"
     echo -e "    data [dir]      ${DIM}Learning data visualization${NC}"
     echo ""
+    echo -e "  ${BOLD}Plan${NC}"
+    echo -e "    plan [next|done] ${DIM}View/manage build plan${NC}"
+    echo -e "    todo [add|done]  ${DIM}Persistent backlog${NC}"
+    echo ""
     echo -e "  ${BOLD}Build${NC}"
     echo -e "    go [args]       ${DIM}Autonomous build loop${NC}"
     echo ""
@@ -261,6 +279,8 @@ case "${1:-help}" in
     eval)       shift; cmd_eval "$@" ;;
     bench)      shift; cmd_bench "$@" ;;
     data)       shift; cmd_data "$@" ;;
+    plan)       shift; cmd_plan "$@" ;;
+    todo)       shift; cmd_todo "$@" ;;
     go)         shift; cmd_go "$@" ;;
     self)       shift; cmd_self "$@" ;;
     test)       shift; cmd_test "$@" ;;
