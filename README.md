@@ -62,6 +62,7 @@ No step-by-step workflows. No "Step 1, Step 2, Step 3." The cofounder reads the 
 rhino score [dir]     # Structural lint score
 rhino taste [dir]     # Visual product eval (Claude Vision)
 rhino eval [dir]      # Belief evals
+rhino data [dir]      # Visualize learning data (sparklines, accuracy, experiments)
 rhino status          # Health overview
 rhino config          # Show configuration
 rhino install         # Install/update
@@ -78,7 +79,7 @@ rhino-os/
     thinking.md          how you reason (~100 lines)
     standards.md         what quality means (~70 lines)
   bin/
-    rhino                CLI (score, taste, eval, status, config)
+    rhino                CLI (score, taste, eval, data, status, config)
     score.sh             structural lint (720 lines)
     taste.mjs            visual eval (1138 lines)
     eval.sh              belief eval runner
@@ -102,6 +103,44 @@ rhino-os/
 **After (v6):** 3 mind files tell Claude who it is. Claude figures out what to do.
 
 Process produces consistent mediocrity. Identity + measurement + epistemology produces excellence that compounds.
+
+---
+
+## Your Data
+
+rhino-os learns as it works. Here's where that learning lives.
+
+### Project-Level (`config/brains/`)
+
+| File | What's in it |
+|------|-------------|
+| `experiment-log.md` | Every experiment: hypothesis, change, score delta, kept or discarded. |
+| `hypothesis-log.md` | Active, validated, and killed hypotheses about your product. |
+| `daily.md` | Session summaries written on context compaction. |
+| `longterm.md` | Curated memory — validated patterns, dead ends, key decisions, open questions. |
+
+### Global Knowledge (`~/.claude/knowledge/`)
+
+| File | What's in it |
+|------|-------------|
+| `predictions.tsv` | Every prediction logged with evidence, result, and model update. |
+| `experiment-learnings.md` | The causal model — known patterns, uncertain patterns, unknown territory, dead ends. |
+
+### Beliefs (`config/evals/beliefs.yml`)
+
+Product hypotheses enforced mechanically. Each belief is a testable claim about what makes your product good — checked on every build. Failing a `block` severity stops the commit.
+
+### Visualize It
+
+```bash
+rhino data                # Score sparklines, prediction accuracy, experiment stats
+```
+
+Output includes:
+- **Score trends** — sparkline per dimension over last 30 runs, with deltas
+- **Prediction accuracy** — hit rate with calibration notes (50-70% = well calibrated)
+- **Experiment stats** — keep/discard rate, known patterns, dead ends
+- **Beliefs** — active count, blocking vs warning
 
 ---
 

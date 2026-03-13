@@ -29,6 +29,10 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/post_edit.sh"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post_skill.sh"
           }
         ]
       }

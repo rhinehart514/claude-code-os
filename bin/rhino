@@ -120,6 +120,37 @@ cmd_config() {
 }
 
 # ============================================================
+# DATA
+# ============================================================
+cmd_data() {
+    bash "$RHINO_DIR/bin/data.sh" "${@:-.}"
+}
+
+# ============================================================
+# GO (autonomous build loop via Claude Code)
+# ============================================================
+cmd_go() {
+    if ! command -v claude &>/dev/null; then
+        echo -e "${RED}claude CLI not found. Install: https://docs.anthropic.com/en/docs/claude-code${NC}"
+        exit 1
+    fi
+    echo -e "${BOLD}Starting autonomous build loop...${NC}"
+    echo -e "${DIM}Running: claude /go $*${NC}"
+    claude "/go $*"
+}
+
+# ============================================================
+# BENCH (benchmark card — score + taste snapshot)
+# ============================================================
+cmd_bench() {
+    echo -e "${BOLD}=== rhino benchmark ===${NC}"
+    echo ""
+    cmd_score "${@:-.}"
+    echo ""
+    echo -e "${DIM}For visual eval, run: rhino taste${NC}"
+}
+
+# ============================================================
 # EVAL
 # ============================================================
 cmd_eval() {
@@ -143,6 +174,11 @@ cmd_help() {
     echo "  score [dir]        Structural lint score"
     echo "  taste [dir]        Visual product eval (Claude Vision)"
     echo "  eval [dir]         Run belief evals"
+    echo "  bench [dir]        Benchmark card (score snapshot)"
+    echo "  data [dir]         Visualize learning data"
+    echo ""
+    echo -e "${BOLD}Build:${NC}"
+    echo "  go [args]          Autonomous build loop (via Claude Code)"
     echo ""
     echo -e "${BOLD}System:${NC}"
     echo "  status             Health overview"
@@ -159,6 +195,9 @@ case "${1:-help}" in
     score)      shift; cmd_score "$@" ;;
     taste)      shift; cmd_taste "$@" ;;
     eval)       shift; cmd_eval "$@" ;;
+    bench)      shift; cmd_bench "$@" ;;
+    data)       shift; cmd_data "$@" ;;
+    go)         shift; cmd_go "$@" ;;
     status)     cmd_status ;;
     config)     cmd_config ;;
     install)    shift; bash "$RHINO_DIR/install.sh" "$@" ;;

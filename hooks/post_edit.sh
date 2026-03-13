@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# post_edit_quality.sh — PostToolUse hook for Edit/Write
+# post_edit.sh — PostToolUse hook for Edit/Write
 # Catches errors at write-time instead of commit-time.
 # Inspired by ECC's per-edit enforcement philosophy:
 # "LLMs forget instructions ~20% of the time, so PostToolUse hooks enforce at the tool level."

@@ -2,7 +2,34 @@
 
 This is taste, not process. What 0.1% looks like, and the traps that fake it.
 
-## The 10-Point UX Checklist
+## The Measurement Hierarchy
+
+Three tiers, in order of what matters:
+
+1. **Value** — Does the user get something they care about? (the only thing that matters)
+2. **Craft** — Is the experience well-made? (amplifies value, can't replace it)
+3. **Health** — Is the code clean and stable? (enables craft, invisible to users)
+
+Most dev tools measure bottom-up: health → craft → maybe value. rhino-os measures top-down. A product with rough edges that delivers clear value beats a polished product that doesn't.
+
+**How they map to tools:**
+- `rhino score .` → Health (structural lint: build, structure, hygiene)
+- `rhino taste` → Craft (visual eval: hierarchy, polish, tone, density)
+- `rhino eval .` → Value (assertion pass rate: do the things that matter actually work?)
+
+Score and taste are SUPPORTING metrics. They tell you the code is healthy and the UI looks good. But a 100/100 score with zero value is a beautiful corpse. **Eval pass rate is the north star.**
+
+## The Value Checklist
+
+Before every feature, ask these. If you can't answer them, you're building in the dark.
+
+1. **Who gets value?** — Name the human. "Users" is not a name. "A solo founder who just cloned this and wants their project to get better in one session" is.
+2. **What changes for them?** — After they use this feature, what's different? If nothing is measurably different, it's not value.
+3. **How fast?** — Time from "I found this" to "I got value." Every minute is a chance to lose them. Target: value in the first session, ideally first 5 minutes.
+4. **Would they notice if it disappeared?** — If you removed this feature tomorrow, would anyone complain? If not, it's not value — it's furniture.
+5. **What's the return trigger?** — Why would they come back tomorrow? If there's no pull, they won't.
+
+## The UX Checklist (Craft Layer)
 
 After every feature or significant UI change, check your own work against these.
 LLMs consistently miss them. You will too unless you explicitly check.

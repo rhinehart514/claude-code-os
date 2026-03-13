@@ -1,19 +1,63 @@
 # beliefs.yml — Your product's soul, enforced mechanically
 #
 # Each belief is a hypothesis about what makes your product great.
-# Beliefs are tested on every build. Failing a "block" severity stops the commit.
+# Beliefs are tested by eval.sh. Only types eval.sh supports are valid:
+#   - content_check with forbidden: [...] — scans src/ for forbidden words
+#   - route_graph — counts Next.js routes
+#   - file_check — verifies file existence and content patterns
+#   - dom_check — requires dev server (skipped in CLI eval, run via taste)
+#   - playwright_task — requires dev server + Playwright (skipped in CLI eval)
+#
+# Severity: block (exits non-zero) | warn (flags but continues)
 #
 # Lifecycle:
-#   Active hypothesis -> eval runs
-#   Validated -> eval locked permanently
-#   Killed -> eval removed
-#
-# Types: dom_check, playwright_task, corpus_compare, content_check, route_graph
-# Severity: block (stops build) | warn (flags but continues)
+#   Planted → Failing → Passing → Locked (3+ sessions validated)
 
-beliefs: []
+beliefs:
 
-# Example beliefs (uncomment and customize):
+  # --- Value tier (does the product deliver?) ---
+
+  - id: value-hypothesis-exists
+    belief: "The product must define what value it delivers — no hypothesis, no direction"
+    type: file_check
+    check: "config/rhino.yml contains 'value:' section"
+    severity: block
+
+  - id: knowledge-model-exists
+    belief: "The learning model must exist — without it the system can't compound"
+    type: file_check
+    check: "~/.claude/knowledge/experiment-learnings.md exists and has content"
+    severity: block
+
+  # --- Craft tier (is the experience well-made?) ---
+
+  - id: no-jargon
+    belief: "No user needs a glossary to use rhino-os"
+    type: content_check
+    forbidden: ["utilize", "leverage", "synergy", "paradigm", "ecosystem", "holistic"]
+    severity: warn
+
+  # --- Health tier (is the code clean?) ---
+
+  - id: no-dead-skills
+    belief: "Every skill file must handle failure — unrecoverable skills break the loop"
+    type: file_check
+    check: "all .claude/commands/*.md contain 'If something breaks'"
+    severity: warn
+
+  - id: hooks-resolve
+    belief: "All hook symlinks must point to real files"
+    type: file_check
+    check: "all symlinks in ~/.claude/hooks/ resolve"
+    severity: warn
+
+  - id: mind-files-loaded
+    belief: "Mind files must be globally accessible — they're the system's values"
+    type: file_check
+    check: "~/.claude/rules/ has symlinks to mind/identity.md, mind/thinking.md, mind/standards.md"
+    severity: block
+
+# Example beliefs for target projects (uncomment and customize):
 #
 # - id: single-cta
 #   belief: "Users bounce when overwhelmed. One CTA above the fold, always."
@@ -21,23 +65,9 @@ beliefs: []
 #   check: "hero contains exactly 1 interactive element"
 #   severity: block
 #
-# - id: no-jargon
-#   belief: "No user needs a glossary to read our homepage"
-#   type: content_check
-#   forbidden: ["utilize", "leverage", "synergy", "paradigm", "ecosystem"]
-#   reading_level_max: 8
-#   severity: warn
-#
 # - id: onboarding-speed
 #   belief: "If signup takes more than 90 seconds, we lose them"
 #   type: playwright_task
 #   scenario: "new user completes signup and first action"
 #   threshold_seconds: 90
 #   severity: warn
-#
-# - id: two-click-rule
-#   belief: "Power users reach any core feature in 2 clicks"
-#   type: route_graph
-#   max_depth: 2
-#   from: "/"
-#   severity: block

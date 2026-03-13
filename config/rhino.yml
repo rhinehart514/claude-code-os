@@ -1,7 +1,39 @@
-# rhino.yml — Tunable parameters for score.sh and taste.mjs.
-# Keep this minimal. Most behavior lives in programs/ and skills/.
+# rhino.yml — Tunable parameters for rhino-os.
+# Keep this minimal. Most behavior lives in mind/ and .claude/commands/.
 
-# ── Scoring (score.sh) ─────────────────────────────
+# ── Value Definition ───────────────────────────────
+# The founder defines what value means. Everything else serves this.
+# /assert reads this to generate assertions. /plan reads this to prioritize.
+# /go reads this to know when a task actually matters.
+value:
+  # One sentence: what does the user get?
+  hypothesis: "A solo founder's product gets measurably better every session with less effort than doing it manually"
+  # Who specifically?
+  user: "Solo technical founders building products with Claude Code"
+  # How do we know it's working? (measurable proxies)
+  signals:
+    - name: time_to_first_value
+      description: "Score improves after first /go session"
+      target: "Score delta > 0 within 1 session"
+      measurable: true
+    - name: loop_compounds
+      description: "Prediction accuracy improves over 5+ sessions"
+      target: "Accuracy trend is upward"
+      measurable: true
+    - name: assertions_graduate
+      description: "Failing assertions become passing over time"
+      target: ">50% of planted assertions pass within 3 sessions"
+      measurable: true
+    - name: return_trigger
+      description: "Founder starts next session with /plan, not from scratch"
+      target: "Active plan exists at session start"
+      measurable: true
+    - name: would_notice_removal
+      description: "Founder would miss rhino-os if it disappeared"
+      target: "Qualitative — ask"
+      measurable: false
+
+# ── Scoring (score.sh) — Health tier ───────────────
 scoring:
   cache_ttl: 300
   build:
