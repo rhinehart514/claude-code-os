@@ -181,6 +181,37 @@ cmd_self() {
 }
 
 # ============================================================
+# TEST
+# ============================================================
+cmd_test() {
+    local total=0 passed=0 failed=0
+    local test_dir="$RHINO_DIR/tests"
+
+    if [[ ! -d "$test_dir" ]] || ! ls "$test_dir"/*.test.sh >/dev/null 2>&1; then
+        echo -e "  ${YELLOW}⚠${NC} No test files found in tests/"
+        return 1
+    fi
+
+    for test_file in "$test_dir"/*.test.sh; do
+        [[ ! -f "$test_file" ]] && continue
+        local name
+        name=$(basename "$test_file" .test.sh)
+        echo -e "  ${BOLD}$name${NC}"
+        if bash "$test_file" 2>&1 | sed 's/^/    /'; then
+            passed=$((passed + 1))
+        else
+            failed=$((failed + 1))
+        fi
+        total=$((total + 1))
+        echo ""
+    done
+
+    echo -e "  ${BOLD}$total suites${NC}: ${GREEN}$passed passed${NC}"
+    [[ "$failed" -gt 0 ]] && echo -e "  ${RED}$failed failed${NC}"
+    [[ "$failed" -gt 0 ]] && return 1 || return 0
+}
+
+# ============================================================
 # EVAL
 # ============================================================
 cmd_eval() {
@@ -215,6 +246,7 @@ cmd_help() {
     echo -e "  ${BOLD}System${NC}"
     echo -e "    status          ${DIM}Health overview${NC}"
     echo -e "    self            ${DIM}Self-diagnostic${NC}"
+    echo -e "    test            ${DIM}Run test suites${NC}"
     echo -e "    config          ${DIM}Show configuration${NC}"
     echo -e "    install         ${DIM}Install / update${NC}"
     echo ""
@@ -231,6 +263,7 @@ case "${1:-help}" in
     data)       shift; cmd_data "$@" ;;
     go)         shift; cmd_go "$@" ;;
     self)       shift; cmd_self "$@" ;;
+    test)       shift; cmd_test "$@" ;;
     status)     cmd_status ;;
     config)     cmd_config ;;
     install)    shift; bash "$RHINO_DIR/install.sh" "$@" ;;
