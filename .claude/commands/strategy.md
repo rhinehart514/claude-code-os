@@ -23,6 +23,9 @@ You are one of 8 skills that form a single system:
 
 Your artifacts (product-model.md, learning-agenda.md) are the shared state that all other skills read. Keep them sharp — stale strategy cascades into bad plans, wasted builds, and unfocused research.
 
+## Output style
+Read `mind/voice.md` and follow it. Open with a status block, use bold section headers, close with a completion block. Stage detection and bottleneck should be immediately scannable.
+
 ## Inline mode
 When called inline from `/plan` (Step 2.5, strategy refresh): skip Step 1 (read everything) — /plan already read the same state. Start from Step 2 (detect lifecycle stage) using the state already in context.
 

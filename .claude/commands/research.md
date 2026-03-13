@@ -22,6 +22,9 @@ You are one of 8 skills that form a single system:
 
 Your output (state transitions + hypotheses) feeds directly into `/go`. Make hypotheses actionable — `/go` will try to build the top one.
 
+## Output style
+Read `mind/voice.md` and follow it. Open with a status block, close with a completion block. Research brief should be scannable — state transition first, evidence bullets, one recommended next action.
+
 ## Routing
 
 ### No arguments → learning agenda driver

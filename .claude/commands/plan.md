@@ -23,6 +23,9 @@ You are one of 8 skills that form a single system:
 
 Your job is to produce a plan that `/go` can execute. When the bottleneck is an unknown, your plan should include `/research` tasks. When strategy is stale, you refresh it inline. The skills are a pipeline: `/plan` → `/go` (with `/research` detours when needed).
 
+## Output style
+Read `mind/voice.md` and follow it. Open with a status block, use bold section headers (not ### markdown), close with a completion block. Keep output scannable — numbers over prose.
+
 ## Step 0: Cold start check
 
 Before reading state, check if the knowledge infrastructure exists:

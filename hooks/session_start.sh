@@ -142,35 +142,89 @@ C_RED='\033[0;31m'
 C_CYAN='\033[0;36m'
 C_NC='\033[0m'
 
+# Score bar helper: score_bar <score>
+# Returns a 20-char bar: █ for filled, ░ for empty, color-coded
+score_bar() {
+    local score=${1:-0}
+    local filled=$(( (score + 2) / 5 ))  # round
+    [[ $filled -gt 20 ]] && filled=20
+    local empty=$((20 - filled))
+    local color="$C_RED"
+    [[ $score -ge 50 ]] && color="$C_YELLOW"
+    [[ $score -ge 80 ]] && color="$C_GREEN"
+    printf "${color}%${filled}s${C_NC}${C_DIM}%${empty}s${C_NC}" "" "" | sed "s/ /█/g; s/ /░/g"
+    # sed doesn't work well here, use printf loop
+}
+
+# Better score bar using direct char output
+print_score_bar() {
+    local score=${1:-0}
+    local filled=$(( (score + 2) / 5 ))
+    [[ $filled -gt 20 ]] && filled=20
+    local empty=$((20 - filled))
+    local color="$C_RED"
+    [[ $score -ge 50 ]] && color="$C_YELLOW"
+    [[ $score -ge 80 ]] && color="$C_GREEN"
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar="${bar}█"; done
+    local trail=""
+    for ((i=0; i<empty; i++)); do trail="${trail}░"; done
+    printf "${color}${bar}${C_DIM}${trail}${C_NC}"
+}
+
+# Color a sub-score value
+color_score() {
+    local score=${1:-0}
+    if [[ "$score" == "?" ]]; then
+        printf "${C_DIM}?${C_NC}"
+    elif [[ $score -ge 80 ]]; then
+        printf "${C_GREEN}${score}${C_NC}"
+    elif [[ $score -ge 50 ]]; then
+        printf "${C_YELLOW}${score}${C_NC}"
+    else
+        printf "${C_RED}${score}${C_NC}"
+    fi
+}
+
+SEP="  ${C_DIM}⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯${C_NC}"
+
 echo ""
-echo -e "  ${C_CYAN}◆${C_NC} ${C_BOLD}rhino-os${C_NC}"
+echo -e "${SEP}"
+echo -e "  ${C_CYAN}◆${C_NC} ${C_BOLD}rhino-os${C_NC}  ${C_DIM}·${C_NC}  ${PROJECT_NAME}"
+echo -e "${SEP}"
 echo ""
 
-# Project + score line
+# Score with bar
 if [[ -n "$SCORE_DISPLAY" ]]; then
-    echo -e "  ${C_DIM}project${C_NC}  ${PROJECT_NAME}"
-    # Parse score components for formatted display
-    echo -e "  ${C_DIM}score${C_NC}    ${C_BOLD}${TOTAL}/100${C_NC}  ${C_DIM}build ${BUILD} · struct ${STRUCT} · hygiene ${HYGIENE}${C_NC}"
+    SCORE_BAR=$(print_score_bar "$TOTAL")
+    echo -e "  ${C_DIM}score${C_NC}       ${C_BOLD}${TOTAL}${C_NC}${C_DIM}/100${C_NC}  ${SCORE_BAR}"
+    BUILD_C=$(color_score "$BUILD")
+    STRUCT_C=$(color_score "$STRUCT")
+    HYGIENE_C=$(color_score "$HYGIENE")
+    echo -e "              ${C_DIM}build${C_NC} ${BUILD_C}  ${C_DIM}·${C_NC}  ${C_DIM}struct${C_NC} ${STRUCT_C}  ${C_DIM}·${C_NC}  ${C_DIM}hygiene${C_NC} ${HYGIENE_C}"
 else
-    echo -e "  ${C_DIM}project${C_NC}  ${PROJECT_NAME}"
-    echo -e "  ${C_DIM}score${C_NC}    ${C_DIM}none yet — run:${C_NC} rhino score ."
+    echo -e "  ${C_DIM}score${C_NC}       ${C_DIM}none yet — run${C_NC} rhino score ."
 fi
 
-# Plan
+# Plan + next task (compact)
 if [[ -n "$PLAN_FILE" && "$TASKS_REMAINING" -gt 0 ]]; then
-    PLAN_LINE="  ${C_DIM}plan${C_NC}     ${TASKS_REMAINING} tasks remaining"
+    PLAN_LINE="  ${C_DIM}plan${C_NC}        ${TASKS_REMAINING} tasks"
     [[ -n "$PLAN_STALE" ]] && PLAN_LINE="${PLAN_LINE}  ${C_YELLOW}${PLAN_STALE}${C_NC}"
+    [[ -n "$NEXT_TASK" ]] && PLAN_LINE="${PLAN_LINE}  ${C_DIM}·${C_NC}  ${C_GREEN}▸${C_NC} ${NEXT_TASK}"
     echo -e "$PLAN_LINE"
-    [[ -n "$NEXT_TASK" ]] && echo -e "  ${C_DIM}next${C_NC}     ${C_GREEN}▸${C_NC} ${NEXT_TASK}"
 fi
 
-# Signals line (assertions + predictions)
-SIGNALS=""
-[[ -n "$ASSERT_DISPLAY" ]] && SIGNALS="${ASSERT_DISPLAY}"
-[[ -n "$PRED_DISPLAY" ]] && SIGNALS="${SIGNALS:+$SIGNALS · }$PRED_DISPLAY"
-[[ -n "$SIGNALS" ]] && echo -e "  ${C_DIM}signals${C_NC}  ${SIGNALS}"
+# Signals (assertions + predictions on separate lines for clarity)
+if [[ -n "$ASSERT_DISPLAY" || -n "$PRED_DISPLAY" ]]; then
+    SIG_PARTS=""
+    [[ -n "$ASSERT_DISPLAY" ]] && SIG_PARTS="${ASSERT_DISPLAY}"
+    if [[ -n "$PRED_DISPLAY" ]]; then
+        SIG_PARTS="${SIG_PARTS:+$SIG_PARTS  ${C_DIM}·${C_NC}  }${PRED_DISPLAY}"
+    fi
+    echo -e "  ${C_DIM}signals${C_NC}     ${SIG_PARTS}"
+fi
 
-# --- Experiment results stats ---
+# Experiment results stats
 RESULTS_TSV="$PROJECT_DIR/.claude/experiments/results.tsv"
 if [[ -f "$RESULTS_TSV" ]]; then
     EXP_TOTAL=$(tail -n +2 "$RESULTS_TSV" | wc -l | tr -d ' ')
@@ -181,27 +235,35 @@ if [[ -f "$RESULTS_TSV" ]]; then
         EXP_DECIDABLE=$((EXP_KEPT + EXP_DISCARDED))
         EXP_KEEP_RATE=""
         if [[ "$EXP_DECIDABLE" -gt 0 ]]; then
-            EXP_KEEP_RATE=" · $(( EXP_KEPT * 100 / EXP_DECIDABLE ))% kept"
+            EXP_KEEP_RATE="  ${C_DIM}·${C_NC}  $(( EXP_KEPT * 100 / EXP_DECIDABLE ))% kept"
         fi
-        EXP_LINE="Experiments: ${EXP_TOTAL} total${EXP_KEEP_RATE}"
+        EXP_LINE="${EXP_TOTAL} total${EXP_KEEP_RATE}"
         if [[ "$EXP_CRASHED" -gt 0 ]]; then
-            EXP_LINE="${EXP_LINE} · ${C_RED}${EXP_CRASHED} crashed${C_NC}"
+            EXP_LINE="${EXP_LINE}  ${C_DIM}·${C_NC}  ${C_RED}${EXP_CRASHED} crashed${C_NC}"
         fi
-        echo -e "  ${C_DIM}experiments${C_NC}  ${EXP_LINE}"
+        echo -e "  ${C_DIM}experiments${C_NC} ${EXP_LINE}"
     fi
 fi
 
 echo ""
 
-# Alerts (integrity, strategy, ungraded)
+# Alerts — blockers first, then warnings
+HAS_ALERTS=false
+
 if [[ -n "$INTEGRITY_WARNINGS" ]]; then
-    echo -e "  ${C_YELLOW}⚠${C_NC} ${C_YELLOW}$(echo "$INTEGRITY_WARNINGS" | head -1)${C_NC}"
+    echo -e "  ${C_RED}●${C_NC} $(echo "$INTEGRITY_WARNINGS" | head -1)"
+    HAS_ALERTS=true
 fi
-[[ -n "$STRATEGY_STALE" ]] && echo -e "  ${C_YELLOW}⚠${C_NC} ${STRATEGY_STALE}"
+
 if (( UNGRADED_COUNT > 0 )); then
-    echo -e "  ${C_RED}●${C_NC} ${UNGRADED_COUNT} ungraded prediction(s) — grade before starting new work"
+    echo -e "  ${C_RED}●${C_NC} ${UNGRADED_COUNT} ungraded predictions — run /retro"
+    HAS_ALERTS=true
 fi
-[[ -n "$AGENT_EXP_DISPLAY" ]] && echo -e "  ${C_YELLOW}⚙${C_NC} ${AGENT_EXP_DISPLAY}"
+
+[[ -n "$STRATEGY_STALE" ]] && { echo -e "  ${C_YELLOW}⚠${C_NC} ${STRATEGY_STALE}"; HAS_ALERTS=true; }
+[[ -n "$AGENT_EXP_DISPLAY" ]] && { echo -e "  ${C_YELLOW}⚠${C_NC} ${AGENT_EXP_DISPLAY}"; HAS_ALERTS=true; }
+
+[[ "$HAS_ALERTS" == true ]] && echo ""
 
 # --- Self-awareness recommendation (first match wins) ---
 SELF_REC=""
@@ -283,6 +345,9 @@ if [[ -z "$SELF_REC" ]]; then
 fi
 
 [[ -n "$SELF_REC" ]] && echo -e "  ${C_DIM}⚙${C_NC} ${SELF_REC#\[self\] }"
+
+echo -e "${SEP}"
+echo ""
 
 # --- Compaction recovery ---
 if [[ "$SESSION_TYPE" == "compact" ]]; then

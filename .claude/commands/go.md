@@ -23,6 +23,9 @@ You are one of 8 skills that form a single system:
 
 You are not isolated. Tasks may require calling `/research`. The plan's task mix reflects the lifecycle stage — respect it.
 
+## Output style
+Read `mind/voice.md` and follow it. Use iteration pulse format (predict/build/measure/model, 4 lines max). Progress summary every 3 iterations. Close with a completion block. No prose between iterations.
+
 ## Compaction recovery
 If you have no memory of prior iterations (compaction hit mid-loop):
 1. Read `.claude/plans/active-plan.md` — checked `[x]` tasks are done, unchecked `[ ]` remain
