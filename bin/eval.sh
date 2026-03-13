@@ -166,7 +166,7 @@ fi
 
 # mind-files-loaded
 MIND_MISSING=0
-for mf in identity.md thinking.md standards.md; do
+for mf in identity.md thinking.md standards.md self.md; do
     if [[ ! -L "$HOME/.claude/rules/$mf" ]] || [[ ! -f "$HOME/.claude/rules/$mf" ]]; then
         MIND_MISSING=$((MIND_MISSING + 1))
     fi
@@ -177,25 +177,68 @@ else
     check_fail "mind-files-loaded" "$MIND_MISSING mind file(s) not in ~/.claude/rules/" "block" 5
 fi
 
-# === beliefs.yml checks (content_check / route_graph / dom_check / playwright) ===
+# === URL detection for DOM/copy/playwright checks ===
 
-BELIEFS_FILE=".claude/evals/beliefs.yml"
-if [[ -f "$BELIEFS_FILE" ]]; then
-    # Parse content_check beliefs
-    # Simple YAML parsing — look for type: content_check and their forbidden words
-    in_content_check=false
-    in_forbidden=false
-    belief_id=""
-    forbidden_words=()
+EVAL_URL="${EVAL_URL:-}"
+if [[ -z "$EVAL_URL" ]]; then
+    for port in 3000 3001 5173 8080 4321 4000; do
+        if curl -s -o /dev/null -w "%{http_code}" "http://localhost:$port" 2>/dev/null | grep -qE "^(200|301|302|304)"; then
+            EVAL_URL="http://localhost:$port"
+            break
+        fi
+    done
+fi
 
-    while IFS= read -r line; do
-        # New belief entry
-        if echo "$line" | grep -q '^\s*- id:'; then
-            # Process previous belief if it was a content_check
-            if [[ "$in_content_check" == "true" && ${#forbidden_words[@]} -gt 0 && -d "src" ]]; then
-                found=0
+# Resolve RHINO_DIR for eval tools
+_EVAL_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "$_EVAL_SOURCE" ]]; do
+    _EVAL_SOURCE="$(readlink "$_EVAL_SOURCE")"
+done
+RHINO_DIR="$(cd "$(dirname "$_EVAL_SOURCE")/.." && pwd)"
+
+# Cached eval results (lazy-loaded)
+DOM_RESULTS=""
+DOM_RAN=false
+COPY_RESULTS=""
+COPY_RAN=false
+SELF_RESULTS=""
+SELF_RAN=false
+
+run_dom_eval() {
+    if [[ "$DOM_RAN" != "true" ]]; then
+        DOM_RAN=true
+        if [[ -n "$EVAL_URL" ]]; then
+            DOM_RESULTS=$(node "$RHINO_DIR/bin/dom-eval.mjs" --url "$EVAL_URL" --eval 2>/dev/null) || DOM_RESULTS=""
+        fi
+    fi
+}
+
+run_copy_eval() {
+    if [[ "$COPY_RAN" != "true" ]]; then
+        COPY_RAN=true
+        if [[ -n "$EVAL_URL" ]]; then
+            COPY_RESULTS=$(node "$RHINO_DIR/bin/copy-eval.mjs" --url "$EVAL_URL" --eval 2>/dev/null) || COPY_RESULTS=""
+        fi
+    fi
+}
+
+run_self_eval() {
+    if [[ "$SELF_RAN" != "true" ]]; then
+        SELF_RAN=true
+        SELF_RESULTS=$(bash "$RHINO_DIR/bin/self.sh" --eval 2>/dev/null) || SELF_RESULTS=""
+    fi
+}
+
+# Process a belief based on its type
+process_belief() {
+    [[ -z "$belief_id" ]] && return
+
+    case "$belief_type" in
+        content_check)
+            if [[ ${#forbidden_words[@]} -gt 0 && -n "$SRC_DIRS" ]]; then
+                local found=0
                 for word in "${forbidden_words[@]}"; do
-                    count=$(grep -ri "$word" src/ 2>/dev/null | grep -v node_modules | wc -l | tr -d ' ')
+                    local count=$(grep -ri "$word" $SRC_DIRS 2>/dev/null | grep -v node_modules | wc -l | tr -d ' ')
                     found=$((found + count))
                 done
                 if [[ "$found" -eq 0 ]]; then
@@ -204,25 +247,163 @@ if [[ -f "$BELIEFS_FILE" ]]; then
                     check_fail "$belief_id" "$found forbidden word occurrences" "warn" 2
                 fi
             fi
+            ;;
+        route_graph)
+            if [[ -d "app" ]]; then
+                local route_count=$(find app/ -name 'page.tsx' -o -name 'page.ts' -o -name 'page.jsx' -o -name 'page.js' 2>/dev/null | wc -l | tr -d ' ')
+                check_pass "$belief_id" "Next.js app/ routes: $route_count"
+            elif [[ -d "pages" ]]; then
+                local route_count=$(find pages/ -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' -o -name '*.js' 2>/dev/null | grep -v '_app\|_document\|_error\|api/' | wc -l | tr -d ' ')
+                check_pass "$belief_id" "Next.js pages/ routes: $route_count"
+            elif [[ -d "src/pages" ]]; then
+                local route_count=$(find src/pages/ -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' -o -name '*.js' 2>/dev/null | grep -v '_app\|_document\|_error\|api/' | wc -l | tr -d ' ')
+                check_pass "$belief_id" "Next.js src/pages/ routes: $route_count"
+            else
+                check_warn "$belief_id" "no Next.js route directories found"
+            fi
+            ;;
+        dom_check)
+            run_dom_eval
+            if [[ -n "$DOM_RESULTS" && -n "$belief_metric" ]]; then
+                local result=$(echo "$DOM_RESULTS" | grep "^${belief_metric}:" | head -1)
+                local status=$(echo "$result" | cut -d: -f2)
+                local detail=$(echo "$result" | cut -d: -f3-)
+                if [[ "$status" == "pass" ]]; then
+                    check_pass "$belief_id" "$detail"
+                else
+                    check_fail "$belief_id" "${detail:-dom check failed}" "warn" 3
+                fi
+            elif [[ -z "$EVAL_URL" ]]; then
+                check_warn "$belief_id" "dom_check: no dev server (set EVAL_URL)"
+            else
+                check_warn "$belief_id" "dom_check: evaluation failed"
+            fi
+            ;;
+        copy_check)
+            run_copy_eval
+            if [[ -n "$COPY_RESULTS" && -n "$belief_metric" ]]; then
+                local result=$(echo "$COPY_RESULTS" | grep "^${belief_metric}:" | head -1)
+                local status=$(echo "$result" | cut -d: -f2)
+                local detail=$(echo "$result" | cut -d: -f3-)
+                if [[ "$status" == "pass" ]]; then
+                    check_pass "$belief_id" "$detail"
+                else
+                    check_fail "$belief_id" "${detail:-copy check failed}" "warn" 3
+                fi
+            elif [[ -z "$EVAL_URL" ]]; then
+                check_warn "$belief_id" "copy_check: no dev server (set EVAL_URL)"
+            else
+                check_warn "$belief_id" "copy_check: evaluation failed"
+            fi
+            ;;
+        positioning_check)
+            run_copy_eval
+            if [[ -n "$COPY_RESULTS" && -n "$belief_metric" ]]; then
+                local result=$(echo "$COPY_RESULTS" | grep "^${belief_metric}:" | head -1)
+                local status=$(echo "$result" | cut -d: -f2)
+                local detail=$(echo "$result" | cut -d: -f3-)
+                if [[ "$status" == "pass" ]]; then
+                    check_pass "$belief_id" "$detail"
+                else
+                    check_fail "$belief_id" "${detail:-positioning check failed}" "warn" 3
+                fi
+            elif [[ -z "$EVAL_URL" ]]; then
+                check_warn "$belief_id" "positioning_check: no dev server (set EVAL_URL)"
+            else
+                check_warn "$belief_id" "positioning_check: evaluation failed"
+            fi
+            ;;
+        self_check)
+            run_self_eval
+            if [[ -n "$SELF_RESULTS" && -n "$belief_metric" ]]; then
+                local result=$(echo "$SELF_RESULTS" | grep "^${belief_metric}:" | head -1)
+                local status=$(echo "$result" | cut -d: -f2)
+                local detail=$(echo "$result" | cut -d: -f3-)
+                if [[ "$status" == "pass" ]]; then
+                    check_pass "$belief_id" "$detail"
+                else
+                    check_fail "$belief_id" "${detail:-self check failed}" "warn" 3
+                fi
+            else
+                check_fail "$belief_id" "self check: diagnostic failed" "warn" 3
+            fi
+            ;;
+        playwright_task)
+            if [[ -n "$EVAL_URL" && -n "$belief_scenario" ]]; then
+                local threshold="${belief_threshold:-180}"
+                local blind_result
+                blind_result=$(node "$RHINO_DIR/bin/blind-eval.mjs" --url "$EVAL_URL" --task "$belief_scenario" --timeout "$threshold" --eval 2>/dev/null) || blind_result=""
+                if [[ -n "$blind_result" && -n "$belief_metric" ]]; then
+                    local result=$(echo "$blind_result" | grep "^${belief_metric}:" | head -1)
+                    local status=$(echo "$result" | cut -d: -f2)
+                    local detail=$(echo "$result" | cut -d: -f3-)
+                    if [[ "$status" == "pass" ]]; then
+                        check_pass "$belief_id" "$detail"
+                    else
+                        check_fail "$belief_id" "${detail:-blind eval failed}" "warn" 3
+                    fi
+                else
+                    check_warn "$belief_id" "playwright_task: evaluation failed"
+                fi
+            else
+                check_warn "$belief_id" "playwright_task: no dev server or no scenario (set EVAL_URL)"
+            fi
+            ;;
+    esac
+}
+
+# === beliefs.yml checks ===
+
+BELIEFS_FILE=".claude/evals/beliefs.yml"
+if [[ -f "$BELIEFS_FILE" ]]; then
+    belief_id=""
+    belief_type=""
+    belief_metric=""
+    belief_scenario=""
+    belief_threshold=""
+    in_forbidden=false
+    forbidden_words=()
+
+    while IFS= read -r line; do
+        # New belief entry
+        if echo "$line" | grep -q '^\s*- id:'; then
+            # Process previous belief
+            process_belief
             # Reset
             belief_id=$(echo "$line" | sed 's/.*id: *//')
-            in_content_check=false
+            belief_type=""
+            belief_metric=""
+            belief_scenario=""
+            belief_threshold=""
             in_forbidden=false
             forbidden_words=()
         fi
 
-        # Check type
-        if echo "$line" | grep -q '^\s*type: content_check'; then
-            in_content_check=true
+        # Type
+        if echo "$line" | grep -q '^\s*type:'; then
+            belief_type=$(echo "$line" | sed 's/.*type: *//')
         fi
 
-        # Parse forbidden list
+        # Metric
+        if echo "$line" | grep -q '^\s*metric:'; then
+            belief_metric=$(echo "$line" | sed 's/.*metric: *//')
+        fi
+
+        # Scenario (for playwright_task)
+        if echo "$line" | grep -q '^\s*scenario:'; then
+            belief_scenario=$(echo "$line" | sed 's/.*scenario: *//' | tr -d '"')
+        fi
+
+        # Threshold (for playwright_task)
+        if echo "$line" | grep -q '^\s*threshold_seconds:'; then
+            belief_threshold=$(echo "$line" | sed 's/.*threshold_seconds: *//')
+        fi
+
+        # Forbidden list parsing (for content_check)
         if echo "$line" | grep -q '^\s*forbidden:'; then
             in_forbidden=true
-            # Check if inline array
             inline=$(echo "$line" | grep -o '\[.*\]' || true)
             if [[ -n "$inline" ]]; then
-                # Parse inline array
                 while IFS= read -r word; do
                     word=$(echo "$word" | tr -d '", []')
                     [[ -n "$word" ]] && forbidden_words+=("$word")
@@ -241,49 +422,10 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             fi
         fi
 
-        # Check for route_graph type
-        if echo "$line" | grep -q '^\s*type: route_graph'; then
-            # Count route files for Next.js
-            route_count=0
-            if [[ -d "app" ]]; then
-                route_count=$(find app/ -name 'page.tsx' -o -name 'page.ts' -o -name 'page.jsx' -o -name 'page.js' 2>/dev/null | wc -l | tr -d ' ')
-                check_pass "$belief_id" "Next.js app/ routes: $route_count"
-            elif [[ -d "pages" ]]; then
-                route_count=$(find pages/ -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' -o -name '*.js' 2>/dev/null | grep -v '_app\|_document\|_error\|api/' | wc -l | tr -d ' ')
-                check_pass "$belief_id" "Next.js pages/ routes: $route_count"
-            elif [[ -d "src/pages" ]]; then
-                route_count=$(find src/pages/ -name '*.tsx' -o -name '*.ts' -o -name '*.jsx' -o -name '*.js' 2>/dev/null | grep -v '_app\|_document\|_error\|api/' | wc -l | tr -d ' ')
-                check_pass "$belief_id" "Next.js src/pages/ routes: $route_count"
-            else
-                check_warn "$belief_id" "no Next.js route directories found"
-            fi
-        fi
-
-        # Check for dom_check type — report what would be checked
-        if echo "$line" | grep -q '^\s*type: dom_check'; then
-            check_warn "$belief_id" "dom_check requires dev server (skipped)"
-        fi
-
-        # Check for playwright_task type
-        if echo "$line" | grep -q '^\s*type: playwright_task'; then
-            check_warn "$belief_id" "playwright_task requires dev server (skipped)"
-        fi
-
     done < "$BELIEFS_FILE"
 
-    # Process last belief if needed
-    if [[ "$in_content_check" == "true" && ${#forbidden_words[@]} -gt 0 && -d "src" ]]; then
-        found=0
-        for word in "${forbidden_words[@]}"; do
-            count=$(grep -ri "$word" src/ 2>/dev/null | grep -v node_modules | wc -l | tr -d ' ')
-            found=$((found + count))
-        done
-        if [[ "$found" -eq 0 ]]; then
-            check_pass "$belief_id" "0 forbidden words found"
-        else
-            check_fail "$belief_id" "$found forbidden word occurrences" "warn" 2
-        fi
-    fi
+    # Process last belief
+    process_belief
 fi
 
 # === Summary ===

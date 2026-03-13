@@ -97,6 +97,7 @@ experiments:
 go:
   plateau_threshold: 3
   taste_every_n: 3
+  worktrees_enabled: false
 
 # ── Evals ────────────────────────────────────────────
 evals:
@@ -118,6 +119,16 @@ corpus:
     - copy/landing
     - copy/onboarding
     - code/patterns
+
+# ── Self ─────────────────────────────────────────────
+self:
+  prediction_accuracy_floor: 0.30
+  prediction_accuracy_ceiling: 0.90
+  prediction_stale_days: 7
+  knowledge_stale_days: 14
+  self_stale_days: 7
+  min_predictions_per_week: 3
+  hook_timeout_ms: 200
 
 # ── Memory ───────────────────────────────────────────
 memory:

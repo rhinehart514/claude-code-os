@@ -151,6 +151,13 @@ cmd_bench() {
 }
 
 # ============================================================
+# SELF
+# ============================================================
+cmd_self() {
+    bash "$RHINO_DIR/bin/self.sh" "$@"
+}
+
+# ============================================================
 # EVAL
 # ============================================================
 cmd_eval() {
@@ -182,6 +189,7 @@ cmd_help() {
     echo ""
     echo -e "${BOLD}System:${NC}"
     echo "  status             Health overview"
+    echo "  self               System self-diagnostic"
     echo "  config             Show configuration"
     echo "  install [--check]  Install/update rhino-os"
     echo ""
@@ -198,6 +206,7 @@ case "${1:-help}" in
     bench)      shift; cmd_bench "$@" ;;
     data)       shift; cmd_data "$@" ;;
     go)         shift; cmd_go "$@" ;;
+    self)       shift; cmd_self "$@" ;;
     status)     cmd_status ;;
     config)     cmd_config ;;
     install)    shift; bash "$RHINO_DIR/install.sh" "$@" ;;

@@ -57,17 +57,92 @@ beliefs:
     check: "~/.claude/rules/ has symlinks to mind/identity.md, mind/thinking.md, mind/standards.md"
     severity: block
 
+  # --- DOM tier (mechanical UX assertions) ---
+
+  - id: contrast
+    belief: "No text fails WCAG AA contrast (4.5:1) — invisible text is invisible value"
+    type: dom_check
+    metric: contrast
+    severity: warn
+
+  - id: click-targets
+    belief: "All interactive elements >= 44px — undersized targets lose mobile users"
+    type: dom_check
+    metric: targets
+    severity: warn
+
+  - id: hierarchy
+    belief: "h1 font-size > h2 > body — visual hierarchy tells users what matters"
+    type: dom_check
+    metric: hierarchy
+    severity: warn
+
+  - id: distinctiveness-floor
+    belief: "Font-family != Inter OR non-white background OR custom palette — not AI-generic"
+    type: dom_check
+    metric: distinctiveness
+    severity: warn
+
+  # --- Copy tier (messaging quality) ---
+
+  - id: copy-clarity
+    belief: "Hero headline <= 12 words, grade level <= 8, no jargon — clear beats clever"
+    type: copy_check
+    metric: copy-clarity
+    severity: warn
+
+  - id: value-prop-specific
+    belief: "Headline names a user and contains a verb — not abstract positioning"
+    type: copy_check
+    metric: value-prop-specific
+    severity: warn
+
+  # --- Positioning tier (market differentiation) ---
+
+  - id: positioned-not-generic
+    belief: "Hero makes a specific claim for a named user — not abstract AI marketing"
+    type: positioning_check
+    metric: positioned-not-generic
+    severity: warn
+
+  # --- Self tier (learning intelligence) ---
+
+  - id: learning-compounds
+    belief: "Prediction calibration must be 30-90% — broken or too-safe model stops the loop"
+    type: self_check
+    metric: calibration
+    severity: warn
+
+  # --- Behavioral tier (the val_bpb) ---
+
+  - id: first-action-works
+    belief: "A blind user can complete the primary action in < 3 minutes"
+    type: playwright_task
+    metric: first-action-works
+    scenario: "Find and complete the primary action on this product"
+    threshold_seconds: 180
+    severity: warn
+
+  - id: value-visible
+    belief: "After completing primary action, user can see something changed"
+    type: playwright_task
+    metric: value-visible
+    scenario: "Find and complete the primary action on this product"
+    threshold_seconds: 180
+    severity: warn
+
 # Example beliefs for target projects (uncomment and customize):
 #
 # - id: single-cta
 #   belief: "Users bounce when overwhelmed. One CTA above the fold, always."
 #   type: dom_check
-#   check: "hero contains exactly 1 interactive element"
+#   metric: density
 #   severity: block
 #
 # - id: onboarding-speed
 #   belief: "If signup takes more than 90 seconds, we lose them"
 #   type: playwright_task
+#   metric: first-action-works
 #   scenario: "new user completes signup and first action"
 #   threshold_seconds: 90
 #   severity: warn
