@@ -287,7 +287,7 @@ score_structure() {
         if [[ -f "config/rhino.yml" ]]; then
             # Check if dimensions listed in config (base or lens) match what taste.mjs scores
             local config_dims
-            config_dims=$(grep -A20 'dimensions:' config/rhino.yml lens/product/config/rhino-product.yml 2>/dev/null | grep '^ *-' | wc -l | tr -d ' ')
+            config_dims=$(grep -h -A20 'dimensions:' config/rhino.yml lens/product/config/rhino-product.yml 2>/dev/null | grep '^ *-' | wc -l | tr -d ' ')
             if [[ "$config_dims" -eq 0 ]]; then
                 score=$((score - 10))
             fi
