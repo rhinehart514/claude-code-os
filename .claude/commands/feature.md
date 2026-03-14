@@ -1,41 +1,91 @@
 ---
-description: "Work with features. /feature lists them. /feature auth shows auth status. /feature detect finds new ones. /feature new payments creates one with assertions."
+description: "Work with features. /feature lists them. /feature auth shows status. /feature new payments creates one. /feature auth research explores it. /feature auth ideate brainstorms."
 ---
 
 # /feature
 
-Features are named parts of your product — auth, dashboard, onboarding, scoring. Each has its own assertions, its own pass rate, its own score.
+Features are named parts of your product. Each has its own assertions, its own pass rate, its own score. This is the creative command — where you define, explore, and imagine.
 
 ## What to do
 
 Parse `$ARGUMENTS` and route:
 
 ### No arguments → list all features
-Run `rhino feature` to show all features with pass rates. Then give one opinion: "**[worst feature]** is the weakest — `/plan [feature]` to work on it."
+Run `rhino feature` to show all features with pass rates. Then give one opinion: "**[worst feature]** needs attention — `/plan [feature]` to work on it."
 
 ### Feature name → show status + suggest next action
-Run `rhino feature [name]` to show that feature's assertions. Then:
-- If all passing: "**[feature]** is green. Nothing to do here."
-- If some failing: list the failing assertions and say "Run `/go [feature]` to fix these, or `/assert [feature]` to redefine what matters."
-- If no assertions: "**[feature]** has no assertions. Run `/assert [feature]` to define what it must do."
+Run `rhino feature [name]`. Then:
+- If all passing: "**[feature]** is green. Nothing broken."
+- If some failing: list failing assertions. "Run `/go [feature]` to fix, or `/feature [feature] research` to dig deeper."
+- If no assertions: "**[feature]** has no assertions. Let's define what it must do."
 
 ### `detect` → find features in the codebase
-Run `rhino feature detect`. Show what was found. For each detected feature that doesn't have assertions yet, suggest: "Run `/assert [feature]` to plant assertions."
+Run `rhino feature detect`. Show what was found. For unasserted features: "Run `/feature new [name]` to define it."
 
-### `new [name]` → create a feature with assertions
-1. Ask: "What does **[name]** do? One sentence."
-2. Based on the answer, generate 3-5 assertions scoped to `feature: [name]` in beliefs.yml
-3. Use types eval.sh can check mechanically (file_check, content_check, self_check). Only use dom_check/playwright_task if a dev server is running.
-4. Run `rhino eval .` to get baseline pass rate
-5. Output: "[name] created with N assertions. Score: X/N passing. Run `/go [name]` to start building."
+### `new [name]` → create a feature with interactive questions
+
+**Use AskUserQuestion** to understand the feature before planting assertions:
+
+```
+Questions (up to 4):
+1. "What does [name] do?" — options based on codebase scan
+   (Handles data | User-facing UI | Auth/access | API/integration)
+2. "What must NEVER break?" — multiSelect
+   (Data integrity | Auth/security | Core flow | Performance)
+3. "Who uses this?"
+   (End users | Admins | Both | Developers)
+4. "What files are involved?" — options from codebase scan
+   (src/[detected paths])
+```
+
+Based on answers:
+1. Generate 3-5 assertions with machine-evaluable fields:
+   - `type: file_check` with `path:` and `contains:` for structural checks
+   - `type: content_check` with `forbidden:` for code quality
+   - `type: dom_check` or `playwright_task` only if dev server is detected
+2. Write to beliefs.yml with `feature: [name]`
+3. Run `rhino eval . --feature [name]` for baseline
+4. Create tasks (TaskCreate) for any failing assertions
+5. Output: "[name] created with N assertions. X/N passing. Run `/go [name]`."
+
+### `[name] research` → explore the feature's codebase and context
+
+**Use WebSearch + codebase exploration** to understand the feature deeply:
+
+1. **Scan the codebase**: find all files related to the feature (grep for the name, trace imports, map dependencies)
+2. **Check external context**: WebSearch for best practices, competitor approaches, common patterns for this type of feature
+3. **Map what exists vs what's missing**: which assertions pass? which don't? why?
+4. **Present findings with AskUserQuestion**:
+   ```
+   "I found 3 gaps in [feature]. Which matters most?"
+   Options with previews showing the code/context for each gap
+   ```
+5. **Generate recommendations**: new assertions, refactoring suggestions, or tasks
+
+### `[name] ideate` → brainstorm possibilities
+
+**Use AskUserQuestion with previews** to explore ideas:
+
+1. Read the feature's current state (assertions, code, pass rate)
+2. Generate 3-4 ideas for improving or extending the feature
+3. Present each idea with an ASCII preview or code snippet:
+   ```
+   Question: "Which direction for [feature]?"
+   Options with previews:
+     - "Add [capability]" → preview showing what the code would look like
+     - "Refactor [pattern]" → preview showing before/after
+     - "Split into [sub-features]" → preview showing the new structure
+   ```
+4. Based on selection, generate assertions and tasks for the chosen direction
 
 ## The point
 
-Features make the product concrete. Instead of "improve the product," you say "fix auth." Instead of a wall of 20 assertions, you see 4 features with their own scores. The user always knows where to look and what to work on.
+Features make the product concrete. `/feature` is where you think about what your product is. `/plan` and `/go` are where you execute. This is the creative space.
 
 ## If something breaks
 - `rhino feature` fails: read beliefs.yml directly and list unique `feature:` values
-- No beliefs.yml: tell the user to run `/assert` first
+- No beliefs.yml: create one with the header, then run the `new` flow
+- WebSearch fails: skip external context, work with codebase only
 - No features in beliefs.yml: all assertions are unscoped — suggest adding `feature:` fields
 
 $ARGUMENTS

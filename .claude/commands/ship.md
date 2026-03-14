@@ -1,88 +1,81 @@
 ---
-description: "Zero-friction deploy. Commit, push, deploy, verify — one command. The gap between 'code works' and 'users have it' is where solo founders bleed time."
+description: "Zero-friction deploy. Commit, push, deploy, verify — one command. /ship hotfix for urgent fixes."
 ---
 
 # /ship
 
-You are a cofounder handling the deploy. Not a CI/CD pipeline — a human who checks the work before putting it in front of users.
+You are a cofounder handling the deploy. Check the work, ship it, verify it landed.
 
 ## System awareness
-You are one of 8 skills that form a single system:
+- `/plan` → produced the work you're shipping
+- `/go` → built it
+- `/feature` → defined what must be true
+- `/ship` (you) → get it to users
 
-**The build loop**:
-- `/plan` → may end with "Run `/ship` to deploy" when plan produces shippable work.
-- `/go` → produces the code changes you're shipping.
-- `/strategy` → ship frequency is a signal it reads.
-- `/assert` → failing block-severity assertions should prevent shipping.
+## Tools to use
 
-**Around the loop**:
-- `/ship` (you) → zero-friction deploy pipeline. Commit, push, deploy, verify, changelog.
-- `/critique` → run before shipping if you want fresh-eyes review.
-- `/retro` → tracks what shipped this week.
+**Use CronCreate after deploy** to poll deployment status:
+- Schedule a check every 2 minutes for 10 minutes: "Check if deploy succeeded at [URL]"
+- If Vercel/Netlify: poll the deployment API
+- Auto-cancel after success or timeout
 
-## Why this exists
+**Use WebFetch to verify** the deployed URL loads correctly after deploy.
 
-Solo founders lose 30-60 minutes per deploy on: staging changes, writing commit messages, pushing, waiting for builds, checking preview URLs, promoting to production. This skill compresses that to one command.
+**Use AskUserQuestion for pre-flight decisions:**
+- If score dropped: "Score dropped X→Y. Ship anyway?" with options
+- If >20 files changed: "Large changeset (N files). Ship all, or split?"
+- If block assertions failing: "N block assertions failing. Ship anyway?"
 
 ## The flow
 
-### 1. Pre-flight check
-Before anything touches git:
-- Run `rhino score .` — if score dropped vs last cached score (assertion pass rate regressed), STOP. Show the delta and ask: "Score dropped X→Y. Ship anyway?"
-- Check `git status` — are there untracked files that should be committed? Are there files that should NOT be committed (.env, credentials)?
-- Check `git diff --stat` — is the changeset reasonable? >20 files changed = flag for review.
-- If beliefs.yml has `block` severity beliefs, verify none are failing.
+### 1. Pre-flight
+- Run `rhino score .` — if assertion pass rate regressed, stop and ask (AskUserQuestion)
+- Check `git status` — flag untracked files, refuse .env/credentials
+- Check `git diff --stat` — flag large changesets
+- Check block-severity assertions — failing = ask before shipping
 
 ### 2. Stage and commit
-- Stage relevant files (never `git add -A` blindly — review what's going in)
-- Write a commit message that captures WHAT changed and WHY (not "update files")
-- Format: `type: description` where type is feat/fix/refactor/docs/chore
-- If multiple logical changes are staged, suggest splitting into separate commits
+- Stage relevant files (never `git add -A` blindly)
+- Write a commit message: `type: description` (feat/fix/refactor/docs/chore)
+- Split if multiple logical changes
 
 ### 3. Push and deploy
-- Push to the current branch
-- If the project has a deploy mechanism (Vercel, Netlify, Railway, etc.), trigger it:
-  - Vercel: check for `vercel.json` or `.vercel/` — use `vercel deploy` or `git push` (auto-deploy)
-  - Netlify: check for `netlify.toml`
-  - Other: check for deploy scripts in package.json (`deploy`, `publish`)
-- If no deploy mechanism detected, just push and note: "Code pushed. No auto-deploy detected — deploy manually or set up Vercel/Netlify."
+- Push to current branch
+- Detect deploy mechanism (Vercel, Netlify, Railway, package.json scripts)
+- If none detected: "Code pushed. No auto-deploy detected."
 
-### 4. Verify
-- If a preview URL is available, check it (use web tools if available)
-- If not, run `rhino score .` on the deployed state to confirm score held
-- Output a one-line ship summary:
+### 4. Verify (use CronCreate + WebFetch)
+- If preview URL available: WebFetch to verify it loads
+- Set up CronCreate to poll deploy status every 2 minutes
+- Output ship summary:
   ```
-  Shipped: [commit hash] [type]: [description] | score: X | [deploy URL or "pushed to [branch]"]
+  Shipped: [hash] [type]: [description] | score: X | [URL or branch]
   ```
 
-### 5. Changelog entry
-After successful ship, append to `.claude/changelog.md` (create if missing):
+### 5. Changelog
+Append to `.claude/changelog.md`:
 ```markdown
-## [date] — [commit type]: [description]
+## [date] — [type]: [description]
 - What: [1-2 bullets]
-- Why: [bottleneck or user problem addressed]
+- Why: [bottleneck addressed]
 - Score: [before → after]
 ```
 
-This builds a human-readable history of what shipped and why — useful for demos, investors, and your own memory.
-
 ## Arguments
-
-- `$ARGUMENTS` empty → full flow (check, commit, push, deploy, verify)
-- `$ARGUMENTS` = "dry" or "check" → pre-flight only, no git operations
-- `$ARGUMENTS` = "hotfix" → skip score check, fast-path commit + push (for urgent fixes)
+- Empty → full flow
+- `dry` or `check` → pre-flight only
+- `hotfix` → skip score check, fast-path
 
 ## What you never do
-- Push without checking score first (unless hotfix)
-- Commit .env, credentials, or secrets
+- Push without checking score (unless hotfix)
+- Commit secrets
 - Force push to main
-- Deploy without a commit (uncommitted changes = invisible bugs)
-- Write vague commit messages ("updates", "fixes", "changes")
+- Deploy uncommitted changes
 
 ## If something breaks
-- **Score check fails**: show the score delta, ask whether to proceed. Don't block silently.
-- **Push fails**: check if branch is behind remote. Suggest `git pull --rebase` if safe.
-- **Deploy fails**: show the error. Don't retry blindly — deploy failures are usually config issues.
-- **No git repo**: tell the founder. This skill requires git.
+- Score check fails: show delta, AskUserQuestion whether to proceed
+- Push fails: suggest `git pull --rebase`
+- Deploy fails: show error, don't retry blindly
+- No git repo: tell the founder
 
 $ARGUMENTS
