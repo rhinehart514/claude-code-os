@@ -35,18 +35,16 @@ Scores lie when you let them. Watch for:
 
 - **Cosmetic-only changes** — Shuffled comments, renamed variables, reformatted code. If the user can't see the difference, the score shouldn't change.
 - **Inflation** — 15+ point jump in one commit? Something's wrong. Real improvement is incremental.
-- **Plateau** — Score hasn't moved in 5+ experiments? The current approach is exhausted. Rethink, don't iterate.
+- **Plateau** — Score hasn't moved in 3+ changes? The current approach is exhausted. Rethink, don't iterate.
 - **Stage ceiling** — An MVP scoring 95/100? The score is wrong, not the product.
 
 Fix the product, not the score. The score is a thermometer, not a thermostat.
 
-## Experiment Discipline
+## Build Discipline
 
-When running experiments (autoresearch-style):
-
-- **One mutable file** per experiment. Multi-file = feature, not experiment.
-- **Immutable eval harness** — score.sh, score-product.sh, and taste.mjs cannot change during an experiment.
-- **15-minute cap** — Longer = feature, not experiment.
-- **Mechanical keep/discard** — Score up AND target dimension improved → keep. Otherwise → revert. No negotiation.
-- **Moonshot every 5th** — Every 5th experiment must be high-risk, high-information. Explore unknown territory.
-- **Simplicity bias** — Deleting code for equal results is always a keep. Adding 20+ net lines for <2 points is suspect. Complexity is debt; justify it against the bottleneck.
+- **Unit of work = one intent.** A feature, a fix, a refactor. Any number of files. No artificial limits.
+- **Atomicity = git commits, not clocks.** No time caps. Each commit is a reviewable, revertable unit.
+- **Immutable eval harness** — score.sh, eval.sh, and taste.mjs cannot change during a build.
+- **Mechanical keep/revert** — Assertion regressed (was passing, now failing) → revert the commit. No negotiation.
+- **Default ambitious.** Build whole features end-to-end, not single-file tweaks.
+- **Simplicity bias** — Deleting code for equal results is always a keep. Complexity is debt; justify it against the bottleneck.

@@ -63,17 +63,12 @@ integrity:
     mature: { score: [70, 95], taste: [3.5, 4.5] }
   cosmetic_only_warning: true
   max_single_commit_delta: 15
-  plateau_experiments: 5
+  plateau_tasks: 3
 
-# ── Experiments ──────────────────────────────────────
-experiments:
-  keep_rate_target: 0.40
-  discard_rate_floor: 0.25
-  moonshot_every_n: 5
-  max_files_per_experiment: 5
-  sprint_tasks: [3, 7]
-  simplicity_bias: 20          # net lines added threshold for complexity flag
-  marginal_gain_threshold: 2   # score points below which gain is "marginal"
+# ── Build ──────────────────────────────────────────
+build:
+  revert_on_regression: true
+  simplicity_bias: true
 
 # ── Go (autonomous loop) ────────────────────────────
 go:
