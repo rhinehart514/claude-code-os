@@ -11,6 +11,7 @@ done
 RHINO_DIR="$(cd "$(dirname "$_BACKLOG_SOURCE")/.." && pwd)"
 
 BACKLOG_FILE="$RHINO_DIR/.claude/plans/todos.yml"
+PLAN_FILE="$RHINO_DIR/.claude/plans/plan.yml"
 
 # Colors
 BOLD='\033[1m'
@@ -48,6 +49,53 @@ item_field() {
     ' "$BACKLOG_FILE"
 }
 
+# Set a field for a specific item ID
+item_set_field() {
+    local id="$1"
+    local field="$2"
+    local value="$3"
+
+    # Check if field exists for this item
+    local existing
+    existing=$(item_field "$id" "$field")
+
+    if [[ -n "$existing" ]]; then
+        # Update existing field
+        awk -v id="$id" -v field="$field" -v value="$value" '
+            /^ *- id:/ { found = ($0 ~ "id: *" id "$") }
+            found && $0 ~ "^ *" field ":" {
+                # Preserve indentation
+                match($0, /^[ ]*/)
+                indent = substr($0, RSTART, RLENGTH)
+                # Quote strings that contain spaces
+                if (value ~ / /) {
+                    print indent field ": \"" value "\""
+                } else {
+                    print indent field ": " value
+                }
+                next
+            }
+            found && /^ *- id:/ && !($0 ~ "id: *" id "$") { found = 0 }
+            { print }
+        ' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+    else
+        # Add new field after the id line
+        awk -v id="$id" -v field="$field" -v value="$value" '
+            /^ *- id:/ { in_item = ($0 ~ "id: *" id "$") }
+            { print }
+            in_item && /^ *- id:/ {
+                # Add field with same indentation as subsequent lines
+                if (value ~ / /) {
+                    print "    " field ": \"" value "\""
+                } else {
+                    print "    " field ": " value
+                }
+                in_item = 0
+            }
+        ' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+    fi
+}
+
 priority_color() {
     case "$1" in
         urgent) echo -e "${RED}●${NC}" ;;
@@ -68,6 +116,67 @@ priority_sort_key() {
     esac
 }
 
+status_icon() {
+    case "$1" in
+        active) echo -e "${GREEN}▸${NC}" ;;
+        done)   echo -e "${GREEN}✓${NC}" ;;
+        *)      echo -e " " ;;  # backlog = no icon
+    esac
+}
+
+# ── Display helpers ───────────────────────────────────────
+
+# Print a single item line
+print_item() {
+    local id="$1"
+    local priority title feature status
+    priority=$(item_field "$id" "priority")
+    title=$(item_field "$id" "title")
+    feature=$(item_field "$id" "feature")
+    status=$(item_field "$id" "status")
+    local context
+    context=$(item_field "$id" "context")
+
+    local marker
+    marker=$(priority_color "$priority")
+    local s_icon
+    s_icon=$(status_icon "$status")
+
+    local feature_tag=""
+    [[ -n "$feature" ]] && feature_tag="${DIM}[${feature}]${NC} "
+
+    echo -e "  ${s_icon}${marker} ${feature_tag}${title}  ${DIM}[${id}]${NC}"
+    [[ -n "$context" ]] && echo -e "    ${DIM}${context}${NC}"
+}
+
+# Collect items with sort keys, optionally filtered
+collect_items() {
+    local filter_status="${1:-}"
+    local filter_feature="${2:-}"
+    local items=()
+
+    while IFS= read -r id; do
+        [[ -z "$id" ]] && continue
+        local priority status feature
+        priority=$(item_field "$id" "priority")
+        status=$(item_field "$id" "status")
+        feature=$(item_field "$id" "feature")
+        [[ -z "$status" ]] && status="backlog"
+
+        # Apply filters
+        [[ -n "$filter_status" && "$status" != "$filter_status" ]] && continue
+        [[ -n "$filter_feature" && "$feature" != "$filter_feature" ]] && continue
+
+        local sort_key
+        sort_key=$(priority_sort_key "$priority")
+        items+=("${sort_key}|${id}")
+    done <<< "$(item_ids)"
+
+    if [[ ${#items[@]} -gt 0 ]]; then
+        printf '%s\n' "${items[@]}" | sort
+    fi
+}
+
 # ── Commands ────────────────────────────────────────────
 
 cmd_show() {
@@ -85,31 +194,82 @@ cmd_show() {
         return 0
     fi
 
-    echo ""
-    echo -e "  ${CYAN}◆${NC} ${BOLD}Backlog${NC}  ${DIM}${total} items${NC}"
-    echo ""
-
-    # Collect and sort by priority
-    local items=()
-    while IFS= read -r id; do
-        local priority title context
-        priority=$(item_field "$id" "priority")
-        title=$(item_field "$id" "title")
-        context=$(item_field "$id" "context")
-        local sort_key
-        sort_key=$(priority_sort_key "$priority")
-        items+=("${sort_key}|${id}|${priority}|${title}|${context}")
-    done <<< "$(item_ids)"
-
-    # Sort and display
-    printf '%s\n' "${items[@]}" | sort | while IFS='|' read -r _ id priority title context; do
-        local marker
-        marker=$(priority_color "$priority")
-        echo -e "  ${marker} ${title}  ${DIM}[${id}]${NC}"
-        [[ -n "$context" ]] && echo -e "    ${DIM}${context}${NC}"
-    done
+    # Check if any items have features
+    local has_features=false
+    if grep -q '^ *feature: [^ ""]' "$BACKLOG_FILE" 2>/dev/null || grep -q '^ *feature: ".' "$BACKLOG_FILE" 2>/dev/null; then
+        has_features=true
+    fi
 
     echo ""
+
+    # Show active items first
+    local active_items
+    active_items=$(collect_items "active" "")
+    if [[ -n "$active_items" ]]; then
+        echo -e "  ${GREEN}▸${NC} ${BOLD}Active${NC}"
+        echo ""
+        while IFS='|' read -r _ id; do
+            [[ -z "$id" ]] && continue
+            print_item "$id"
+        done <<< "$active_items"
+        echo ""
+    fi
+
+    # Show backlog grouped by feature if features exist
+    local backlog_items
+    backlog_items=$(collect_items "backlog" "")
+    if [[ -n "$backlog_items" ]]; then
+        if $has_features; then
+            # Group by feature
+            local features=()
+            local no_feature_ids=()
+
+            while IFS='|' read -r _ id; do
+                [[ -z "$id" ]] && continue
+                local feat
+                feat=$(item_field "$id" "feature")
+                if [[ -n "$feat" ]]; then
+                    # Add feature to list if not already there
+                    local found=false
+                    for f in "${features[@]:-}"; do
+                        [[ "$f" == "$feat" ]] && found=true && break
+                    done
+                    $found || features+=("$feat")
+                else
+                    no_feature_ids+=("$id")
+                fi
+            done <<< "$backlog_items"
+
+            echo -e "  ${CYAN}◆${NC} ${BOLD}Backlog${NC}"
+            echo ""
+
+            for feat in "${features[@]:-}"; do
+                [[ -z "$feat" ]] && continue
+                echo -e "    ${BOLD}${feat}${NC}"
+                while IFS='|' read -r _ id; do
+                    [[ -z "$id" ]] && continue
+                    local item_feat
+                    item_feat=$(item_field "$id" "feature")
+                    [[ "$item_feat" == "$feat" ]] && print_item "$id"
+                done <<< "$backlog_items"
+            done
+
+            if [[ ${#no_feature_ids[@]} -gt 0 ]]; then
+                echo -e "    ${BOLD}untagged${NC}"
+                for id in "${no_feature_ids[@]}"; do
+                    print_item "$id"
+                done
+            fi
+        else
+            echo -e "  ${CYAN}◆${NC} ${BOLD}Backlog${NC}  ${DIM}${total} items${NC}"
+            echo ""
+            while IFS='|' read -r _ id; do
+                [[ -z "$id" ]] && continue
+                print_item "$id"
+            done <<< "$backlog_items"
+        fi
+        echo ""
+    fi
 }
 
 cmd_add() {
@@ -142,6 +302,8 @@ EOF
   - id: ${id}
     title: "${title}"
     priority: ${priority}
+    feature: ""
+    status: backlog
     context: ""
     source: "manual"
     created: ${today}
@@ -165,18 +327,210 @@ cmd_done() {
         return 1
     fi
 
-    # Remove the item block (from - id: to next - id: or end)
-    awk -v id="$target_id" '
-        /^ *- id:/ {
-            if ($0 ~ "id: *" id "$") { skip = 1; next }
-            else { skip = 0 }
-        }
-        skip && /^ *[^ -]/ { next }
-        skip && /^ *$/ { next }
-        !skip { print }
-    ' "$BACKLOG_FILE" > "${BACKLOG_FILE}.tmp" && mv "${BACKLOG_FILE}.tmp" "$BACKLOG_FILE"
+    item_set_field "$target_id" "status" "done"
+    echo -e "  ${GREEN}✓${NC} ${target_id} → done"
+}
 
-    echo -e "  ${GREEN}✓${NC} ${target_id} removed"
+cmd_edit() {
+    local target_id="$1"
+    local field="$2"
+    local value="$3"
+
+    if [[ -z "$target_id" || -z "$field" || -z "$value" ]]; then
+        echo "Usage: rhino todo edit <id> <field> <value>"
+        return 1
+    fi
+    if ! todo_exists; then
+        echo "No todos.yml found"
+        return 1
+    fi
+    if ! grep -q "id: ${target_id}$" "$BACKLOG_FILE" 2>/dev/null; then
+        echo "Item '$target_id' not found"
+        return 1
+    fi
+
+    item_set_field "$target_id" "$field" "$value"
+    echo -e "  ${GREEN}✓${NC} ${target_id}.${field} → ${value}"
+}
+
+cmd_tag() {
+    local target_id="$1"
+    local feature="$2"
+
+    if [[ -z "$target_id" || -z "$feature" ]]; then
+        echo "Usage: rhino todo tag <id> <feature>"
+        return 1
+    fi
+    if ! todo_exists; then
+        echo "No todos.yml found"
+        return 1
+    fi
+    if ! grep -q "id: ${target_id}$" "$BACKLOG_FILE" 2>/dev/null; then
+        echo "Item '$target_id' not found"
+        return 1
+    fi
+
+    item_set_field "$target_id" "feature" "$feature"
+    echo -e "  ${GREEN}✓${NC} ${target_id} tagged → ${feature}"
+}
+
+cmd_promote() {
+    local target_id="$1"
+
+    if [[ -z "$target_id" ]]; then
+        echo "Usage: rhino todo promote <id>"
+        return 1
+    fi
+    if ! todo_exists; then
+        echo "No todos.yml found"
+        return 1
+    fi
+    if ! grep -q "id: ${target_id}$" "$BACKLOG_FILE" 2>/dev/null; then
+        echo "Item '$target_id' not found"
+        return 1
+    fi
+
+    # Set status to active
+    item_set_field "$target_id" "status" "active"
+
+    # Append to plan.yml if it exists
+    local title
+    title=$(item_field "$target_id" "title")
+    if [[ -f "$PLAN_FILE" ]]; then
+        echo "" >> "$PLAN_FILE"
+        echo "- [ ] ${title} [${target_id}]" >> "$PLAN_FILE"
+        echo -e "  ${GREEN}▸${NC} ${target_id} promoted → active (added to plan.yml)"
+    else
+        echo -e "  ${GREEN}▸${NC} ${target_id} promoted → active"
+    fi
+}
+
+cmd_active() {
+    if ! todo_exists; then
+        echo -e "  ${DIM}No todos.yml${NC}"
+        return 0
+    fi
+
+    local active_items
+    active_items=$(collect_items "active" "")
+
+    echo ""
+    if [[ -z "$active_items" ]]; then
+        echo -e "  ${DIM}No active items. Use 'rhino todo promote <id>' to activate.${NC}"
+    else
+        echo -e "  ${GREEN}▸${NC} ${BOLD}Active${NC}"
+        echo ""
+        while IFS='|' read -r _ id; do
+            [[ -z "$id" ]] && continue
+            print_item "$id"
+        done <<< "$active_items"
+    fi
+    echo ""
+}
+
+cmd_feature() {
+    local feature_name="${1:-}"
+
+    if ! todo_exists; then
+        echo -e "  ${DIM}No todos.yml${NC}"
+        return 0
+    fi
+
+    if [[ -z "$feature_name" ]]; then
+        # List all features with counts
+        echo ""
+        echo -e "  ${CYAN}◆${NC} ${BOLD}Features${NC}"
+        echo ""
+        local features=()
+        while IFS= read -r id; do
+            [[ -z "$id" ]] && continue
+            local feat
+            feat=$(item_field "$id" "feature")
+            [[ -z "$feat" ]] && continue
+            local found=false
+            for f in "${features[@]:-}"; do
+                [[ "$f" == "$feat" ]] && found=true && break
+            done
+            $found || features+=("$feat")
+        done <<< "$(item_ids)"
+
+        for feat in "${features[@]:-}"; do
+            [[ -z "$feat" ]] && continue
+            local count=0
+            while IFS= read -r id; do
+                [[ -z "$id" ]] && continue
+                local item_feat
+                item_feat=$(item_field "$id" "feature")
+                [[ "$item_feat" == "$feat" ]] && count=$((count + 1))
+            done <<< "$(item_ids)"
+            echo -e "    ${BOLD}${feat}${NC}  ${DIM}(${count})${NC}"
+        done
+        echo ""
+    else
+        # Show items for a specific feature
+        echo ""
+        echo -e "  ${BOLD}${feature_name}${NC}"
+        echo ""
+        local feature_items
+        feature_items=$(collect_items "" "$feature_name")
+        if [[ -z "$feature_items" ]]; then
+            echo -e "  ${DIM}No items tagged '${feature_name}'${NC}"
+        else
+            while IFS='|' read -r _ id; do
+                [[ -z "$id" ]] && continue
+                print_item "$id"
+            done <<< "$feature_items"
+        fi
+        echo ""
+    fi
+}
+
+cmd_all() {
+    if ! todo_exists; then
+        echo -e "  ${DIM}No todos.yml${NC}"
+        return 0
+    fi
+
+    echo ""
+
+    # Active
+    local active_items
+    active_items=$(collect_items "active" "")
+    if [[ -n "$active_items" ]]; then
+        echo -e "  ${GREEN}▸${NC} ${BOLD}Active${NC}"
+        echo ""
+        while IFS='|' read -r _ id; do
+            [[ -z "$id" ]] && continue
+            print_item "$id"
+        done <<< "$active_items"
+        echo ""
+    fi
+
+    # Backlog
+    local backlog_items
+    backlog_items=$(collect_items "backlog" "")
+    if [[ -n "$backlog_items" ]]; then
+        echo -e "  ${CYAN}◆${NC} ${BOLD}Backlog${NC}"
+        echo ""
+        while IFS='|' read -r _ id; do
+            [[ -z "$id" ]] && continue
+            print_item "$id"
+        done <<< "$backlog_items"
+        echo ""
+    fi
+
+    # Done
+    local done_items
+    done_items=$(collect_items "done" "")
+    if [[ -n "$done_items" ]]; then
+        echo -e "  ${DIM}Done${NC}"
+        echo ""
+        while IFS='|' read -r _ id; do
+            [[ -z "$id" ]] && continue
+            print_item "$id"
+        done <<< "$done_items"
+        echo ""
+    fi
 }
 
 # ── Main ────────────────────────────────────────────────
@@ -185,8 +539,24 @@ case "${1:-show}" in
     show|list|"") cmd_show ;;
     add)          shift; cmd_add "${1:-}" "${2:-medium}" ;;
     done|rm)      shift; cmd_done "${1:-}" ;;
+    edit)         shift; cmd_edit "${1:-}" "${2:-}" "${3:-}" ;;
+    tag)          shift; cmd_tag "${1:-}" "${2:-}" ;;
+    promote)      shift; cmd_promote "${1:-}" ;;
+    active)       cmd_active ;;
+    feature)      shift; cmd_feature "${1:-}" ;;
+    all)          cmd_all ;;
     *)
-        echo "Usage: rhino todo [show|add \"title\" [priority]|done <id>]"
+        echo "Usage: rhino todo [show|add|done|edit|tag|promote|active|feature|all]"
+        echo ""
+        echo "  show              Show todos (default)"
+        echo "  add \"title\" [pri] Add a todo"
+        echo "  done <id>         Mark done"
+        echo "  edit <id> <f> <v> Update a field"
+        echo "  tag <id> <feat>   Tag with feature"
+        echo "  promote <id>      Set active, add to plan"
+        echo "  active            Show active only"
+        echo "  feature [name]    Filter by feature"
+        echo "  all               All sections"
         exit 1
         ;;
 esac
