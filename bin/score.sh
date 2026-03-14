@@ -662,7 +662,7 @@ if [[ "$HIST_LINES" -ge 3 ]]; then
 fi
 
 # PLATEAU: score unchanged across N runs (checked before writing current entry)
-plateau_runs=$(cfg integrity.plateau_experiments 5)
+plateau_runs=$(cfg integrity.plateau_tasks 3)
 if [[ "$HIST_LINES" -gt "$plateau_runs" ]]; then
     unique_scores=$(tail -"$plateau_runs" "$HISTORY_FILE" | cut -f3 | sort -u | wc -l | tr -d ' ')
     if [[ "$unique_scores" -eq 1 ]]; then
@@ -692,53 +692,8 @@ if [[ -f ".claude/plans/active-plan.md" ]] || [[ -f "config/rhino.yml" ]]; then
     fi
 fi
 
-# EXPERIMENT DISCIPLINE: check experiment health from TSVs
-# These read the 4 config values that were previously defined but never enforced.
-exp_discard_floor=$(cfg experiments.discard_rate_floor 0.25)
-exp_min_delta=$(cfg experiments.min_keep_delta 0.02)
-exp_moonshot_n=$(cfg experiments.moonshot_every_n 5)
-
-if [[ -d ".claude/experiments" ]]; then
-    # Aggregate across all experiment TSVs
-    total_kept=0
-    total_discarded=0
-    total_experiments=0
-    recent_discards=0
-    last_n_experiments=""
-
-    for tsv in .claude/experiments/*.tsv; do
-        [[ -f "$tsv" ]] || continue
-        kept=$(grep -c 'keep' "$tsv" 2>/dev/null) || kept=0
-        discarded=$(grep -c 'discard' "$tsv" 2>/dev/null) || discarded=0
-        total_kept=$((total_kept + kept))
-        total_discarded=$((total_discarded + discarded))
-        total_experiments=$((total_experiments + kept + discarded))
-        # Collect last N experiment statuses for moonshot check
-        tail -n "$exp_moonshot_n" "$tsv" | grep -v '^commit\|^---\|^$' >> "$CACHE_DIR/.exp_recent" 2>/dev/null || true
-    done
-
-    if [[ "$total_experiments" -ge 5 ]]; then
-        # KEEP_RATE_HIGH: discard rate below floor = not exploring enough
-        discard_rate=0
-        if [[ "$total_experiments" -gt 0 ]]; then
-            discard_rate=$((total_discarded * 100 / total_experiments))
-        fi
-        discard_floor_pct=$(echo "$exp_discard_floor" | awk '{printf "%d", $1 * 100}')
-        if [[ "$discard_rate" -lt "$discard_floor_pct" ]]; then
-            INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}KEEP_RATE_HIGH: ${total_kept}/${total_experiments} kept (discard rate ${discard_rate}% < ${discard_floor_pct}% floor). Not exploring enough — try riskier hypotheses.\n"
-        fi
-
-        # NO_MOONSHOTS: last N experiments all kept = no risk-taking
-        if [[ -f "$CACHE_DIR/.exp_recent" ]]; then
-            recent_total=$(wc -l < "$CACHE_DIR/.exp_recent" | tr -d ' ')
-            recent_discards=$(grep -c 'discard' "$CACHE_DIR/.exp_recent" 2>/dev/null) || recent_discards=0
-            if [[ "$recent_total" -ge "$exp_moonshot_n" && "$recent_discards" -eq 0 ]]; then
-                INTEGRITY_WARNINGS="${INTEGRITY_WARNINGS}NO_MOONSHOTS: last ${recent_total} experiments all kept. Every ${exp_moonshot_n}th experiment should be high-risk. Try something that might fail.\n"
-            fi
-            rm -f "$CACHE_DIR/.exp_recent"
-        fi
-    fi
-fi
+# (Experiment discipline checks removed — build discipline uses commit-level
+# keep/revert, not per-experiment TSV tracking. Crash rate check below still applies.)
 
 # CRASH RATE: check results.tsv for high crash rate
 RESULTS_TSV=".claude/experiments/results.tsv"
