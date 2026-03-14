@@ -38,15 +38,26 @@ Questions (up to 4):
    (src/[detected paths])
 ```
 
-Based on answers:
-1. Generate 3-5 assertions with machine-evaluable fields:
-   - `type: file_check` with `path:` and `contains:` for structural checks
-   - `type: content_check` with `forbidden:` for code quality
-   - `type: dom_check` or `playwright_task` only if dev server is detected
-2. Write to beliefs.yml with `feature: [name]`
-3. Run `rhino eval . --feature [name]` for baseline
-4. Create tasks (TaskCreate) for any failing assertions
-5. Output: "[name] created with N assertions. X/N passing. Run `/go [name]`."
+Based on answers, generate 3-5 assertions mixing mechanical and subjective:
+
+**Mechanical** (fast, deterministic):
+- `type: file_check` with `path:` and `contains:` — does the code exist?
+- `type: content_check` with `forbidden:` — code quality gates
+
+**Subjective** (Claude evaluates quality):
+- `type: llm_judge` with `path:` and `prompt:` — is the code good? coherent? complete?
+  Example: `prompt: "Is the auth flow complete? Can a user sign up, log in, reset password?"`
+
+**Behavioral** (requires dev server):
+- `type: dom_check` or `playwright_task` — only if dev server is detected
+
+Always include at least 1 llm_judge assertion per feature. Mechanical checks tell you "it exists." LLM judges tell you "it's good."
+
+Then:
+1. Write to beliefs.yml with `feature: [name]`
+2. Run `rhino eval . --feature [name]` for baseline
+3. Create tasks (TaskCreate) for any failing assertions
+4. Output: "[name] created with N assertions. X/N passing. Run `/go [name]`."
 
 ### `[name] research` → explore the feature's codebase and context
 

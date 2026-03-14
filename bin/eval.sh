@@ -437,6 +437,100 @@ process_belief() {
                 check_fail "$belief_id" "self check: diagnostic failed" "warn" 3
             fi
             ;;
+        llm_judge)
+            # LLM-as-judge: Claude evaluates code/files against a quality prompt
+            # Skip in --score mode (mechanical scoring shouldn't wait for LLM calls)
+            if [[ "$SCORE_MODE" == "true" ]]; then
+                check_warn "$belief_id" "llm_judge: skipped in score mode"
+            elif [[ -n "$belief_prompt" ]]; then
+                local judge_context=""
+                # Gather context from specified paths or feature files
+                if [[ -n "$belief_path" ]]; then
+                    local expanded_path="${belief_path/#\~/$HOME}"
+                    if [[ -f "$expanded_path" ]]; then
+                        judge_context=$(head -200 "$expanded_path" 2>/dev/null)
+                    elif [[ -d "$expanded_path" ]]; then
+                        # Directory: concatenate first 50 lines of each file
+                        judge_context=$(find "$expanded_path" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.py" -o -name "*.sh" -o -name "*.md" \) ! -path "*/node_modules/*" 2>/dev/null | head -10 | while read -r f; do
+                            echo "=== $(basename "$f") ==="
+                            head -50 "$f" 2>/dev/null
+                        done)
+                    fi
+                elif [[ -n "$belief_feature" ]]; then
+                    # Auto-gather context for the feature from SRC_DIRS
+                    if [[ -n "$SRC_DIRS" ]]; then
+                        judge_context=$(grep -rl "$belief_feature" $SRC_DIRS 2>/dev/null | grep -v node_modules | head -5 | while read -r f; do
+                            echo "=== $(basename "$f") ==="
+                            head -50 "$f" 2>/dev/null
+                        done)
+                    fi
+                fi
+
+                if [[ -z "$judge_context" ]]; then
+                    check_warn "$belief_id" "llm_judge: no context files found"
+                else
+                    # Call Claude via the Anthropic API (requires ANTHROPIC_API_KEY)
+                    local api_key="${ANTHROPIC_API_KEY:-}"
+                    if [[ -z "$api_key" ]]; then
+                        # Try to use claude CLI as fallback
+                        local judge_input="Evaluate this code. Answer ONLY 'pass' or 'fail' on the first line, then a one-sentence reason on the second line.
+
+Question: ${belief_prompt}
+
+Code:
+${judge_context}"
+                        local judge_result=""
+                        # Use a temp file for the prompt to avoid shell escaping issues
+                        local judge_tmp
+                        judge_tmp=$(mktemp)
+                        echo "$judge_input" > "$judge_tmp"
+                        judge_result=$(claude -p "$(cat "$judge_tmp")" --model haiku 2>/dev/null | head -2) || judge_result=""
+                        rm -f "$judge_tmp"
+
+                        if [[ -z "$judge_result" ]]; then
+                            check_warn "$belief_id" "llm_judge: claude CLI not available"
+                        else
+                            local verdict
+                            verdict=$(echo "$judge_result" | head -1 | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+                            local reason
+                            reason=$(echo "$judge_result" | tail -1)
+                            if [[ "$verdict" == "pass" ]]; then
+                                check_pass "$belief_id" "$reason"
+                            else
+                                check_fail "$belief_id" "$reason" "warn" 3
+                            fi
+                        fi
+                    else
+                        # Direct API call with curl (faster, no CLI overhead)
+                        local judge_payload
+                        judge_payload=$(printf '{"model":"claude-haiku-4-5-20251001","max_tokens":100,"messages":[{"role":"user","content":"Evaluate this code. Answer ONLY pass or fail on the first line, then a one-sentence reason on the second line.\\n\\nQuestion: %s\\n\\nCode:\\n%s"}]}' \
+                            "$(echo "$belief_prompt" | sed 's/"/\\"/g')" \
+                            "$(echo "$judge_context" | head -100 | sed 's/"/\\"/g' | tr '\n' ' ')")
+                        local judge_response
+                        judge_response=$(curl -s "https://api.anthropic.com/v1/messages" \
+                            -H "x-api-key: $api_key" \
+                            -H "anthropic-version: 2023-06-01" \
+                            -H "content-type: application/json" \
+                            -d "$judge_payload" 2>/dev/null)
+                        local judge_text
+                        judge_text=$(echo "$judge_response" | grep -o '"text":"[^"]*"' | head -1 | sed 's/"text":"//;s/"$//')
+                        if [[ -z "$judge_text" ]]; then
+                            check_warn "$belief_id" "llm_judge: API call failed"
+                        else
+                            local verdict
+                            verdict=$(echo "$judge_text" | tr '[:upper:]' '[:lower:]' | head -1)
+                            if echo "$verdict" | grep -q "pass"; then
+                                check_pass "$belief_id" "$(echo "$judge_text" | tail -1)"
+                            else
+                                check_fail "$belief_id" "$(echo "$judge_text" | tail -1)" "warn" 3
+                            fi
+                        fi
+                    fi
+                fi
+            else
+                check_warn "$belief_id" "llm_judge: no prompt: field"
+            fi
+            ;;
         playwright_task)
             if [[ -n "$EVAL_URL" && -n "$belief_scenario" ]]; then
                 local threshold="${belief_threshold:-180}"
@@ -502,6 +596,7 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_not_contains=""
             belief_exists=""
             belief_min_lines=""
+            belief_prompt=""
             in_forbidden=false
             forbidden_words=()
         fi
@@ -544,6 +639,11 @@ if [[ -f "$BELIEFS_FILE" ]]; then
         # Min lines (for file_check)
         if echo "$line" | grep -q '^\s*min_lines:'; then
             belief_min_lines=$(echo "$line" | sed 's/.*min_lines: *//')
+        fi
+
+        # Prompt (for llm_judge)
+        if echo "$line" | grep -q '^\s*prompt:'; then
+            belief_prompt=$(echo "$line" | sed 's/.*prompt: *//' | tr -d '"')
         fi
 
         # Scenario (for playwright_task)

@@ -1,7 +1,10 @@
 # beliefs.yml — What must be true about rhino-os
 #
-# Every assertion is testable mechanically. No dev server required.
-# Types: file_check, content_check, self_check
+# Types:
+#   file_check    — file exists, contains string, min lines (mechanical)
+#   content_check — forbidden words in source dirs (mechanical)
+#   self_check    — runs self.sh --eval metric (mechanical)
+#   llm_judge     — Claude evaluates code quality (subjective, uses Haiku)
 #
 # feature: which part of the product this tests
 # severity: block (score = 0 if failing) | warn (flags but continues)
@@ -168,4 +171,46 @@ beliefs:
     type: self_check
     metric: readme-has-scoring
     feature: docs
+    severity: warn
+
+  # ── llm_judge — subjective quality (Claude evaluates) ──
+
+  - id: scoring-formula-clear
+    belief: "score.sh formula is understandable — a new contributor can read it"
+    type: llm_judge
+    path: "bin/score.sh"
+    prompt: "Is the scoring formula in this file clear and well-commented? Can a developer understand how the score is computed by reading it?"
+    feature: scoring
+    severity: warn
+
+  - id: commands-are-intuitive
+    belief: "The 4 slash commands make sense to a new user"
+    type: llm_judge
+    path: ".claude/commands"
+    prompt: "Read these command files. Would a new user understand what /feature, /plan, /go, and /ship do from their descriptions? Are the names intuitive?"
+    feature: commands
+    severity: warn
+
+  - id: readme-clear-to-stranger
+    belief: "A stranger can understand what rhino-os does from the README"
+    type: llm_judge
+    path: "README.md"
+    prompt: "Read this README. Would someone who has never heard of rhino-os understand what it does, why they'd want it, and how to start? Is the quick start actually quick?"
+    feature: docs
+    severity: warn
+
+  - id: beliefs-are-meaningful
+    belief: "The assertions in beliefs.yml test things that matter, not trivial checks"
+    type: llm_judge
+    path: "lens/product/eval/beliefs.yml"
+    prompt: "Read these assertions. Are they testing things that actually matter for the product? Or are they mostly trivial file-existence checks? Would failing any of these mean the product is genuinely broken?"
+    feature: scoring
+    severity: warn
+
+  - id: feature-system-coherent
+    belief: "The feature system (detect, list, view) forms a coherent workflow"
+    type: llm_judge
+    path: "bin/feature.sh"
+    prompt: "Read this feature management script. Does it provide a coherent workflow for listing, viewing, and detecting features? Would a user find it useful?"
+    feature: cli
     severity: warn
