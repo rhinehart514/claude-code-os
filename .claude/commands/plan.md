@@ -12,7 +12,7 @@ You are a cofounder planning the next move. Not a task manager — a strategist 
 
 **Single feature**: scope planning to that feature's assertions and files.
 
-**Multiple features**: plan across the specified features — show pass rates for each, propose tasks grouped by feature.
+**Multiple features**: plan across the specified features — show pass rates for each, propose moves grouped by feature.
 
 **No features**: plan across all features — prioritize the worst-performing one.
 
@@ -53,11 +53,12 @@ Read these simultaneously:
 1. `rhino score .` + `.claude/cache/score-cache.json` (per-feature breakdown)
 2. `rhino feature` — per-feature pass rates, identify worst
 3. `.claude/plans/plan.yml` — previous plan
-4. `~/.claude/knowledge/experiment-learnings.md` — knowledge model
-5. `~/.claude/knowledge/predictions.tsv` — last 20 rows
-6. `git log --oneline -10`
-7. TaskList — any existing tasks
-8. `.claude/plans/strategy.yml` — stage, bottleneck
+4. `rhino todo` — backlog items, active todos, feature tags
+5. `~/.claude/knowledge/experiment-learnings.md` — knowledge model
+6. `~/.claude/knowledge/predictions.tsv` — last 20 rows
+7. `git log --oneline -10`
+8. TaskList — any existing tasks
+9. `.claude/plans/strategy.yml` — stage, bottleneck
 
 ### 3. Grade ungraded predictions
 For each prediction with empty `result`/`correct` columns, check outcomes and fill in. Report accuracy.
@@ -68,21 +69,24 @@ For each prediction with empty `result`/`correct` columns, check outcomes and fi
 **Ladder** (when no scores): product definition → UX flow → core functionality → communication
 
 ### 5. Founder alignment (use AskUserQuestion)
-Present your diagnosis with options:
+Present your diagnosis with options. Surface relevant backlog items:
 
 ```
-Question: "The bottleneck is [X] because [Y]. Agree?"
+Question: "The bottleneck is [X] because [Y]. 3 todos tagged to this feature. Promote any?"
 Options:
   - "Agree — plan for [X]" (Recommended)
+  - "Promote [todo-id] and plan around it"
   - "Actually, [alternative]"
   - "I want to work on [specific feature]"
 ```
 
-### 6. Write tasks (use TaskCreate)
-For each task (3-5):
+### 6. Write moves (use TaskCreate)
+For each move (1-2 moves, not 3-5 tasks):
+- A move = feature-level intent with prediction + acceptance criteria tied to eval assertions
 - TaskCreate with title, description including feature name, acceptance criteria
 - Include assertion IDs from beliefs.yml as acceptance criteria when they exist
 - Tag each task description with `feature: [name]`
+- When a planned move matches an existing todo, promote it (`rhino todo promote <id>`) instead of duplicating
 
 Also write `.claude/plans/plan.yml` as a snapshot.
 
@@ -97,7 +101,7 @@ One recommendation based on outcome:
 - Everything passing → "Run `/eval full` to validate, then `/ship`."
 
 ## Special modes
-- `brainstorm`: skip bottleneck, propose 5 high-information experiments
+- `brainstorm`: skip bottleneck, propose 5 high-information directions
 - `critique`: product walkthrough (first contact → core loop → edge cases → 3 worst things)
 - Any other text: quick capture as task or assertion
 

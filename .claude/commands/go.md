@@ -33,13 +33,18 @@ For each feature:
 ## The loop
 
 ```
-Read tasks → Pick task → Predict → Build → Measure → Update model → Next task
+Read todos (active first) → Pick bottleneck feature → Understand codebase →
+Build end-to-end → Commit → Run eval → Keep/revert commit → Update model → Next
 ```
 
-### 1. Pick the task
-Call TaskList. Find next task with status todo.
+### 1. Read todos
+Run `rhino todo active` first. Promoted todos = founder's explicit priority. If no active todos, read `rhino todo` for the full backlog and pick the highest-priority item.
 
-### 2. Predict
+### 2. Pick the move
+A move = a feature-level intent. Not a single-file tweak. Understand the full scope before starting.
+Call TaskList for existing tasks. Combine with todo priorities.
+
+### 3. Predict
 ```
 I predict: [specific outcome]
 Because: [cite experiment-learnings.md or declare exploration]
@@ -47,25 +52,26 @@ I'd be wrong if: [falsification condition]
 ```
 Log to `~/.claude/knowledge/predictions.tsv`.
 
-### 3. Build
-Execute the task. Follow `mind/standards.md`.
+### 4. Build
+Build the whole feature end-to-end. Any number of files. Follow `mind/standards.md`.
+Make atomic git commits — each commit is a reviewable, revertable unit.
 
-### 4. Measure
-Run `rhino score .` after every task. The score IS the assertion pass rate.
+### 5. Measure
+Run `rhino eval .` after each commit. Eval = value (assertion pass rate). Use `rhino score .` as a supporting health check.
 
-- **Assertion regressed** (was passing, now failing) → revert, log why
+- **Assertion regressed** (was passing, now failing) → revert the commit, log why
 - **Assertion progressed** (was failing, now passing) → keep
-- **Score up or flat** → keep
-- **Score down >15** → revert immediately
+- **Eval stable or improved** → keep
+- **Score dropped but assertions held** → keep (value > health)
 
-### 5. Update model
+### 6. Update model
 Fill in prediction result. If wrong, update experiment-learnings.md.
 
-### 6. Mark done
-TaskUpdate → completed. Pick next task. Loop.
+### 7. Mark done
+TaskUpdate → completed. Pick next move. Loop.
 
 ## Plateau handling
-If score hasn't improved in 3 consecutive tasks:
+If assertions haven't improved in 3 consecutive moves:
 1. Stop building — current approach is exhausted
 2. Research inline (WebSearch, read experiment-learnings.md Unknown Territory)
 3. If research produces a hypothesis → create new task, continue
@@ -78,14 +84,14 @@ If score hasn't improved in 3 consecutive tasks:
 
 ## When the loop ends
 Output:
-- Tasks completed (with kept/reverted counts)
-- Score trajectory (start → end)
+- Moves completed (with kept/reverted counts)
+- Eval trajectory (start → end assertion pass rate)
 - Prediction accuracy for this session
 - What the bottleneck is NOW
 
 **Next action** (pick one based on outcome):
-- Score improved → "Run `/eval full` to validate before shipping."
-- Score plateaued → "Run `/ideate [feature]` — current approach is exhausted."
+- Assertions improved → "Run `/eval full` to validate before shipping."
+- Assertions plateaued → "Run `/ideate [feature]` — current approach is exhausted."
 - All tasks done → "Run `/ship` to deploy, or `/plan` for next session."
 - New unknowns surfaced → "Run `/research [topic]` to fill the gap."
 
