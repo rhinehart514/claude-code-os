@@ -72,8 +72,10 @@ TASKS_REMAINING=0
 NEXT_TASK=""
 PLAN_STALE=""
 if [[ -n "$PLAN_FILE" ]]; then
-    TOTAL_TASKS=$(grep -c '- title:' "$PLAN_FILE" 2>/dev/null || echo 0)
-    DONE_TASKS=$(grep -c 'status: done' "$PLAN_FILE" 2>/dev/null || echo 0)
+    TOTAL_TASKS=$(grep -c '- title:' "$PLAN_FILE" 2>/dev/null | tr -d ' \n' || true)
+    DONE_TASKS=$(grep -c 'status: done' "$PLAN_FILE" 2>/dev/null | tr -d ' \n' || true)
+    [[ -z "$TOTAL_TASKS" || ! "$TOTAL_TASKS" =~ ^[0-9]+$ ]] && TOTAL_TASKS=0
+    [[ -z "$DONE_TASKS" || ! "$DONE_TASKS" =~ ^[0-9]+$ ]] && DONE_TASKS=0
     TASKS_REMAINING=$((TOTAL_TASKS - DONE_TASKS))
     NEXT_TASK=$(grep -B1 'status: todo' "$PLAN_FILE" 2>/dev/null | grep 'title:' | head -1 | sed 's/.*title: *//' || true)
 

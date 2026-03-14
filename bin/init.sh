@@ -397,7 +397,82 @@ echo -e "  ${GREEN}✓${NC} config/rhino.yml (${FEATURE_COUNT} features)"
 # ============================================================
 # Phase 3: Create .claude/ structure
 # ============================================================
-mkdir -p .claude/cache .claude/scores config/evals
+mkdir -p .claude/cache .claude/scores .claude/plans config/evals
+
+# --- Scaffold planning files ---
+
+# roadmap.yml — version theses
+if [[ ! -f ".claude/plans/roadmap.yml" ]]; then
+    cat > .claude/plans/roadmap.yml <<ROADMAP
+# roadmap.yml — Theses, not releases
+# Each version is a question we're testing.
+
+current: v1.0
+
+versions:
+  v1.0:
+    thesis: "rhino-os can measure and improve this project"
+    status: testing
+    goal: "Bootstrap complete. Can the measurement loop find real improvements?"
+    evidence_needed:
+      - id: init-clean
+        question: "Does init produce a useful config?"
+        status: proven
+        evidence: "config/rhino.yml generated with ${FEATURE_COUNT} features"
+      - id: first-eval
+        question: "Does eval produce meaningful scores?"
+        status: testing
+      - id: first-improvement
+        question: "Does /go produce a measurable improvement?"
+        status: todo
+ROADMAP
+    echo -e "  ${GREEN}✓${NC} .claude/plans/roadmap.yml"
+fi
+
+# strategy.yml — current bottleneck
+if [[ ! -f ".claude/plans/strategy.yml" ]]; then
+    # Find worst feature for initial bottleneck
+    INIT_BOTTLENECK="unknown"
+    if [[ ${#FEATURES[@]} -gt 0 ]]; then
+        INIT_BOTTLENECK="${FEATURES[0]}"
+    fi
+    cat > .claude/plans/strategy.yml <<STRATEGY
+# strategy.yml — Current bottleneck and product model
+stage: mvp
+bottleneck: "${INIT_BOTTLENECK}"
+bottleneck_reason: "First init — run /plan to diagnose the real bottleneck"
+updated: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+STRATEGY
+    echo -e "  ${GREEN}✓${NC} .claude/plans/strategy.yml"
+fi
+
+# todos.yml — persistent backlog
+if [[ ! -f ".claude/plans/todos.yml" ]]; then
+    cat > .claude/plans/todos.yml <<TODOS
+# todos.yml — Persistent backlog
+# /plan promotes items from here. /go works through them.
+# Format: - id: short-id | title: text | feature: name | status: backlog|active|done
+
+items: []
+TODOS
+    echo -e "  ${GREEN}✓${NC} .claude/plans/todos.yml"
+fi
+
+# plan.yml — current session plan (empty until /plan runs)
+if [[ ! -f ".claude/plans/plan.yml" ]]; then
+    cat > .claude/plans/plan.yml <<PLAN
+# plan.yml — Current session plan
+# Run /plan to populate this with moves and predictions.
+
+meta:
+  name: "Initial setup"
+  bottleneck: "Run /plan to diagnose"
+  created: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+tasks: []
+PLAN
+    echo -e "  ${GREEN}✓${NC} .claude/plans/plan.yml"
+fi
 
 echo -e "  ${GREEN}✓${NC} .claude/ directories"
 
@@ -502,7 +577,7 @@ else
 fi
 
 # 3b-iv. Append to .gitignore
-GITIGNORE_ENTRIES=(".claude/rules/" ".claude/commands/" ".claude/settings.json" ".claude/knowledge/" ".claude/cache/")
+GITIGNORE_ENTRIES=(".claude/rules/" ".claude/commands/" ".claude/settings.json" ".claude/knowledge/" ".claude/cache/" ".claude/plans/" ".claude/scores/")
 if [[ ! -f .gitignore ]]; then
     printf '%s\n' "${GITIGNORE_ENTRIES[@]}" > .gitignore
 else
