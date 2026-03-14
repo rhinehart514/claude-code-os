@@ -115,13 +115,23 @@ if [[ -d "src" ]]; then
     done
 fi
 
-# Package workspaces
-if [[ -f "package.json" ]] && grep -q '"workspaces"' package.json 2>/dev/null; then
+# Package workspaces (npm workspaces, pnpm workspaces, turbo)
+if [[ -f "package.json" ]] && { grep -q '"workspaces"' package.json 2>/dev/null || grep -q '"packageManager"' package.json 2>/dev/null; }; then
     for ws in packages/*/; do
         [[ ! -d "$ws" ]] && continue
         name=$(basename "$ws")
         FEATURES+=("$name")
         FEATURE_PATHS+=("$ws")
+    done
+fi
+
+# Monorepo apps (apps/*/ is a common pattern)
+if [[ -d "apps" ]]; then
+    for app_dir in apps/*/; do
+        [[ ! -d "$app_dir" ]] && continue
+        name=$(basename "$app_dir")
+        FEATURES+=("$name")
+        FEATURE_PATHS+=("$app_dir")
     done
 fi
 
@@ -149,9 +159,35 @@ CLAUDE_ANALYZED=false
 DESCRIPTION=""
 USER=""
 HYPOTHESIS=""
-# Associative arrays for per-feature Claude data
-declare -A FEAT_DELIVERS
-declare -A FEAT_FOR
+# Per-feature Claude data (parallel arrays — bash 3 compatible)
+FEAT_DELIVERS_KEYS=""
+FEAT_DELIVERS_VALS=""
+FEAT_FOR_KEYS=""
+FEAT_FOR_VALS=""
+
+# Helper: set feature data (bash 3 compatible — no associative arrays)
+_set_feat_delivers() { FEAT_DELIVERS_KEYS="${FEAT_DELIVERS_KEYS}${1}|"; FEAT_DELIVERS_VALS="${FEAT_DELIVERS_VALS}${2}|"; }
+_set_feat_for() { FEAT_FOR_KEYS="${FEAT_FOR_KEYS}${1}|"; FEAT_FOR_VALS="${FEAT_FOR_VALS}${2}|"; }
+_get_feat_delivers() {
+    local key="$1" i=1
+    echo "$FEAT_DELIVERS_KEYS" | tr '|' '\n' | while read -r k; do
+        if [[ "$k" == "$key" ]]; then
+            echo "$FEAT_DELIVERS_VALS" | cut -d'|' -f"$i"
+            return
+        fi
+        i=$((i + 1))
+    done
+}
+_get_feat_for() {
+    local key="$1" i=1
+    echo "$FEAT_FOR_KEYS" | tr '|' '\n' | while read -r k; do
+        if [[ "$k" == "$key" ]]; then
+            echo "$FEAT_FOR_VALS" | cut -d'|' -f"$i"
+            return
+        fi
+        i=$((i + 1))
+    done
+}
 
 # --- Gather context ---
 CONTEXT=""
@@ -240,8 +276,8 @@ ${CONTEXT}"
             for feat in "${FEATURES[@]}"; do
                 feat_delivers=$(echo "$CLEANED" | jq -r --arg f "$feat" '.features[$f].delivers // empty' 2>/dev/null)
                 feat_for=$(echo "$CLEANED" | jq -r --arg f "$feat" '.features[$f].for // empty' 2>/dev/null)
-                [[ -n "$feat_delivers" ]] && FEAT_DELIVERS["$feat"]="$feat_delivers"
-                [[ -n "$feat_for" ]] && FEAT_FOR["$feat"]="$feat_for"
+                [[ -n "$feat_delivers" ]] && _set_feat_delivers "$feat" "$feat_delivers"
+                [[ -n "$feat_for" ]] && _set_feat_for "$feat" "$feat_for"
             done
 
             CLAUDE_ANALYZED=true
@@ -298,8 +334,10 @@ features:"
         feat_path="${FEATURE_PATHS[$i]}"
 
         if [[ "$CLAUDE_ANALYZED" == true ]]; then
-            delivers_text="${FEAT_DELIVERS[$feat]:-[what ${feat} delivers — edit this]}"
-            for_text="${FEAT_FOR[$feat]:-[who uses ${feat}]}"
+            delivers_text=$(_get_feat_delivers "$feat")
+            [[ -z "$delivers_text" ]] && delivers_text="[what ${feat} delivers — edit this]"
+            for_text=$(_get_feat_for "$feat")
+            [[ -z "$for_text" ]] && for_text="[who uses ${feat}]"
         else
             # Fallback: infer from file/directory type
             delivers_text="[what ${feat} delivers — edit this]"
