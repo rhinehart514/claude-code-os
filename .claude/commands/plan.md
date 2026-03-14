@@ -37,7 +37,10 @@ If `$ARGUMENTS` looks like a task (e.g., `/plan fix the login bug`), capture it:
 ## System awareness
 - `/plan [feature]` (you) → reads state, finds bottleneck, writes tasks
 - `/go [feature]` → autonomous build loop, uses worktrees for isolation
-- `/feature [name]` → define, research, ideate about features
+- `/feature [name]` → define and manage features, create assertions
+- `/eval [feature|taste|full]` → run measurement stack
+- `/research [topic]` → explore unknowns, update knowledge model
+- `/ideate [feature|wild]` → creative divergence, brainstorm possibilities
 - `/ship` → deploy
 
 ## Steps
@@ -87,7 +90,11 @@ Also write `.claude/plans/plan.yml` as a snapshot.
 Call ExitPlanMode with the plan summary. User approves or adjusts.
 
 ### 8. Handoff
-One recommendation: "Run `/go [feature]` to start building."
+One recommendation based on outcome:
+- Tasks created → "Run `/go [feature]` to start building."
+- Unclear what to build → "Run `/ideate [feature]` to brainstorm directions."
+- Need more info → "Run `/research [topic]` to fill the gap."
+- Everything passing → "Run `/eval full` to validate, then `/ship`."
 
 ## Special modes
 - `brainstorm`: skip bottleneck, propose 5 high-information experiments

@@ -40,7 +40,7 @@ if [[ "$EXT" =~ ^(ts|tsx|js|jsx)$ ]]; then
     if [[ -f "$PROJECT_DIR/tsconfig.json" ]] && command -v npx &>/dev/null; then
         # Only run on .ts/.tsx files, skip .js
         if [[ "$EXT" =~ ^(ts|tsx)$ ]]; then
-            ts_errors=$(cd "$PROJECT_DIR" && npx --yes tsc --noEmit --pretty false 2>&1 | grep -c "^${FILE_PATH}" 2>/dev/null || echo "0")
+            ts_errors=$(cd "$PROJECT_DIR" && perl -e 'alarm 10; exec @ARGV' npx --yes tsc --noEmit --pretty false 2>&1 | grep -c "^${FILE_PATH}" 2>/dev/null || echo "0")
             if (( ts_errors > 0 )); then
                 WARNINGS+="⚠ ${ts_errors} TypeScript error(s) in $(basename "$FILE_PATH") — fix before continuing.
 "
@@ -62,7 +62,7 @@ if [[ "$EXT" == "py" ]]; then
 
     # Syntax check (fast)
     if command -v python3 &>/dev/null; then
-        if ! python3 -c "import ast; ast.parse(open('$FILE_PATH').read())" 2>/dev/null; then
+        if ! PYFILE="$FILE_PATH" python3 -c "import ast, os; ast.parse(open(os.environ['PYFILE']).read())" 2>/dev/null; then
             WARNINGS+="⚠ Python syntax error in $(basename "$FILE_PATH") — fix immediately.
 "
         fi

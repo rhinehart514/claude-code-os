@@ -1,0 +1,18 @@
+# Mediocre project — has assertions, half pass
+project:
+  stage: mvp
+
+value:
+  hypothesis: "Users can track their inventory in one place"
+  user: "Small business owners"
+  signals:
+    - name: inventory_tracked
+      description: "All items visible in dashboard"
+      target: "100% items shown"
+      measurable: true
+
+scoring:
+  cache_ttl: 300
+  health_gate_threshold: 20
+  health_warn_threshold: 40
+  onboarding_cap: 50

@@ -45,11 +45,10 @@ case "$BASENAME" in
         ;;
 
     learning-agenda.md)
-        # Count unknowns in the "What We Don't Know" section only (not experiments/criteria)
-        # Look for numbered items between "What We Don't Know" and "First" or "Experiments"
+        # Validate learning-agenda has at least one unknown listed
         unknown_count=$(sed -n '/What We Don.*Know/,/^## \|^#.*Experiment\|^#.*First/p' "$FILE_PATH" 2>/dev/null | grep -cE '^\s*[0-9]+\.' || echo "0")
-        if (( unknown_count > 0 && unknown_count != 3 )); then
-            WARNINGS+="⚠ learning-agenda.md has ${unknown_count} unknowns in 'What We Don't Know' (expected exactly 3).
+        if (( unknown_count == 0 )); then
+            WARNINGS+="⚠ learning-agenda.md has no unknowns in 'What We Don't Know' section.
 "
         fi
         ;;

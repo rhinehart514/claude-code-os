@@ -4,6 +4,8 @@
 #   file_check    — file exists, contains string, min lines (mechanical)
 #   content_check — forbidden words in source dirs (mechanical)
 #   self_check    — runs self.sh --eval metric (mechanical)
+#   bench_check   — runs rhino bench, checks calibration % (mechanical)
+#   score_trend   — reads history.tsv, checks score variance/direction (mechanical)
 #   llm_judge     — Claude evaluates code quality (subjective, uses Haiku)
 #
 # feature: which part of the product this tests
@@ -35,6 +37,21 @@ beliefs:
     metric: value-hypothesis-defined
     feature: scoring
     severity: block
+
+  - id: score-calibrated
+    belief: "rhino score gives honest numbers — low for bad repos, high for good ones"
+    type: bench_check
+    min_calibration: 80
+    feature: scoring
+    severity: warn
+
+  - id: score-not-stagnant
+    belief: "Score has changed in the last 10 runs — the tool is actually doing something"
+    type: score_trend
+    window: 10
+    direction: not_flat
+    feature: scoring
+    severity: warn
 
   # ── learning ────────────────────────────────────────
   # Does the system get smarter over time?

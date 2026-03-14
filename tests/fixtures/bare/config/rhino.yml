@@ -1,0 +1,12 @@
+# Bare project — has value hypothesis but no assertions
+project:
+  stage: mvp
+
+value:
+  hypothesis: "Users can manage their tasks faster with this tool"
+  user: "Busy professionals"
+  signals:
+    - name: task_speed
+      description: "Tasks completed 2x faster"
+      target: "Time < 30s per task"
+      measurable: true

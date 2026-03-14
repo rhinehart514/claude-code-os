@@ -5,15 +5,43 @@ set -uo pipefail
 
 # score.sh — The number. Measures value, not health.
 #
-# Formula:
-#   build gate FAIL           → 0
-#   health < gate threshold   → 0  (health gate)
-#   assertions exist          → assertion pass rate (0-100)
-#   value hypothesis defined  → completion ratchet (0-50, capped)
-#   else                      → 10
-#
-# Health (structure, hygiene) is a gate, not the score.
-# The score IS the thing you care about: product value.
+# ┌─────────────────────────────────────────────────────────────┐
+# │                     SCORING FORMULA                         │
+# │                                                             │
+# │  1. BUILD GATE (pass/fail)                                  │
+# │     Build health < 70 → score = 0. Nothing else runs.      │
+# │                                                             │
+# │  2. HEALTH GATE (pass/fail)                                 │
+# │     min(structure, hygiene) < 20 → score = 0.               │
+# │     Structure: large files, deep nesting, tests, dead ends  │
+# │     Hygiene: TODOs, console.log density, syntax errors      │
+# │     Health is a GATE, not a component of the score.         │
+# │                                                             │
+# │  3. VALUE SCORE (the actual number, 0-100)                  │
+# │     Three modes, checked in order:                          │
+# │                                                             │
+# │     a) ASSERTIONS MODE (beliefs.yml has entries)            │
+# │        score = (PASS*100 + WARN*50) / TOTAL assertions      │
+# │        This is the north star. eval.sh runs all assertions  │
+# │        and returns a pass rate.                             │
+# │                                                             │
+# │     b) ONBOARDING MODE (rhino.yml has value hypothesis)     │
+# │        score = completion ratchet (0-50, capped):           │
+# │          +10 value.hypothesis defined                       │
+# │          +5  value.signals defined                          │
+# │          +5  tests exist                                    │
+# │          +10 beliefs.yml exists                             │
+# │          +10 beliefs.yml has 1+ entries                     │
+# │          +10 at least 1 assertion passes                    │
+# │        Guides new projects toward full assertion scoring.   │
+# │                                                             │
+# │     c) EMPTY MODE (nothing defined)                         │
+# │        score = 10. Baseline for unconfigured projects.      │
+# │                                                             │
+# │  Output: single integer 0-100.                              │
+# │  Cache: .claude/cache/score-cache.json (5min TTL).          │
+# │  History: .claude/scores/history.tsv (append-only).         │
+# └─────────────────────────────────────────────────────────────┘
 #
 # Usage:
 #   score.sh [project-dir]              # visual output (default)
@@ -69,9 +97,8 @@ spin() {
 
 start_spinner() {
     [[ "$OUTPUT_MODE" == "quiet" || "$OUTPUT_MODE" == "json" ]] && return
-    spin "$1" &
+    { spin "$1" & } 2>/dev/null
     SPINNER_PID=$!
-    disown $SPINNER_PID 2>/dev/null
 }
 
 stop_spinner() {
@@ -367,7 +394,7 @@ score_hygiene() {
 
         # Syntax errors in shell scripts
         local syntax_errors=0
-        for f in "$SRC_DIR"/*.sh lib/*.sh; do
+        for f in "$SRC_DIR"/*.sh "$SCRIPT_DIR/lib"/*.sh; do
             [[ ! -f "$f" ]] && continue
             if ! bash -n "$f" 2>/dev/null; then
                 syntax_errors=$((syntax_errors + 1))
@@ -535,16 +562,22 @@ fi
 
 if [[ "$ASSERTION_COUNT" -gt 0 ]]; then
     # Assertions exist → score = assertion pass rate
-    eval_score=$("$SCRIPT_DIR/eval.sh" . --score 2>/dev/null) || eval_score=""
-    # Also get per-feature breakdown
-    FEATURES_JSON=$("$SCRIPT_DIR/eval.sh" . --score --by-feature 2>/dev/null) || FEATURES_JSON="{}"
+    # Single eval.sh call with --json for score + features + pass count
+    eval_json=$("$SCRIPT_DIR/eval.sh" . --score --json 2>/dev/null) || eval_json=""
+    if [[ -n "$eval_json" ]] && command -v jq &>/dev/null; then
+        eval_score=$(echo "$eval_json" | jq -r '.score // empty' 2>/dev/null) || eval_score=""
+        ASSERTION_PASS_COUNT=$(echo "$eval_json" | jq -r '.pass // 0' 2>/dev/null) || ASSERTION_PASS_COUNT=0
+        FEATURES_JSON=$(echo "$eval_json" | jq -c '.features // {}' 2>/dev/null) || FEATURES_JSON="{}"
+    else
+        eval_score=""
+        ASSERTION_PASS_COUNT=0
+        FEATURES_JSON="{}"
+    fi
     [[ -z "$FEATURES_JSON" || "$FEATURES_JSON" == "" ]] && FEATURES_JSON="{}"
 
     if [[ -n "$eval_score" && "$eval_score" =~ ^[0-9]+$ ]]; then
         SCORING_MODE="assertions"
         PRODUCT="$eval_score"
-        # Compute pass count from the percentage
-        ASSERTION_PASS_COUNT=$(( eval_score * ASSERTION_COUNT / 100 ))
     else
         SCORING_MODE="assertions"
         PRODUCT="0"
@@ -896,7 +929,7 @@ EOF
             [[ -f ".claude/plans/todos.yml" ]] && HAS_TODOS=true
 
             if [[ "$PRODUCT" -ge 60 && "$HAS_STRATEGY" != "true" ]]; then
-                echo -e "  \033[0;36m▸\033[0m assertions passing — ready for \033[1m/strategy\033[0m"
+                echo -e "  \033[0;36m▸\033[0m assertions passing — ready for \033[1m/plan\033[0m"
             fi
             if [[ "$PRODUCT" -ge 80 && "$HAS_TODOS" != "true" ]]; then
                 echo -e "  \033[0;36m▸\033[0m assertions strong — ready for \033[1m/plan\033[0m with todos"

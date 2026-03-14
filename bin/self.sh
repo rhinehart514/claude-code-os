@@ -240,7 +240,9 @@ else
         check_warn "prediction-accuracy" "only $TOTAL_GRADED graded predictions (need 5+ for calibration)" 3 6
     else
         CORRECT=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 == "yes" { c++ } END { print c+0 }')
-        ACCURACY=$(awk "BEGIN { printf \"%.2f\", $CORRECT / $TOTAL_GRADED }")
+        PARTIAL=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 == "partial" { c++ } END { print c+0 }')
+        # Partial credit: directionally right but off on magnitude counts as 0.5
+        ACCURACY=$(awk "BEGIN { printf \"%.2f\", ($CORRECT + $PARTIAL * 0.5) / $TOTAL_GRADED }")
         if awk "BEGIN { exit !($ACCURACY < $ACCURACY_FLOOR) }"; then
             check_fail "prediction-accuracy" "accuracy ${ACCURACY} below floor ${ACCURACY_FLOOR} — model may be broken" 6
         elif awk "BEGIN { exit !($ACCURACY > $ACCURACY_CEILING) }"; then
@@ -477,7 +479,9 @@ if [[ "$EVAL_MODE" == "true" ]]; then
         TOTAL_GRADED=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 != "" { c++ } END { print c+0 }')
         if [[ "$TOTAL_GRADED" -ge 5 ]]; then
             CORRECT=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 == "yes" { c++ } END { print c+0 }')
-            ACCURACY=$(awk "BEGIN { printf \"%.2f\", $CORRECT / $TOTAL_GRADED }")
+            PARTIAL=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 == "partial" { c++ } END { print c+0 }')
+            # Partial credit: directionally right counts as 0.5
+            ACCURACY=$(awk "BEGIN { printf \"%.2f\", ($CORRECT + $PARTIAL * 0.5) / $TOTAL_GRADED }")
             FLOOR=$(cfg self.prediction_accuracy_floor 0.30)
             CEILING=$(cfg self.prediction_accuracy_ceiling 0.90)
             if awk "BEGIN { exit !($ACCURACY < $FLOOR) }"; then
@@ -485,7 +489,7 @@ if [[ "$EVAL_MODE" == "true" ]]; then
             elif awk "BEGIN { exit !($ACCURACY > $CEILING) }"; then
                 CAL_STATUS="TOO_SAFE"
             fi
-            CAL_DETAIL="accuracy ${ACCURACY} (${CORRECT}/${TOTAL_GRADED}), ${CAL_DETAIL}"
+            CAL_DETAIL="accuracy ${ACCURACY} (${CORRECT}+${PARTIAL}p/${TOTAL_GRADED}), ${CAL_DETAIL}"
         else
             CAL_STATUS="INSUFFICIENT"
             CAL_DETAIL="only ${TOTAL_GRADED} graded predictions (need 5+)"

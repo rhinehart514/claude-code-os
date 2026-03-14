@@ -12,9 +12,10 @@
  * This is the expensive eval — run on demand, not every commit.
  * score.sh is the cheap proxy (training loss). This is eval loss.
  *
- * Auth support: Add an 'auth' section to .claude/taste.yml to inject
- * cookies/localStorage before screenshotting. This lets taste eval see
- * authenticated pages (dashboard, profile, settings, etc.)
+ * Auth support: Add an 'auth' section to .claude/taste.yml:
+ *   Login flow: login_url + email + password → Playwright logs in automatically
+ *   Manual: cookies/localStorage injection (fallback for non-standard auth)
+ * This lets taste eval see authenticated pages (dashboard, profile, etc.)
  *
  * Usage:
  *   node taste.mjs [project-dir] [--json] [--port 3000] [--url http://localhost:3000]
@@ -122,8 +123,14 @@ for (let i = 0; i < args.length; i++) {
     console.log(`  --feature <name>   Evaluate a single feature (requires .claude/features.yml)`);
     console.log(`  --research         Remind to run /research-taste before eval for grounded scoring`);
     console.log(`  --open             Open screenshots in Preview after capture (see what Claude sees)`);
-    console.log(`\nAuth: Add an 'auth' section to .claude/taste.yml with cookies and/or localStorage`);
-    console.log(`  to screenshot authenticated routes (dashboard, profile, settings, etc.)`);
+    console.log(`\nAuth: Add an 'auth' section to .claude/taste.yml:`);
+    console.log(`  Login flow (recommended):`);
+    console.log(`    auth:`);
+    console.log(`      login_url: /login`);
+    console.log(`      email: test@example.com`);
+    console.log(`      password: testpass123`);
+    console.log(`      wait_for: "[data-testid=dashboard]"  # selector or networkidle`);
+    console.log(`  Manual cookies/localStorage also supported (see docs).`);
     console.log(`\nRequires: claude CLI (OAuth), playwright (npx playwright install chromium)`);
     process.exit(0);
   }
@@ -172,6 +179,12 @@ function loadTasteConfig() {
             if (trimmed === "cookies:") { inCookies = true; inLocalStorage = false; authSection.cookies = authSection.cookies || []; continue; }
             if (trimmed === "localStorage:") { inLocalStorage = true; inCookies = false; authSection.localStorage = authSection.localStorage || {}; continue; }
             if (trimmed.startsWith("login_url:")) { authSection.login_url = trimmed.split(":").slice(1).join(":").trim().replace(/["']/g, ""); continue; }
+            if (trimmed.startsWith("email:")) { authSection.email = trimmed.slice(6).trim().replace(/["']/g, ""); continue; }
+            if (trimmed.startsWith("password:")) { authSection.password = trimmed.slice(9).trim().replace(/["']/g, ""); continue; }
+            if (trimmed.startsWith("email_selector:")) { authSection.email_selector = trimmed.slice(15).trim().replace(/["']/g, ""); continue; }
+            if (trimmed.startsWith("password_selector:")) { authSection.password_selector = trimmed.slice(18).trim().replace(/["']/g, ""); continue; }
+            if (trimmed.startsWith("submit_selector:")) { authSection.submit_selector = trimmed.slice(16).trim().replace(/["']/g, ""); continue; }
+            if (trimmed.startsWith("wait_for:")) { authSection.wait_for = trimmed.slice(9).trim().replace(/["']/g, ""); continue; }
 
             // Cookie entries (list of objects with name, value, domain, path)
             if (inCookies) {
@@ -339,7 +352,70 @@ function detectRoutes(srcDir) {
 async function injectAuth(context, page, authConfig, url) {
   if (!authConfig) return;
 
-  // Inject cookies
+  // Login flow: navigate to login page, fill credentials, submit
+  if (authConfig.login_url && authConfig.email && authConfig.password) {
+    const loginUrl = authConfig.login_url.startsWith("http")
+      ? authConfig.login_url
+      : `${url}${authConfig.login_url}`;
+
+    console.error(`  ${DIM}logging in via ${loginUrl}...${NC}`);
+    await page.goto(loginUrl, { waitUntil: "networkidle", timeout: cfg("taste.timeouts.page_load", 30000) });
+
+    // Fill email — try custom selector, then common patterns
+    const emailSelector = authConfig.email_selector
+      || 'input[type="email"], input[name="email"], input[name="username"], input[id="email"], input[autocomplete="email"], input[autocomplete="username"]';
+    try {
+      await page.waitForSelector(emailSelector, { timeout: 5000 });
+      await page.fill(emailSelector, authConfig.email);
+    } catch {
+      console.error(`  ${YELLOW}could not find email field (tried: ${emailSelector})${NC}`);
+    }
+
+    // Fill password
+    const passwordSelector = authConfig.password_selector
+      || 'input[type="password"], input[name="password"], input[id="password"]';
+    try {
+      await page.fill(passwordSelector, authConfig.password);
+    } catch {
+      console.error(`  ${YELLOW}could not find password field${NC}`);
+    }
+
+    // Submit — try custom selector, then common patterns, then Enter key
+    const submitSelector = authConfig.submit_selector
+      || 'button[type="submit"], input[type="submit"], button:has-text("Sign in"), button:has-text("Log in"), button:has-text("Login"), button:has-text("Continue")';
+    try {
+      const submitBtn = await page.$(submitSelector);
+      if (submitBtn) {
+        await submitBtn.click();
+      } else {
+        // Fallback: press Enter in the password field
+        await page.press(passwordSelector, "Enter");
+      }
+    } catch {
+      // Last resort: Enter key
+      await page.keyboard.press("Enter");
+    }
+
+    // Wait for auth to complete
+    const waitFor = authConfig.wait_for || "networkidle";
+    try {
+      if (waitFor === "networkidle" || waitFor === "domcontentloaded" || waitFor === "load") {
+        await page.waitForLoadState(waitFor, { timeout: 15000 });
+      } else {
+        // waitFor is a selector — wait for it to appear (indicates successful login)
+        await page.waitForSelector(waitFor, { timeout: 15000 });
+      }
+      // Extra settle time for SPAs that redirect after auth
+      await page.waitForTimeout(2000);
+      console.error(`  ${GREEN}✓${NC} logged in successfully`);
+    } catch {
+      console.error(`  ${YELLOW}login may have failed — continuing anyway${NC}`);
+    }
+
+    return; // Login flow handles everything, skip cookie/localStorage injection
+  }
+
+  // Inject cookies (manual fallback)
   if (authConfig.cookies?.length) {
     const parsedUrl = new URL(url);
     const cookies = authConfig.cookies.map(c => ({

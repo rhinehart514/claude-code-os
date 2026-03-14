@@ -205,8 +205,8 @@ print_predictions() {
 print_experiments() {
     local exp_file
     # Check both locations
-    if [[ -f "config/brains/experiment-log.md" ]]; then
-        exp_file="config/brains/experiment-log.md"
+    if [[ -f ".claude/brains/experiment-log.md" ]]; then
+        exp_file=".claude/brains/experiment-log.md"
     elif [[ -f "$HOME/.claude/knowledge/experiment-learnings.md" ]]; then
         exp_file="$HOME/.claude/knowledge/experiment-learnings.md"
     else
@@ -218,9 +218,9 @@ print_experiments() {
     echo ""
 
     # Count kept/discarded from experiment-log.md
-    if [[ -f "config/brains/experiment-log.md" ]]; then
-        local kept=$(grep -ci 'kept' "config/brains/experiment-log.md" 2>/dev/null || echo 0)
-        local discarded=$(grep -ci 'discard' "config/brains/experiment-log.md" 2>/dev/null || echo 0)
+    if [[ -f ".claude/brains/experiment-log.md" ]]; then
+        local kept=$(grep -ci 'kept' ".claude/brains/experiment-log.md" 2>/dev/null || echo 0)
+        local discarded=$(grep -ci 'discard' ".claude/brains/experiment-log.md" 2>/dev/null || echo 0)
         local exp_total=$((kept + discarded))
 
         if [[ "$exp_total" -gt 0 ]]; then

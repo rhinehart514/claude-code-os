@@ -12,9 +12,9 @@ Autonomous creation loop. You plan, build, measure, and learn — no human in th
 
 **Single feature**: scope everything to that feature — tasks, assertions, files.
 
-**Multiple features**: spawn an Agent per feature with `isolation: "worktree"`. Each works in its own branch. Merge when assertions pass.
+**Multiple features**: work on them sequentially, one at a time, measuring after each.
 
-**No features**: execute the full plan. If tasks span 3+ features, auto-parallelize with agents.
+**No features**: execute the full plan. Work through tasks in priority order.
 
 For each feature:
 - Only work on tasks for that feature
@@ -24,17 +24,6 @@ For each feature:
 ## Tools to use
 
 **Use TaskList/TaskUpdate** to track progress. At loop start, call TaskList to find tasks. Mark in_progress when starting, completed when done. This replaces checking plan.yml checkboxes.
-
-**Use worktrees when working on multiple features.** If the plan has tasks across 2+ features, use `isolation: "worktree"` on Agent calls to work in isolated branches. Each feature gets its own branch — merge when assertions pass.
-
-**Use CronCreate for auto-scoring.** At loop start, schedule a recurring score check:
-- Every 10 minutes: `rhino score . --quiet` → if score dropped, notify
-- This catches regressions while you're building, not just at measure time
-
-**Use Agent with worktrees for parallel feature work.** When multiple features need work:
-- Spawn an Agent per feature with `isolation: "worktree"`
-- Each agent works independently in its own branch
-- When an agent's assertions pass, merge its branch
 
 **Use WebFetch/WebSearch for research detours.** When you hit an unknown:
 - Search for solutions, docs, examples
@@ -48,7 +37,7 @@ Read tasks → Pick task → Predict → Build → Measure → Update model → 
 ```
 
 ### 1. Pick the task
-Call TaskList. Find next task with status todo. If tasks span multiple features and you're not scoped to one, consider spawning parallel agents.
+Call TaskList. Find next task with status todo.
 
 ### 2. Predict
 ```
@@ -82,14 +71,6 @@ If score hasn't improved in 3 consecutive tasks:
 3. If research produces a hypothesis → create new task, continue
 4. If no hypothesis → stop the loop
 
-## Auto-scoring (CronCreate)
-At loop start, set up recurring score monitoring:
-```
-CronCreate: "Run rhino score . --quiet and report if score changed"
-Interval: 10 minutes
-```
-Cancel the cron when the loop ends.
-
 ## Crash recovery
 - **Trivial** (syntax error, missing import): fix inline, retry once
 - **Fundamental** (missing package, design flaw): skip task
@@ -102,7 +83,11 @@ Output:
 - Prediction accuracy for this session
 - What the bottleneck is NOW
 
-Cancel any CronCreate jobs. Clean up any worktrees.
+**Next action** (pick one based on outcome):
+- Score improved → "Run `/eval full` to validate before shipping."
+- Score plateaued → "Run `/ideate [feature]` — current approach is exhausted."
+- All tasks done → "Run `/ship` to deploy, or `/plan` for next session."
+- New unknowns surfaced → "Run `/research [topic]` to fill the gap."
 
 ## What you never do
 - Skip the prediction step

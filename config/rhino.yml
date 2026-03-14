@@ -3,7 +3,10 @@
 
 # ── Project ─────────────────────────────────────────
 project:
+  # Maps to strategy.yml: mvp≈one, early≈some, growth≈many
   stage: early  # mvp → early → growth → mature. Controls score ceiling warnings.
+  mode: build   # build → workshop mode (no shipping pressure, learning focus)
+                # ship  → pipeline mode (/ship visible, ceiling warnings active)
 
 # ── Value Definition ───────────────────────────────
 # The founder defines what value means. Everything else serves this.
@@ -75,8 +78,6 @@ experiments:
 # ── Go (autonomous loop) ────────────────────────────
 go:
   plateau_threshold: 3
-  worktrees_enabled: false
-  crash_retry_limit: 3      # consecutive crashes before stopping loop
   # taste_every_n moved to lens/product/config/rhino-product.yml
 
 # ── Evals ────────────────────────────────────────────
@@ -85,36 +86,6 @@ evals:
   tier2_on_demand: true          # behavioral eval — requires dev server
   block_on_failure: true         # hard fail on "block" severity beliefs
   warn_threshold: 3              # N consecutive warns before escalating
-
-# ── Agent (self-improvement) ─────────────────────────
-# Parameters the agent can tune via /evolve experiments.
-# Principles (identity, predict→act→measure, value>craft>health) are FIXED.
-# Procedures (these numbers) are VARIABLE.
-agent:
-  # Tunable thresholds (agent can change autonomously)
-  tunable:
-    prediction_accuracy_target: [0.50, 0.70]   # calibration sweet spot
-    moonshot_frequency: 5                        # every Nth experiment is high-risk
-    experiment_time_cap_minutes: 15              # max minutes per experiment
-    plateau_threshold: 3                         # consecutive no-improvement before pivot
-    taste_frequency: 3                           # run taste every Nth experiment
-    unknown_exploration_ratio: 0.20              # fraction of experiments in unknown territory
-    skill_sandbox_dir: .claude/experiments/skills  # agent can write here freely
-    max_sandbox_skills: 5                          # limit active skill experiments
-
-  # Founder-gated (requires confirmation to change)
-  gated:
-    - mind/*.md                                  # principles
-    - .claude/commands/*.md                      # command procedures
-    - bin/score.sh                               # eval harness
-    - lens/product/eval/taste.mjs                 # eval harness
-    - bin/eval.sh                                # eval harness
-
-  # Experiment discipline
-  experiments:
-    max_concurrent: 1                            # one param at a time
-    min_sessions_before_revert: 3                # run new value for 3 sessions before judging
-    log_file: agent-experiments.tsv              # created at runtime in project root
 
 # ── Self ─────────────────────────────────────────────
 self:
@@ -125,8 +96,3 @@ self:
   self_stale_days: 7
   min_predictions_per_week: 3
   hook_timeout_ms: 200
-
-# ── Memory ───────────────────────────────────────────
-memory:
-  session_summary_on_compact: true   # write summary to brains/daily.md on compact
-  longterm_review_every_n_days: 7    # remind to review/update longterm.md

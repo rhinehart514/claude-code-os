@@ -171,16 +171,10 @@ cmd_go() {
 }
 
 # ============================================================
-# BENCH (benchmark card — score + taste snapshot)
+# BENCH (calibration check — run score against fixture repos)
 # ============================================================
 cmd_bench() {
-    echo ""
-    echo -e "  ${CYAN}◆${NC} ${BOLD}rhino bench${NC}"
-    echo ""
-    cmd_score "${@:-.}"
-    echo ""
-    echo -e "  ${DIM}For visual eval: rhino taste${NC}"
-    echo ""
+    bash "$RHINO_DIR/bin/bench.sh" "$@"
 }
 
 # ============================================================
@@ -260,19 +254,19 @@ cmd_eval() {
 cmd_help() {
     echo ""
     echo -e "  ${CYAN}◆${NC} ${BOLD}rhino${NC} ${DIM}v${VERSION}${NC}"
-    echo -e "  ${DIM}score = value, not health${NC}"
+    echo -e "  ${DIM}is my product good?${NC}"
     echo ""
     echo -e "  ${BOLD}Usage${NC}  rhino <command> [args...]"
+    echo ""
+    echo -e "  ${BOLD}Measure${NC}"
+    echo -e "    eval [dir]      ${DIM}Run assertions — the one command${NC}"
+    echo -e "    taste [dir]     ${DIM}Visual eval (Claude Vision, expensive)${NC}"
+    echo -e "    score [dir]     ${DIM}Score for scripts/CI (--quiet for number)${NC}"
     echo ""
     echo -e "  ${BOLD}Features${NC}"
     echo -e "    feature         ${DIM}List all features with pass rates${NC}"
     echo -e "    feature <name>  ${DIM}View one feature's assertions${NC}"
     echo -e "    feature detect  ${DIM}Auto-detect features from codebase${NC}"
-    echo ""
-    echo -e "  ${BOLD}Measure${NC}"
-    echo -e "    score [dir]     ${DIM}Value score (assertion pass rate + per-feature)${NC}"
-    echo -e "    eval [dir]      ${DIM}Run assertions (detailed output)${NC}"
-    echo -e "    taste [dir]     ${DIM}Visual product eval (Claude Vision)${NC}"
     echo ""
     echo -e "  ${BOLD}Build${NC}"
     echo -e "    plan            ${DIM}View/manage build plan${NC}"
@@ -280,15 +274,17 @@ cmd_help() {
     echo -e "    test            ${DIM}Run test suites${NC}"
     echo ""
     echo -e "  ${BOLD}System${NC}"
+    echo -e "    init            ${DIM}Bootstrap rhino-os into any repo${NC}"
     echo -e "    status          ${DIM}Health overview${NC}"
     echo -e "    self            ${DIM}Self-diagnostic${NC}"
+    echo -e "    bench           ${DIM}Calibration check${NC}"
     echo -e "    config          ${DIM}Show configuration${NC}"
     echo ""
     echo -e "  ${BOLD}In Claude Code${NC}"
-    echo -e "    ${DIM}/plan [feature]    Plan work (scoped to feature)${NC}"
-    echo -e "    ${DIM}/go [feature]      Build autonomously (scoped to feature)${NC}"
-    echo -e "    ${DIM}/assert [feature]  Define what must be true${NC}"
-    echo -e "    ${DIM}/ship             Deploy${NC}"
+    echo -e "    ${DIM}/eval [feature]    Is my product good?${NC}"
+    echo -e "    ${DIM}/plan [feature]    Find the bottleneck${NC}"
+    echo -e "    ${DIM}/go [feature]      Build autonomously${NC}"
+    echo -e "    ${DIM}/init             Bootstrap any repo${NC}"
     echo ""
 }
 
@@ -309,6 +305,7 @@ case "${1:-help}" in
     test)       shift; cmd_test "$@" ;;
     status)     cmd_status ;;
     config)     cmd_config ;;
+    init)       shift; bash "$RHINO_DIR/bin/init.sh" "$@" ;;
     install)    shift; bash "$RHINO_DIR/install.sh" "$@" ;;
     uninstall)  shift; bash "$RHINO_DIR/uninstall.sh" "$@" ;;
     help|--help|-h) cmd_help ;;

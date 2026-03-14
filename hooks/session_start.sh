@@ -64,7 +64,7 @@ fi
 
 # --- Active plan ---
 PLAN_FILE=""
-for p in "$PROJECT_DIR/.claude/plans/active-plan.md" "$HOME/.claude/plans/active-plan.md"; do
+for p in "$PROJECT_DIR/.claude/plans/plan.yml" "$HOME/.claude/plans/plan.yml"; do
     if [[ -f "$p" ]]; then PLAN_FILE="$p"; break; fi
 done
 
@@ -72,10 +72,10 @@ TASKS_REMAINING=0
 NEXT_TASK=""
 PLAN_STALE=""
 if [[ -n "$PLAN_FILE" ]]; then
-    TOTAL_TASKS=$(grep -c '^\- \[' "$PLAN_FILE" 2>/dev/null || echo 0)
-    DONE_TASKS=$(grep -c '^\- \[x\]' "$PLAN_FILE" 2>/dev/null || echo 0)
+    TOTAL_TASKS=$(grep -c '- title:' "$PLAN_FILE" 2>/dev/null || echo 0)
+    DONE_TASKS=$(grep -c 'status: done' "$PLAN_FILE" 2>/dev/null || echo 0)
     TASKS_REMAINING=$((TOTAL_TASKS - DONE_TASKS))
-    NEXT_TASK=$(grep -m1 '^\- \[ \]' "$PLAN_FILE" 2>/dev/null | sed 's/^- \[ \] //' || true)
+    NEXT_TASK=$(grep -B1 'status: todo' "$PLAN_FILE" 2>/dev/null | grep 'title:' | head -1 | sed 's/.*title: *//' || true)
 
     # Staleness check (>24h)
     if [[ "$(uname)" == "Darwin" ]]; then
@@ -92,12 +92,12 @@ fi
 
 # --- Strategy staleness ---
 STRATEGY_STALE=""
-PRODUCT_MODEL="$PROJECT_DIR/.claude/plans/product-model.md"
-if [[ -f "$PRODUCT_MODEL" ]]; then
+STRATEGY_FILE="$PROJECT_DIR/.claude/plans/strategy.yml"
+if [[ -f "$STRATEGY_FILE" ]]; then
     if [[ "$(uname)" == "Darwin" ]]; then
-        STRAT_MTIME=$(stat -f %m "$PRODUCT_MODEL" 2>/dev/null || echo 0)
+        STRAT_MTIME=$(stat -f %m "$STRATEGY_FILE" 2>/dev/null || echo 0)
     else
-        STRAT_MTIME=$(stat -c %Y "$PRODUCT_MODEL" 2>/dev/null || echo 0)
+        STRAT_MTIME=$(stat -c %Y "$STRATEGY_FILE" 2>/dev/null || echo 0)
     fi
     NOW=${NOW:-$(date +%s)}
     STRAT_AGE_DAYS=$(( (NOW - STRAT_MTIME) / 86400 ))
@@ -126,13 +126,17 @@ PRED_FILE="$HOME/.claude/knowledge/predictions.tsv"
 if [[ -f "$PRED_FILE" ]]; then
     PRED_COUNT=$(tail -n +2 "$PRED_FILE" | wc -l | tr -d ' ')
     if (( PRED_COUNT > 0 )); then
-        # Count correct predictions (column 6) in last 10
+        # Count correct/partial predictions (column 6) in last 10
         CORRECT=$(tail -n +2 "$PRED_FILE" | tail -10 | awk -F'\t' '$6 == "yes" { c++ } END { print c+0 }')
+        PARTIAL_CT=$(tail -n +2 "$PRED_FILE" | tail -10 | awk -F'\t' '$6 == "partial" { c++ } END { print c+0 }')
         FILLED=$(tail -n +2 "$PRED_FILE" | tail -10 | awk -F'\t' '$6 != "" { c++ } END { print c+0 }')
         # Count all ungraded (column 6 empty)
         UNGRADED_COUNT=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 == "" { c++ } END { print c+0 }')
         if (( FILLED > 0 )); then
-            PRED_DISPLAY="Predictions: ${CORRECT}/${FILLED} correct"
+            # Partial credit: partials count as 0.5 (matches self.sh formula)
+            EFFECTIVE=$(awk "BEGIN { printf \"%d\", $CORRECT + $PARTIAL_CT * 0.5 }")
+            PRED_DISPLAY="Predictions: ${EFFECTIVE}/${FILLED} correct"
+            [[ "$PARTIAL_CT" -gt 0 ]] && PRED_DISPLAY="${PRED_DISPLAY} (${PARTIAL_CT} partial)"
         else
             PRED_DISPLAY="Predictions: ${PRED_COUNT} logged, 0 graded"
         fi
@@ -160,21 +164,6 @@ C_RED='\033[0;31m'
 C_CYAN='\033[0;36m'
 C_NC='\033[0m'
 
-# Score bar helper: score_bar <score>
-# Returns a 20-char bar: █ for filled, ░ for empty, color-coded
-score_bar() {
-    local score=${1:-0}
-    local filled=$(( (score + 2) / 5 ))  # round
-    [[ $filled -gt 20 ]] && filled=20
-    local empty=$((20 - filled))
-    local color="$C_RED"
-    [[ $score -ge 50 ]] && color="$C_YELLOW"
-    [[ $score -ge 80 ]] && color="$C_GREEN"
-    printf "${color}%${filled}s${C_NC}${C_DIM}%${empty}s${C_NC}" "" "" | sed "s/ /█/g; s/ /░/g"
-    # sed doesn't work well here, use printf loop
-}
-
-# Better score bar using direct char output
 print_score_bar() {
     local score=${1:-0}
     local filled=$(( (score + 2) / 5 ))
@@ -389,5 +378,5 @@ if [[ "$SESSION_TYPE" == "compact" ]]; then
     echo -e "  ${C_YELLOW}↻${C_NC} ${C_BOLD}Context compacted.${C_NC} Re-read:"
     echo -e "    ${C_DIM}1.${C_NC} mind/thinking.md"
     echo -e "    ${C_DIM}2.${C_NC} ~/.claude/knowledge/experiment-learnings.md"
-    echo -e "    ${C_DIM}3.${C_NC} .claude/plans/active-plan.md"
+    echo -e "    ${C_DIM}3.${C_NC} .claude/plans/plan.yml"
 fi

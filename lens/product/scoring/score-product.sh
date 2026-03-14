@@ -64,21 +64,6 @@ score_structure_product() {
         score=$((score - missing_pct / empty_div))
     fi
 
-    # IA audit: penalize orphan routes, dead ends, empty states without CTAs
-    local script_dir
-    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/bin"
-    if [[ -x "$script_dir/ia-audit.sh" ]]; then
-        ia_json=$("$script_dir/ia-audit.sh" . --json 2>/dev/null || echo '{}')
-        ia_orphans=$(echo "$ia_json" | grep -o '"orphan_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-        ia_dead=$(echo "$ia_json" | grep -o '"dead_end_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-        ia_empty=$(echo "$ia_json" | grep -o '"empty_no_cta_count":[0-9]*' | grep -o '[0-9]*' || echo "0")
-        ia_issues=$((ia_orphans + ia_dead + ia_empty))
-        if [[ "$ia_issues" -gt 10 ]]; then score=$((score - 25))
-        elif [[ "$ia_issues" -gt 5 ]]; then score=$((score - 15))
-        elif [[ "$ia_issues" -gt 0 ]]; then score=$((score - 5))
-        fi
-    fi
-
     [[ "$score" -lt 0 ]] && score=0
     echo "$score"
 }

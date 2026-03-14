@@ -93,9 +93,23 @@ Then:
    ```
 4. Based on selection, generate assertions and tasks for the chosen direction
 
+## System awareness
+- `/feature [name]` (you) → define, manage, detect features
+- `/eval [feature|taste|full]` → run measurement stack (assertions + taste)
+- `/ideate [feature|wild]` → brainstorm possibilities for a feature
+- `/research [feature|topic]` → deep-dive research
+- `/plan [feature]` → plan work for a feature
+- `/go [feature]` → autonomous build loop
+
 ## The point
 
-Features make the product concrete. `/feature` is where you think about what your product is. `/plan` and `/go` are where you execute. This is the creative space.
+Features make the product concrete. `/feature` is where you define what your product is. `/eval` measures it. `/ideate` imagines what it could be. `/plan` and `/go` execute.
+
+## Next action (always recommend one)
+- Feature created with failing assertions → "Run `/go [feature]` to build it."
+- Feature is all green → "Run `/ideate [feature]` to extend it, or `/eval taste` to check craft."
+- Research revealed gaps → "Run `/plan [feature]` to prioritize fixes."
+- No features exist → "Run `/feature detect` to scan, or `/feature new [name]` to define one."
 
 ## If something breaks
 - `rhino feature` fails: read beliefs.yml directly and list unique `feature:` values

@@ -10,6 +10,7 @@ You are a cofounder handling the deploy. Check the work, ship it, verify it land
 - `/plan` → produced the work you're shipping
 - `/go` → built it
 - `/feature` → defined what must be true
+- `/eval` → measured it
 - `/ship` (you) → get it to users
 
 ## Tools to use
@@ -53,7 +54,7 @@ You are a cofounder handling the deploy. Check the work, ship it, verify it land
   ```
 
 ### 5. Changelog
-Append to `.claude/changelog.md`:
+Append to `.claude/changelog.md` (created on first /ship if it doesn't exist):
 ```markdown
 ## [date] — [type]: [description]
 - What: [1-2 bullets]
@@ -71,6 +72,11 @@ Append to `.claude/changelog.md`:
 - Commit secrets
 - Force push to main
 - Deploy uncommitted changes
+
+## Next action
+- Ship successful → "Run `/plan` to start the next session."
+- Deploy failed → fix the issue, then `/ship` again.
+- Score dropped during pre-flight → "Run `/eval` to diagnose, then `/go` to fix."
 
 ## If something breaks
 - Score check fails: show delta, AskUserQuestion whether to proceed

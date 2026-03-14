@@ -1,0 +1,61 @@
+# Decent — 6/8 pass, 2/8 fail
+beliefs:
+
+  - id: config-exists
+    belief: "rhino.yml exists"
+    type: file_check
+    path: "config/rhino.yml"
+    feature: scoring
+    severity: warn
+
+  - id: has-hypothesis
+    belief: "Value hypothesis defined"
+    type: file_check
+    path: "config/rhino.yml"
+    contains: "hypothesis:"
+    feature: scoring
+    severity: warn
+
+  - id: has-signals
+    belief: "Value signals defined"
+    type: file_check
+    path: "config/rhino.yml"
+    contains: "signals:"
+    feature: scoring
+    severity: warn
+
+  - id: has-bin
+    belief: "bin/ has scripts"
+    type: file_check
+    path: "bin/run.sh"
+    feature: cli
+    severity: warn
+
+  - id: has-tests
+    belief: "Tests exist"
+    type: file_check
+    path: "tests/main.test.sh"
+    feature: cli
+    severity: warn
+
+  - id: has-readme
+    belief: "README exists"
+    type: file_check
+    path: "README.md"
+    feature: docs
+    severity: warn
+
+  # These 2 will FAIL
+  - id: has-ci
+    belief: "CI config exists"
+    type: file_check
+    path: ".github/workflows/ci.yml"
+    feature: cli
+    severity: warn
+
+  - id: has-contributing
+    belief: "Contributing guide exists"
+    type: file_check
+    path: "CONTRIBUTING.md"
+    feature: docs
+    severity: warn

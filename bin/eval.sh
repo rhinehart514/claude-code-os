@@ -15,12 +15,14 @@ export RHINO_EVAL_DEPTH=$((RHINO_EVAL_DEPTH + 1))
 # --- Parse args ---
 SCORE_MODE=false
 BY_FEATURE=false
+JSON_OUTPUT=false
 FEATURE_FILTER=""
 POSITIONAL=""
 for arg in "$@"; do
     case "$arg" in
         --score) SCORE_MODE=true ;;
         --by-feature) BY_FEATURE=true ;;
+        --json) JSON_OUTPUT=true ;;
         --feature=*) FEATURE_FILTER="${arg#--feature=}" ;;
         --feature) ;; # next arg is the feature name, handled below
         *)
@@ -155,11 +157,12 @@ fi
 
 fi  # end SCORE_MODE != true (default checks)
 
-# === file_check beliefs (mechanical file existence/content) ===
-# These are rhino-os infrastructure checks — skip in --score mode
-# so that assertion pass rate only reflects project-specific beliefs.
+# === Infrastructure checks (rhino-os only) ===
+# These check host state (symlinks, hooks, knowledge model) which only
+# makes sense when running inside the rhino-os repo itself.
+# Sentinel: mind/identity.md exists only in rhino-os.
 
-if [[ "$SCORE_MODE" != "true" ]]; then
+if [[ "$SCORE_MODE" != "true" && -f "mind/identity.md" ]]; then
 
 # value-hypothesis-exists
 if [[ -f "config/rhino.yml" ]] && grep -q '^value:' "config/rhino.yml" 2>/dev/null; then
@@ -439,9 +442,9 @@ process_belief() {
             ;;
         llm_judge)
             # LLM-as-judge: Claude evaluates code/files against a quality prompt
-            # Skip in --score mode (mechanical scoring shouldn't wait for LLM calls)
+            # Skip entirely in --score mode — don't count in totals at all
             if [[ "$SCORE_MODE" == "true" ]]; then
-                check_warn "$belief_id" "llm_judge: skipped in score mode"
+                return
             elif [[ -n "$belief_prompt" ]]; then
                 local judge_context=""
                 # Gather context from specified paths or feature files
@@ -503,9 +506,10 @@ ${judge_context}"
                     else
                         # Direct API call with curl (faster, no CLI overhead)
                         local judge_payload
-                        judge_payload=$(printf '{"model":"claude-haiku-4-5-20251001","max_tokens":100,"messages":[{"role":"user","content":"Evaluate this code. Answer ONLY pass or fail on the first line, then a one-sentence reason on the second line.\\n\\nQuestion: %s\\n\\nCode:\\n%s"}]}' \
-                            "$(echo "$belief_prompt" | sed 's/"/\\"/g')" \
-                            "$(echo "$judge_context" | head -100 | sed 's/"/\\"/g' | tr '\n' ' ')")
+                        judge_payload=$(jq -n \
+                            --arg prompt "$belief_prompt" \
+                            --arg context "$(echo "$judge_context" | head -100)" \
+                            '{model:"claude-haiku-4-5-20251001",max_tokens:100,messages:[{role:"user",content:("Evaluate this code. Answer ONLY pass or fail on the first line, then a one-sentence reason on the second line.\n\nQuestion: " + $prompt + "\n\nCode:\n" + $context)}]}')
                         local judge_response
                         judge_response=$(curl -s "https://api.anthropic.com/v1/messages" \
                             -H "x-api-key: $api_key" \
@@ -529,6 +533,63 @@ ${judge_context}"
                 fi
             else
                 check_warn "$belief_id" "llm_judge: no prompt: field"
+            fi
+            ;;
+        bench_check)
+            # Run rhino bench --json and check calibration percentage
+            local bench_result
+            bench_result=$("$RHINO_DIR/bin/bench.sh" --json 2>/dev/null) || bench_result=""
+            if [[ -n "$bench_result" ]] && command -v jq &>/dev/null; then
+                local calibration
+                calibration=$(echo "$bench_result" | jq -r '.calibration // 0' 2>/dev/null)
+                local min_cal="${belief_min_calibration:-80}"
+                if [[ "$calibration" -ge "$min_cal" ]]; then
+                    local bench_passed bench_total
+                    bench_passed=$(echo "$bench_result" | jq -r '.passed // 0' 2>/dev/null)
+                    bench_total=$(echo "$bench_result" | jq -r '.total // 0' 2>/dev/null)
+                    check_pass "$belief_id" "calibration ${calibration}% (${bench_passed}/${bench_total} fixtures)"
+                else
+                    check_fail "$belief_id" "calibration ${calibration}% (need ${min_cal}%)" "warn" 5
+                fi
+            else
+                check_warn "$belief_id" "bench_check: rhino bench failed"
+            fi
+            ;;
+        score_trend)
+            # Check if score has changed over recent history
+            local history_file=".claude/scores/history.tsv"
+            local window="${belief_window:-10}"
+            local direction="${belief_direction:-not_flat}"
+            if [[ -f "$history_file" ]]; then
+                local hist_lines
+                hist_lines=$(wc -l < "$history_file" | tr -d ' ')
+                if [[ "$hist_lines" -le 2 ]]; then
+                    check_warn "$belief_id" "score_trend: not enough history (${hist_lines} lines)"
+                else
+                    # Get last N product scores (column 5)
+                    local scores
+                    scores=$(tail -n "$window" "$history_file" | cut -f5 | grep -E '^[0-9]+$')
+                    local unique
+                    unique=$(echo "$scores" | sort -u | wc -l | tr -d ' ')
+                    if [[ "$direction" == "not_flat" ]]; then
+                        if [[ "$unique" -gt 1 ]]; then
+                            check_pass "$belief_id" "score variance: ${unique} unique values in last ${window} runs"
+                        else
+                            check_fail "$belief_id" "score flat: 1 unique value in last ${window} runs" "warn" 3
+                        fi
+                    elif [[ "$direction" == "up" ]]; then
+                        local first_score last_score
+                        first_score=$(echo "$scores" | head -1)
+                        last_score=$(echo "$scores" | tail -1)
+                        if [[ -n "$first_score" && -n "$last_score" && "$last_score" -gt "$first_score" ]]; then
+                            check_pass "$belief_id" "score trending up: ${first_score} → ${last_score}"
+                        else
+                            check_fail "$belief_id" "score not trending up: ${first_score:-?} → ${last_score:-?}" "warn" 3
+                        fi
+                    fi
+                fi
+            else
+                check_warn "$belief_id" "score_trend: no history.tsv found"
             fi
             ;;
         playwright_task)
@@ -597,6 +658,9 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_exists=""
             belief_min_lines=""
             belief_prompt=""
+            belief_min_calibration=""
+            belief_window=""
+            belief_direction=""
             in_forbidden=false
             forbidden_words=()
         fi
@@ -656,6 +720,21 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_threshold=$(echo "$line" | sed 's/.*threshold_seconds: *//')
         fi
 
+        # Min calibration (for bench_check)
+        if echo "$line" | grep -q '^\s*min_calibration:'; then
+            belief_min_calibration=$(echo "$line" | sed 's/.*min_calibration: *//')
+        fi
+
+        # Window (for score_trend)
+        if echo "$line" | grep -q '^\s*window:'; then
+            belief_window=$(echo "$line" | sed 's/.*window: *//')
+        fi
+
+        # Direction (for score_trend)
+        if echo "$line" | grep -q '^\s*direction:'; then
+            belief_direction=$(echo "$line" | sed 's/.*direction: *//')
+        fi
+
         # Forbidden list parsing (for content_check)
         if echo "$line" | grep -q '^\s*forbidden:'; then
             in_forbidden=true
@@ -685,44 +764,48 @@ if [[ -f "$BELIEFS_FILE" ]]; then
     process_belief
 fi
 
-# === --score mode: output single integer (or per-feature JSON) ===
+# === --score mode: output single integer, per-feature JSON, or combined JSON ===
 if [[ "$SCORE_MODE" == "true" ]]; then
     TOTAL=$((PASS + WARN + FAIL))
 
-    if [[ "$BY_FEATURE" == "true" ]]; then
-        # Aggregate per-feature results from FEATURE_RESULTS
-        # Use temp file approach (no associative arrays — bash 3 compat)
-        _bf_tmpdir=$(mktemp -d)
-        while IFS=: read -r _bf_name _bf_p _bf_w _bf_f; do
-            [[ -z "$_bf_name" ]] && continue
-            _bf_pp=0; _bf_pw=0; _bf_pf=0
-            if [[ -f "$_bf_tmpdir/$_bf_name" ]]; then
-                IFS=: read -r _bf_pp _bf_pw _bf_pf < "$_bf_tmpdir/$_bf_name"
-            fi
-            echo "$((_bf_pp + _bf_p)):$((_bf_pw + _bf_w)):$((_bf_pf + _bf_f))" > "$_bf_tmpdir/$_bf_name"
-        done <<< "$FEATURE_RESULTS"
+    # Aggregate per-feature results (always needed for --json and --by-feature)
+    _bf_tmpdir=$(mktemp -d)
+    while IFS=: read -r _bf_name _bf_p _bf_w _bf_f; do
+        [[ -z "$_bf_name" ]] && continue
+        _bf_pp=0; _bf_pw=0; _bf_pf=0
+        if [[ -f "$_bf_tmpdir/$_bf_name" ]]; then
+            IFS=: read -r _bf_pp _bf_pw _bf_pf < "$_bf_tmpdir/$_bf_name"
+        fi
+        echo "$((_bf_pp + _bf_p)):$((_bf_pw + _bf_w)):$((_bf_pf + _bf_f))" > "$_bf_tmpdir/$_bf_name"
+    done <<< "$FEATURE_RESULTS"
 
-        # Output JSON
-        _bf_json="{"
-        _bf_first=true
-        for _bf_file in "$_bf_tmpdir"/*; do
-            [[ ! -f "$_bf_file" ]] && continue
-            _bf_fname=$(basename "$_bf_file")
-            IFS=: read -r _bf_p _bf_w _bf_f < "$_bf_file"
-            _bf_t=$((_bf_p + _bf_w + _bf_f))
-            $_bf_first || _bf_json+=","
-            _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t}"
-            _bf_first=false
-        done
-        _bf_json+="}"
-        rm -rf "$_bf_tmpdir"
+    _bf_json="{"
+    _bf_first=true
+    for _bf_file in "$_bf_tmpdir"/*; do
+        [[ ! -f "$_bf_file" ]] && continue
+        _bf_fname=$(basename "$_bf_file")
+        IFS=: read -r _bf_p _bf_w _bf_f < "$_bf_file"
+        _bf_t=$((_bf_p + _bf_w + _bf_f))
+        $_bf_first || _bf_json+=","
+        _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t}"
+        _bf_first=false
+    done
+    _bf_json+="}"
+    rm -rf "$_bf_tmpdir"
+
+    # Compute score
+    _eval_score=""
+    if [[ "$TOTAL" -gt 0 ]]; then
+        _eval_score=$(( (PASS * 100 + WARN * 50) / TOTAL ))
+    fi
+
+    if [[ "$JSON_OUTPUT" == "true" ]]; then
+        # Combined JSON output: score + counts + features
+        echo "{\"score\":${_eval_score:-null},\"pass\":$PASS,\"warn\":$WARN,\"fail\":$FAIL,\"total\":$TOTAL,\"features\":$_bf_json}"
+    elif [[ "$BY_FEATURE" == "true" ]]; then
         echo "$_bf_json"
     else
-        if [[ "$TOTAL" -eq 0 ]]; then
-            echo ""
-        else
-            echo $(( (PASS * 100 + WARN * 50) / TOTAL ))
-        fi
+        echo "$_eval_score"
     fi
     exit 0
 fi
