@@ -84,43 +84,86 @@ Only if Tiers 1-2 are covered:
 ### 3. Classify each assertion
 
 Every assertion gets:
-- **id**: slug (e.g., `first-action-speed`)
-- **belief**: the human-readable principle (e.g., "If signup takes more than 90 seconds, we lose them")
-- **type**: how it's tested
-  - `dom_check` — DOM inspection (requires dev server): element counts, hierarchy, contrast, touch targets
-  - `content_check` — text analysis (no server needed): forbidden words, reading level, copy length
-  - `route_graph` — navigation analysis: click depth, dead ends, orphan pages
-  - `playwright_task` — behavioral test (requires dev server + Playwright): task completion, timing
-  - `file_check` — structural assertion (no server needed): file existence, line counts, pattern presence
-- **severity**: `block` (stops /go from marking task done) or `warn` (flags but continues)
-- **threshold**: the specific number that defines pass/fail
-- **check**: human-readable description of what's tested
+- **id**: slug (e.g., `space-campus-isolation`)
+- **belief**: the human-readable principle
+- **type**: how it's tested — **MUST be machine-evaluable**
+- **feature**: which feature this belongs to
+- **severity**: `block` or `warn`
+
+**Available types (use ONLY these):**
+
+**`file_check`** — the workhorse. No server needed. Fields:
+- `path:` — file to check (required). Supports `~` expansion.
+- `contains:` — string that must be in the file
+- `not_contains:` — string that must NOT be in the file
+- `exists:` — set to `false` to assert file does NOT exist
+- `min_lines:` — minimum line count
+
+**`content_check`** — scan source dirs for forbidden words:
+- `forbidden:` — list of strings that must not appear
+
+**`dom_check`** — DOM inspection (requires dev server):
+- `metric:` — what to check (contrast, targets, hierarchy, distinctiveness)
+
+**`playwright_task`** — behavioral test (requires dev server + Playwright):
+- `scenario:` — task description
+- `metric:` — what to measure
+- `threshold_seconds:` — time limit
+
+**`self_check`** — calls self.sh --eval:
+- `metric:` — metric name from self.sh output
+
+**CRITICAL: Never generate assertions with just a `check:` description string.** Every assertion must have machine-evaluable fields (`path:`, `contains:`, `forbidden:`, `metric:`, etc). An assertion eval.sh can't run is worthless.
 
 ### 4. Write to beliefs.yml
 
-Append new assertions to `config/evals/beliefs.yml`. Don't overwrite existing ones — add alongside.
+Append to `lens/product/eval/beliefs.yml` or `config/evals/beliefs.yml`. Don't overwrite existing ones.
 
-Format:
+**Good examples:**
 ```yaml
-- id: first-action-speed
-  belief: "If the first meaningful action takes more than 2 minutes, we lose them"
-  type: playwright_task
-  scenario: "new user lands on homepage, completes first action"
-  threshold_seconds: 120
+- id: space-campus-isolation
+  belief: "Space queries filter by campusId — trust killer if broken"
+  type: file_check
+  path: "src/lib/queries/spaces.ts"
+  contains: "campusId"
+  feature: spaces
   severity: block
 
-- id: no-dead-ends
-  belief: "Every page leads somewhere — dead ends feel like bugs"
-  type: route_graph
-  max_terminal_pages: 0
-  exclude: ["/logout", "/404"]
+- id: auth-session-exists
+  belief: "Auth module has session management"
+  type: file_check
+  path: "src/lib/auth/session.ts"
+  feature: auth
   severity: block
 
-- id: hero-clarity
-  belief: "The hero communicates what this does in one sentence"
-  type: dom_check
-  check: "hero section contains exactly 1 h1 and 1 CTA"
+- id: no-console-in-prod
+  belief: "No console.log in production components"
+  type: content_check
+  forbidden: ["console.log"]
+  feature: code-quality
   severity: warn
+
+- id: onboarding-flow-complete
+  belief: "User can complete onboarding in 90 seconds"
+  type: playwright_task
+  scenario: "new user completes signup and first action"
+  metric: first-action-works
+  threshold_seconds: 90
+  feature: onboarding
+  severity: block
+```
+
+**Bad examples (DON'T do this):**
+```yaml
+# BAD — check: is just a description, eval.sh can't run it
+- id: tools-visible
+  type: file_check
+  check: "tools must be visible in the space sidebar"
+
+# BAD — no path: field, eval.sh doesn't know what file to check
+- id: campus-isolation
+  type: file_check
+  belief: "campusId filtering on space queries"
 ```
 
 ### 5. Wire failing assertions into /go

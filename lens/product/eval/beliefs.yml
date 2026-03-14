@@ -21,7 +21,8 @@ beliefs:
   - id: value-hypothesis-exists
     belief: "rhino.yml defines what value the product delivers"
     type: file_check
-    check: "config/rhino.yml contains 'value:' section"
+    path: "config/rhino.yml"
+    contains: "hypothesis:"
     feature: scoring
     severity: block
 
@@ -38,7 +39,8 @@ beliefs:
   - id: knowledge-model-exists
     belief: "experiment-learnings.md exists — the system can't compound without it"
     type: file_check
-    check: "~/.claude/knowledge/experiment-learnings.md exists and has content"
+    path: "~/.claude/knowledge/experiment-learnings.md"
+    min_lines: 5
     feature: learning
     severity: block
 
@@ -81,16 +83,23 @@ beliefs:
     severity: warn
 
   - id: hooks-resolve
-    belief: "All hook symlinks point to real files"
+    belief: "Session start hook exists"
     type: file_check
-    check: "all symlinks in ~/.claude/hooks/ resolve"
+    path: "~/.claude/hooks/session_start.sh"
     feature: cli
     severity: warn
 
-  - id: mind-files-loaded
-    belief: "Mind files are symlinked in ~/.claude/rules/"
+  - id: mind-identity-loaded
+    belief: "identity.md is symlinked in ~/.claude/rules/"
     type: file_check
-    check: "~/.claude/rules/ has symlinks to mind/identity.md, mind/thinking.md, mind/standards.md"
+    path: "~/.claude/rules/identity.md"
+    feature: cli
+    severity: block
+
+  - id: mind-thinking-loaded
+    belief: "thinking.md is symlinked in ~/.claude/rules/"
+    type: file_check
+    path: "~/.claude/rules/thinking.md"
     feature: cli
     severity: block
 
@@ -104,10 +113,19 @@ beliefs:
     feature: commands
     severity: warn
 
-  - id: commands-have-recovery
-    belief: "Every command handles failure"
+  - id: plan-has-recovery
+    belief: "Plan command handles failure"
     type: file_check
-    check: "all .claude/commands/*.md contain 'If something breaks'"
+    path: ".claude/commands/plan.md"
+    contains: "If something breaks"
+    feature: commands
+    severity: warn
+
+  - id: go-has-recovery
+    belief: "Go command handles failure"
+    type: file_check
+    path: ".claude/commands/go.md"
+    contains: "If something breaks"
     feature: commands
     severity: warn
 

@@ -294,6 +294,55 @@ process_belief() {
     local _pre_pass=$PASS _pre_warn=$WARN _pre_fail=$FAIL
 
     case "$belief_type" in
+        file_check)
+            # Machine-evaluable file assertions from beliefs.yml
+            if [[ -n "$belief_path" ]]; then
+                # Expand ~ to $HOME
+                local expanded_path="${belief_path/#\~/$HOME}"
+                if [[ "$belief_exists" == "false" ]]; then
+                    # File should NOT exist
+                    if [[ ! -e "$expanded_path" ]]; then
+                        check_pass "$belief_id" "$belief_path does not exist"
+                    else
+                        check_fail "$belief_id" "$belief_path exists but shouldn't" "warn" 2
+                    fi
+                elif [[ ! -e "$expanded_path" ]]; then
+                    # File should exist but doesn't
+                    check_fail "$belief_id" "$belief_path not found" "warn" 2
+                else
+                    # File exists — check contents if specified
+                    local file_ok=true
+                    local detail="$belief_path exists"
+                    if [[ -n "$belief_contains" ]]; then
+                        if grep -q "$belief_contains" "$expanded_path" 2>/dev/null; then
+                            detail="$belief_path contains '$belief_contains'"
+                        else
+                            file_ok=false
+                            detail="$belief_path missing '$belief_contains'"
+                        fi
+                    fi
+                    if [[ -n "$belief_not_contains" ]]; then
+                        if grep -q "$belief_not_contains" "$expanded_path" 2>/dev/null; then
+                            file_ok=false
+                            detail="$belief_path contains '$belief_not_contains' (forbidden)"
+                        fi
+                    fi
+                    if [[ -n "$belief_min_lines" ]]; then
+                        local lines
+                        lines=$(wc -l < "$expanded_path" 2>/dev/null | tr -d ' ')
+                        if [[ "$lines" -lt "$belief_min_lines" ]]; then
+                            file_ok=false
+                            detail="$belief_path has $lines lines (need $belief_min_lines)"
+                        fi
+                    fi
+                    if $file_ok; then
+                        check_pass "$belief_id" "$detail"
+                    else
+                        check_fail "$belief_id" "$detail" "warn" 2
+                    fi
+                fi
+            fi
+            ;;
         content_check)
             if [[ ${#forbidden_words[@]} -gt 0 && -n "$SRC_DIRS" ]]; then
                 local found=0
@@ -448,6 +497,11 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_scenario=""
             belief_threshold=""
             belief_feature=""
+            belief_path=""
+            belief_contains=""
+            belief_not_contains=""
+            belief_exists=""
+            belief_min_lines=""
             in_forbidden=false
             forbidden_words=()
         fi
@@ -465,6 +519,31 @@ if [[ -f "$BELIEFS_FILE" ]]; then
         # Metric
         if echo "$line" | grep -q '^\s*metric:'; then
             belief_metric=$(echo "$line" | sed 's/.*metric: *//')
+        fi
+
+        # Path (for file_check)
+        if echo "$line" | grep -q '^\s*path:'; then
+            belief_path=$(echo "$line" | sed 's/.*path: *//' | tr -d '"')
+        fi
+
+        # Contains (for file_check)
+        if echo "$line" | grep -q '^\s*contains:'; then
+            belief_contains=$(echo "$line" | sed 's/.*contains: *//' | tr -d '"')
+        fi
+
+        # Not contains (for file_check)
+        if echo "$line" | grep -q '^\s*not_contains:'; then
+            belief_not_contains=$(echo "$line" | sed 's/.*not_contains: *//' | tr -d '"')
+        fi
+
+        # Exists (for file_check)
+        if echo "$line" | grep -q '^\s*exists:'; then
+            belief_exists=$(echo "$line" | sed 's/.*exists: *//' | tr -d '"')
+        fi
+
+        # Min lines (for file_check)
+        if echo "$line" | grep -q '^\s*min_lines:'; then
+            belief_min_lines=$(echo "$line" | sed 's/.*min_lines: *//')
         fi
 
         # Scenario (for playwright_task)
