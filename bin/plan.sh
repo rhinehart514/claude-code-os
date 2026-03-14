@@ -10,8 +10,12 @@ while [[ -L "$_PLAN_SOURCE" ]]; do
 done
 RHINO_DIR="$(cd "$(dirname "$_PLAN_SOURCE")/.." && pwd)"
 
-PLAN_FILE="$RHINO_DIR/.claude/plans/plan.yml"
-FALLBACK="$RHINO_DIR/.claude/plans/active-plan.md"
+# Project-local first, then rhino-os's own plan
+PROJECT_DIR="$(pwd)"
+PLAN_FILE="$PROJECT_DIR/.claude/plans/plan.yml"
+[[ ! -f "$PLAN_FILE" ]] && PLAN_FILE="$RHINO_DIR/.claude/plans/plan.yml"
+FALLBACK="$PROJECT_DIR/.claude/plans/active-plan.md"
+[[ ! -f "$FALLBACK" ]] && FALLBACK="$RHINO_DIR/.claude/plans/active-plan.md"
 
 # Colors
 BOLD='\033[1m'

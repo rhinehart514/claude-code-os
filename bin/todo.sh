@@ -2,7 +2,9 @@
 # todo.sh — Read/write .claude/plans/todos.yml
 # Persistent backlog that survives across plans.
 
-set -euo pipefail
+set -uo pipefail
+# NOTE: set -e intentionally omitted. Item parsing uses grep/awk patterns
+# where empty results (missing fields) return 1 — that's normal, not an error.
 
 _BACKLOG_SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$_BACKLOG_SOURCE" ]]; do
@@ -10,8 +12,12 @@ while [[ -L "$_BACKLOG_SOURCE" ]]; do
 done
 RHINO_DIR="$(cd "$(dirname "$_BACKLOG_SOURCE")/.." && pwd)"
 
-BACKLOG_FILE="$RHINO_DIR/.claude/plans/todos.yml"
-PLAN_FILE="$RHINO_DIR/.claude/plans/plan.yml"
+# Project-local first, then rhino-os's own todos
+PROJECT_DIR="$(pwd)"
+BACKLOG_FILE="$PROJECT_DIR/.claude/plans/todos.yml"
+[[ ! -f "$BACKLOG_FILE" ]] && BACKLOG_FILE="$RHINO_DIR/.claude/plans/todos.yml"
+PLAN_FILE="$PROJECT_DIR/.claude/plans/plan.yml"
+[[ ! -f "$PLAN_FILE" ]] && PLAN_FILE="$RHINO_DIR/.claude/plans/plan.yml"
 
 # Colors
 BOLD='\033[1m'
@@ -107,11 +113,12 @@ priority_color() {
 }
 
 priority_sort_key() {
-    case "$1" in
+    case "${1:-}" in
         urgent) echo "0" ;;
         high)   echo "1" ;;
         medium) echo "2" ;;
         low)    echo "3" ;;
+        *)      echo "4" ;;
         *)      echo "4" ;;
     esac
 }
