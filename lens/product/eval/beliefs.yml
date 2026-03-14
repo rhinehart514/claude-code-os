@@ -1,148 +1,153 @@
-# beliefs.yml — Your product's soul, enforced mechanically
+# beliefs.yml — What must be true about rhino-os
 #
-# Each belief is a hypothesis about what makes your product great.
-# Beliefs are tested by eval.sh. Only types eval.sh supports are valid:
-#   - content_check with forbidden: [...] — scans src/ for forbidden words
-#   - route_graph — counts Next.js routes
-#   - file_check — verifies file existence and content patterns
-#   - dom_check — requires dev server (skipped in CLI eval, run via taste)
-#   - playwright_task — requires dev server + Playwright (skipped in CLI eval)
+# Every assertion is testable mechanically. No dev server required.
+# Types: file_check, content_check, self_check
 #
-# Severity: block (exits non-zero) | warn (flags but continues)
-#
-# Lifecycle:
-#   Planted → Failing → Passing → Locked (3+ sessions validated)
+# feature: which part of the product this tests
+# severity: block (score = 0 if failing) | warn (flags but continues)
 
 beliefs:
 
-  # --- Value tier (does the product deliver?) ---
+  # ── scoring ─────────────────────────────────────────
+  # Does the score work and mean something?
+
+  - id: score-runs
+    belief: "rhino score . produces a number"
+    type: self_check
+    metric: score-runs
+    feature: scoring
+    severity: block
 
   - id: value-hypothesis-exists
-    belief: "The product must define what value it delivers — no hypothesis, no direction"
+    belief: "rhino.yml defines what value the product delivers"
     type: file_check
     check: "config/rhino.yml contains 'value:' section"
+    feature: scoring
     severity: block
+
+  - id: value-hypothesis-defined
+    belief: "rhino.yml has value: section"
+    type: self_check
+    metric: value-hypothesis-defined
+    feature: scoring
+    severity: block
+
+  # ── learning ────────────────────────────────────────
+  # Does the system get smarter over time?
 
   - id: knowledge-model-exists
-    belief: "The learning model must exist — without it the system can't compound"
+    belief: "experiment-learnings.md exists — the system can't compound without it"
     type: file_check
     check: "~/.claude/knowledge/experiment-learnings.md exists and has content"
+    feature: learning
     severity: block
 
-  # --- Craft tier (is the experience well-made?) ---
+  - id: predictions-logged
+    belief: "predictions.tsv has entries — the learning loop is running"
+    type: self_check
+    metric: predictions-logged
+    feature: learning
+    severity: warn
+
+  - id: learning-compounds
+    belief: "Prediction accuracy is 30-90% — calibrated, not broken or too safe"
+    type: self_check
+    metric: calibration
+    feature: learning
+    severity: warn
+
+  # ── cli ─────────────────────────────────────────────
+  # Do the tools work?
+
+  - id: eval-runs
+    belief: "rhino eval . exits without crash"
+    type: self_check
+    metric: eval-runs
+    feature: cli
+    severity: block
+
+  - id: tests-pass
+    belief: "rhino test exits 0"
+    type: self_check
+    metric: tests-pass
+    feature: cli
+    severity: block
+
+  - id: help-works
+    belief: "rhino help produces output"
+    type: self_check
+    metric: help-works
+    feature: cli
+    severity: warn
+
+  - id: hooks-resolve
+    belief: "All hook symlinks point to real files"
+    type: file_check
+    check: "all symlinks in ~/.claude/hooks/ resolve"
+    feature: cli
+    severity: warn
+
+  - id: mind-files-loaded
+    belief: "Mind files are symlinked in ~/.claude/rules/"
+    type: file_check
+    check: "~/.claude/rules/ has symlinks to mind/identity.md, mind/thinking.md, mind/standards.md"
+    feature: cli
+    severity: block
+
+  # ── commands ────────────────────────────────────────
+  # Do the slash commands make sense?
+
+  - id: commands-have-descriptions
+    belief: "Every command has a description in its frontmatter"
+    type: self_check
+    metric: commands-have-descriptions
+    feature: commands
+    severity: warn
+
+  - id: commands-have-recovery
+    belief: "Every command handles failure"
+    type: file_check
+    check: "all .claude/commands/*.md contain 'If something breaks'"
+    feature: commands
+    severity: warn
+
+  # ── install ─────────────────────────────────────────
+  # Can someone install and get started?
+
+  - id: install-exists
+    belief: "install.sh exists and is executable"
+    type: self_check
+    metric: install-exists
+    feature: install
+    severity: block
+
+  - id: readme-exists
+    belief: "README.md exists with quick start instructions"
+    type: self_check
+    metric: readme-exists
+    feature: install
+    severity: warn
+
+  # ── docs ────────────────────────────────────────────
+  # Is the product understandable?
 
   - id: no-jargon
     belief: "No user needs a glossary to use rhino-os"
     type: content_check
     forbidden: ["utilize", "leverage", "synergy", "paradigm", "ecosystem", "holistic"]
+    feature: docs
     severity: warn
 
-  # --- Health tier (is the code clean?) ---
-
-  - id: no-dead-skills
-    belief: "Every skill file must handle failure — unrecoverable skills break the loop"
-    type: file_check
-    check: "all .claude/commands/*.md contain 'If something breaks'"
-    severity: warn
-
-  - id: hooks-resolve
-    belief: "All hook symlinks must point to real files"
-    type: file_check
-    check: "all symlinks in ~/.claude/hooks/ resolve"
-    severity: warn
-
-  - id: mind-files-loaded
-    belief: "Mind files must be globally accessible — they're the system's values"
-    type: file_check
-    check: "~/.claude/rules/ has symlinks to mind/identity.md, mind/thinking.md, mind/standards.md"
-    severity: block
-
-  # --- DOM tier (mechanical UX assertions) ---
-
-  - id: contrast
-    belief: "No text fails WCAG AA contrast (4.5:1) — invisible text is invisible value"
-    type: dom_check
-    metric: contrast
-    severity: warn
-
-  - id: click-targets
-    belief: "All interactive elements >= 44px — undersized targets lose mobile users"
-    type: dom_check
-    metric: targets
-    severity: warn
-
-  - id: hierarchy
-    belief: "h1 font-size > h2 > body — visual hierarchy tells users what matters"
-    type: dom_check
-    metric: hierarchy
-    severity: warn
-
-  - id: distinctiveness-floor
-    belief: "Font-family != Inter OR non-white background OR custom palette — not AI-generic"
-    type: dom_check
-    metric: distinctiveness
-    severity: warn
-
-  # --- Copy tier (messaging quality) ---
-
-  - id: copy-clarity
-    belief: "Hero headline <= 12 words, grade level <= 8, no jargon — clear beats clever"
-    type: copy_check
-    metric: copy-clarity
-    severity: warn
-
-  - id: value-prop-specific
-    belief: "Headline names a user and contains a verb — not abstract positioning"
-    type: copy_check
-    metric: value-prop-specific
-    severity: warn
-
-  # --- Positioning tier (market differentiation) ---
-
-  - id: positioned-not-generic
-    belief: "Hero makes a specific claim for a named user — not abstract AI marketing"
-    type: positioning_check
-    metric: positioned-not-generic
-    severity: warn
-
-  # --- Self tier (learning intelligence) ---
-
-  - id: learning-compounds
-    belief: "Prediction calibration must be 30-90% — broken or too-safe model stops the loop"
+  - id: readme-has-commands
+    belief: "README documents the slash commands"
     type: self_check
-    metric: calibration
+    metric: readme-has-commands
+    feature: docs
     severity: warn
 
-  # --- Behavioral tier (the val_bpb) ---
-
-  - id: first-action-works
-    belief: "A blind user can complete the primary action in < 3 minutes"
-    type: playwright_task
-    metric: first-action-works
-    scenario: "Find and complete the primary action on this product"
-    threshold_seconds: 180
+  - id: readme-has-scoring
+    belief: "README explains how scoring works"
+    type: self_check
+    metric: readme-has-scoring
+    feature: docs
     severity: warn
-
-  - id: value-visible
-    belief: "After completing primary action, user can see something changed"
-    type: playwright_task
-    metric: value-visible
-    scenario: "Find and complete the primary action on this product"
-    threshold_seconds: 180
-    severity: warn
-
-# Example beliefs for target projects (uncomment and customize):
-#
-# - id: single-cta
-#   belief: "Users bounce when overwhelmed. One CTA above the fold, always."
-#   type: dom_check
-#   metric: density
-#   severity: block
-#
-# - id: onboarding-speed
-#   belief: "If signup takes more than 90 seconds, we lose them"
-#   type: playwright_task
-#   metric: first-action-works
-#   scenario: "new user completes signup and first action"
-#   threshold_seconds: 90
-#   severity: warn

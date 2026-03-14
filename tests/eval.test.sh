@@ -82,16 +82,19 @@ OUTPUT=$(bash "$RHINO_DIR/bin/eval.sh" . 2>&1) || true
 echo "$OUTPUT" | grep -q 'passed' && pass "eval.sh works without beliefs.yml" || fail "eval.sh works without beliefs.yml"
 teardown_temp
 
-# ── URL-dependent checks warn ───────────────────────────
+# ── Feature scoping ───────────────────────────────────
 
-echo "-- No dev server warns --"
+echo "-- Feature scoping --"
 
 cd "$RHINO_DIR"
-unset EVAL_URL
-OUTPUT=$(bash "$RHINO_DIR/bin/eval.sh" . 2>&1) || true
-echo "$OUTPUT" | grep 'dom_check' | grep -q 'WARN' && pass "dom_check warns without dev server" || fail "dom_check warns without dev server"
-echo "$OUTPUT" | grep 'copy_check' | grep -q 'WARN' && pass "copy_check warns without dev server" || fail "copy_check warns without dev server"
-echo "$OUTPUT" | grep 'playwright_task' | grep -q 'WARN' && pass "playwright_task warns without dev server" || fail "playwright_task warns without dev server"
+OUTPUT=$(bash "$RHINO_DIR/bin/eval.sh" . --feature scoring 2>&1) || true
+echo "$OUTPUT" | grep -q 'value-hypothesis' && pass "feature filter shows scoring assertions" || fail "feature filter shows scoring assertions"
+# Should NOT show cli assertions when filtering to scoring
+echo "$OUTPUT" | grep -q 'tests-pass' && fail "feature filter leaks non-matching assertions" || pass "feature filter excludes other features"
+
+# by-feature JSON
+BF_OUT=$(bash "$RHINO_DIR/bin/eval.sh" . --score --by-feature 2>&1) || true
+echo "$BF_OUT" | grep -q '"scoring"' && pass "by-feature JSON includes scoring" || fail "by-feature JSON includes scoring"
 
 # ── Exit code ───────────────────────────────────────────
 

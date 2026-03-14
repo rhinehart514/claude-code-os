@@ -500,6 +500,121 @@ if [[ "$EVAL_MODE" == "true" ]]; then
     else
         echo "calibration:fail:${CAL_STATUS} — ${CAL_DETAIL}"
     fi
+
+    # Remaining metrics: only safe to run outside the scoring pipeline.
+    # When called from eval.sh (RHINO_EVAL_DEPTH > 0), skip to avoid recursion.
+    if [[ "${RHINO_EVAL_DEPTH:-0}" -eq 0 ]]; then
+        # score-runs: does rhino score . --quiet produce a number?
+        score_out=$("$RHINO_DIR/bin/score.sh" . --quiet --force 2>/dev/null) || score_out=""
+        if [[ -n "$score_out" && "$score_out" =~ ^[0-9]+$ ]]; then
+            echo "score-runs:pass:rhino score produces $score_out"
+        else
+            echo "score-runs:fail:rhino score did not produce a number"
+        fi
+
+        # eval-runs: does rhino eval . exit without crash?
+        if "$RHINO_DIR/bin/eval.sh" . >/dev/null 2>&1; then
+            echo "eval-runs:pass:rhino eval exits cleanly"
+        else
+            echo "eval-runs:fail:rhino eval crashed"
+        fi
+
+        # tests-pass: does rhino test exit 0?
+        if "$RHINO_DIR/bin/rhino" test >/dev/null 2>&1; then
+            echo "tests-pass:pass:rhino test exits 0"
+        else
+            echo "tests-pass:fail:rhino test failed"
+        fi
+    else
+        # Inside scoring pipeline — check existence instead of execution
+        [[ -f "$RHINO_DIR/bin/score.sh" ]] && echo "score-runs:pass:score.sh exists" || echo "score-runs:fail:score.sh missing"
+        [[ -f "$RHINO_DIR/bin/eval.sh" ]] && echo "eval-runs:pass:eval.sh exists" || echo "eval-runs:fail:eval.sh missing"
+        [[ -d "$RHINO_DIR/tests" ]] && echo "tests-pass:pass:tests/ exists" || echo "tests-pass:fail:tests/ missing"
+    fi
+
+    # value-hypothesis-defined: does rhino.yml have value: section?
+    if [[ -f "$RHINO_DIR/config/rhino.yml" ]] && grep -q '^value:' "$RHINO_DIR/config/rhino.yml" 2>/dev/null; then
+        echo "value-hypothesis-defined:pass:rhino.yml has value: section"
+    else
+        echo "value-hypothesis-defined:fail:rhino.yml missing value: section"
+    fi
+
+    # predictions-logged: does predictions.tsv have entries?
+    _pred="$HOME/.claude/knowledge/predictions.tsv"
+    if [[ -f "$_pred" ]]; then
+        _pcount=$(tail -n +2 "$_pred" | wc -l | tr -d ' ')
+        if [[ "$_pcount" -gt 0 ]]; then
+            echo "predictions-logged:pass:${_pcount} predictions logged"
+        else
+            echo "predictions-logged:fail:predictions.tsv exists but empty"
+        fi
+    else
+        echo "predictions-logged:fail:no predictions.tsv"
+    fi
+
+    # help-works: does rhino help produce output?
+    _help_out=$("$RHINO_DIR/bin/rhino" help 2>&1) || true
+    if echo "$_help_out" | grep -q 'rhino'; then
+        echo "help-works:pass:rhino help produces output"
+    else
+        echo "help-works:fail:rhino help produced no output"
+    fi
+
+    # commands-have-descriptions: every .md in commands/ has description: in frontmatter
+    _cmd_dir="$RHINO_DIR/.claude/commands"
+    _cmd_total=0; _cmd_ok=0
+    if [[ -d "$_cmd_dir" ]]; then
+        for _cf in "$_cmd_dir"/*.md; do
+            [[ ! -f "$_cf" ]] && continue
+            _cmd_total=$((_cmd_total + 1))
+            if head -5 "$_cf" | grep -q 'description:'; then
+                _cmd_ok=$((_cmd_ok + 1))
+            fi
+        done
+    fi
+    if [[ "$_cmd_total" -eq 0 ]]; then
+        echo "commands-have-descriptions:fail:no command files"
+    elif [[ "$_cmd_ok" -eq "$_cmd_total" ]]; then
+        echo "commands-have-descriptions:pass:${_cmd_ok}/${_cmd_total} have descriptions"
+    else
+        echo "commands-have-descriptions:fail:$((_cmd_total - _cmd_ok))/${_cmd_total} missing description"
+    fi
+
+    # install-exists: install.sh exists and is executable
+    if [[ -x "$RHINO_DIR/install.sh" ]]; then
+        echo "install-exists:pass:install.sh exists and is executable"
+    elif [[ -f "$RHINO_DIR/install.sh" ]]; then
+        echo "install-exists:fail:install.sh exists but not executable"
+    else
+        echo "install-exists:fail:install.sh missing"
+    fi
+
+    # readme-exists: README.md exists with content
+    if [[ -f "$RHINO_DIR/README.md" ]]; then
+        _rlines=$(wc -l < "$RHINO_DIR/README.md" | tr -d ' ')
+        if [[ "$_rlines" -gt 10 ]]; then
+            echo "readme-exists:pass:README.md exists (${_rlines} lines)"
+        else
+            echo "readme-exists:fail:README.md exists but too short (${_rlines} lines)"
+        fi
+    else
+        echo "readme-exists:fail:README.md missing"
+    fi
+
+    # readme-has-commands: README mentions slash commands
+    if [[ -f "$RHINO_DIR/README.md" ]] && grep -q '/plan\|/go\|/assert\|/feature' "$RHINO_DIR/README.md" 2>/dev/null; then
+        echo "readme-has-commands:pass:README documents slash commands"
+    else
+        echo "readme-has-commands:fail:README doesn't mention slash commands"
+    fi
+
+    # readme-has-scoring: README explains scoring
+    if [[ -f "$RHINO_DIR/README.md" ]] && grep -q 'assertion pass rate\|scoring' "$RHINO_DIR/README.md" 2>/dev/null; then
+        echo "readme-has-scoring:pass:README explains scoring"
+    else
+        echo "readme-has-scoring:fail:README doesn't explain scoring"
+    fi
+
     exit 0
 fi
 

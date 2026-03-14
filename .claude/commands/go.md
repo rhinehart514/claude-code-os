@@ -1,27 +1,29 @@
 ---
-description: "Fully autonomous mode. Plan, predict, build, measure, update model, repeat. Karpathy NEVER STOP. Use when you want hands-off progress."
+description: "Fully autonomous mode. Plan, predict, build, measure, update model, repeat. Accepts a feature name to scope: /go auth"
 ---
 
 # /go
 
 Autonomous creation loop. You plan, build, measure, and learn — no human in the loop until you hit a wall or plateau.
 
+## Feature scoping
+
+If `$ARGUMENTS` contains a feature name (e.g., `/go auth`), scope EVERYTHING to that feature:
+- Only work on tasks with `feature: auth` in plan.yml
+- Only measure assertions with `feature: auth` (`rhino eval . --feature auth`)
+- Only touch files related to that feature
+- If no plan exists for this feature, run `/plan auth` logic first
+
+If no feature specified, execute the full plan across all features.
+
 ## System awareness
-You are one of 8 skills that form a single system:
+Every command accepts a feature name:
+- `/plan [feature]` → wrote the plan you're executing. If no plan exists, run /plan logic first.
+- `/go [feature]` (you) → autonomous executor. Build, measure, learn, repeat.
+- `/assert [feature]` → plants assertions that define "done."
+- `/ship` → deploy pipeline.
 
-**The build loop** (your world):
-- `/plan` → wrote the plan you're executing. If no plan exists, run /plan logic first.
-- `/strategy` → owns the product model + learning agenda. If strategy is stale (>3 days), pause and refresh.
-- `/research` → explores unknowns. **When a task says "Run `/research [topic]`", execute /research inline before continuing.**
-- `/go` (you) → autonomous executor. You consume the plan, invoke /research when needed, and update the model.
-
-**Around the loop** (you don't call these, but know they exist):
-- `/assert` → plants evals that define "done." Failing assertions become your highest-priority tasks.
-- `/ship` → deploy pipeline. After you finish, the founder runs /ship to get code to users.
-- `/critique` → brutal product review. The founder runs this to find what sucks.
-- `/retro` → weekly learning synthesis. Extracts meta-patterns from your predictions and experiments.
-
-You are not isolated. Tasks may require calling `/research`. The plan's task mix reflects the lifecycle stage — respect it.
+When you hit an unknown, research it inline. You are self-contained.
 
 ## Output style
 Read `mind/voice.md` and follow it. Use iteration pulse format (predict/build/measure/model, 4 lines max). Progress summary every 3 iterations. Close with a completion block. No prose between iterations.
@@ -51,7 +53,7 @@ Run until one of these stops you:
 When score hasn't improved in `plateau_threshold` (default 3) consecutive build tasks, DON'T STOP. Instead:
 1. The current BUILD approach is exhausted — stop building.
 2. Read the "Unknown Territory" section of experiment-learnings.md.
-3. If unknowns exist: run `/research` inline on the highest-value unknown. This produces a state transition + new hypothesis.
+3. If unknowns exist: research inline on the highest-value unknown. This produces a state transition + new hypothesis.
 4. If the research produces an actionable hypothesis: create a new task from it, predict, build, measure. The loop continues.
 5. If no unknowns exist OR research doesn't produce an actionable hypothesis: NOW stop. The approach is truly exhausted.
 
@@ -67,7 +69,8 @@ Read `.claude/plans/plan.yml` — find the next task with `status: todo`. Use `r
 Tasks in plan.yml have typed fields — read and use all of them:
 - **accept**: criteria that define "done" — verify these before marking complete
 - **touch**: scoped file paths — limit changes to these unless the task requires otherwise
-- **touch** may say `/research [topic]` — this means run the /research skill inline before building
+- **touch** may say "research [topic]" — this means research inline before building
+- **feature**: which feature this task belongs to — scope changes to that subsystem
 - **dont**: explicit boundaries — respect these even if it seems helpful to cross them
 
 Also update the Claude Code task status (TaskUpdate → in_progress) if tasks were created by /plan.
@@ -96,19 +99,16 @@ Execute the task. One concern at a time. Follow `mind/standards.md`. If the prod
 - Every 5th task: moonshot — pick from unknown territory in the knowledge model
 
 ### 4. Measure
-Three tiers, in priority order:
+Run `rhino score .` after every task. The score IS the assertion pass rate now — no separate eval step needed.
 
-**Value** (the one that matters): Run `rhino eval .` — did any assertions change status? An assertion going from Failing → Passing is the strongest signal that real progress happened. An assertion going from Passing → Failing is a regression that matters more than any score drop.
+- **Assertion regressed** (was passing, now failing) → revert immediately (`git checkout -- .`). Log why.
+- **Assertion progressed** (was failing, now passing) → keep. This is the goal.
+- **Score up or flat** → keep the change, check off the task
+- **Score down >max_single_commit_delta** (default: 15, from `config/rhino.yml`) → revert immediately, no discussion
+- **Score down 1–max_single_commit_delta** → keep only if you can cite the bottleneck
+- **No assertion change, health degraded past warning** (health < 40) → flag but keep
 
-**Health**: Run `rhino score .` after every task. Compare to previous score. Read `integrity.max_single_commit_delta` from `config/rhino.yml` (default: 15).
-
-- **Score up** → keep the change, check off the task
-- **Score flat** → keep if the change is structural/foundational, otherwise reconsider
-- **Score down >max_single_commit_delta** → revert immediately (`git checkout -- .`), no discussion. Log why the drop happened, update model.
-- **Score down 1–max_single_commit_delta** → explain specifically why keeping the change is worth the regression. If you can't articulate a concrete reason tied to the bottleneck, revert.
-- **EXCEPTION**: if the change caused an assertion to go Failing → Passing, a score drop up to max_single_commit_delta is acceptable. Value outranks health.
-
-This is mechanical. "The change is foundational" is not a valid reason to keep a score drop. Cite the bottleneck OR a passing assertion.
+This is mechanical. The score measures value. A score drop means value dropped.
 
 **Craft**: If `rhino taste` is available (product lens installed at `lens/product/`), run it every 3 iterations (configurable via `go.taste_every_n`) or when visual quality matters.
 
@@ -152,7 +152,7 @@ Before marking done:
 ### Mid-loop research detour
 If during a build task you hit an unknown that blocks progress (not in experiment-learnings.md, no relevant predictions):
 1. Log the unknown
-2. Run `/research [the unknown]` inline — this produces a state transition + hypothesis
+2. Research the unknown inline — this produces a state transition + hypothesis
 3. Resume the build task with the new knowledge
 Don't guess through unknowns. Research them.
 

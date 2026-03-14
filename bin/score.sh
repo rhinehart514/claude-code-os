@@ -3,20 +3,17 @@ set -uo pipefail
 # NOTE: set -e intentionally omitted. Scoring uses [[ ]] && pattern
 # where false conditions return 1 — that's normal, not an error.
 
-# score.sh — Structural lint. Training loss. Fast, every commit.
+# score.sh — The number. Measures value, not health.
 #
-# Measures what grep CAN measure honestly:
-#   1. Build health  — does it compile? (gate: pass/fail)
-#   2. Structure     — dead ends, empty states, navigation (0-100)
-#   3. Hygiene       — any types, console.logs, todos, hardcoded values (0-100)
+# Formula:
+#   build gate FAIL           → 0
+#   health < gate threshold   → 0  (health gate)
+#   assertions exist          → assertion pass rate (0-100)
+#   value hypothesis defined  → completion ratchet (0-50, capped)
+#   else                      → 10
 #
-# What this does NOT measure (taste's job):
-#   - Does the UX feel good? → rhino taste
-#   - Are the product flows complete? → rhino taste
-#   - Would a user come back? → rhino taste
-#
-# This is training loss. rhino taste is eval loss.
-# Track both. They measure different things.
+# Health (structure, hygiene) is a gate, not the score.
+# The score IS the thing you care about: product value.
 #
 # Usage:
 #   score.sh [project-dir]              # visual output (default)
@@ -412,49 +409,78 @@ score_hygiene() {
 }
 
 # ============================================================
-# 4. PRODUCT QUALITY (0-100, context-dependent)
-#    For rhino-os projects: 4-system capability score (Measure/Think/Act/Learn)
-#    For projects with assertions: assertion pass rate from eval.sh --score
-#    For other projects: empty (not scored)
+# 4. ASSERTIONS & COMPLETION (the actual score)
+#    assertions exist → assertion pass rate (0-100)
+#    value hypothesis → completion ratchet (0-50, capped)
+#    else → 10
 # ============================================================
-SCORING_MODE="generic"  # generic | rhino-os | assertions
-SELF_JSON=""
+SCORING_MODE="empty"  # empty | onboarding | assertions
 
-score_product() {
-    # rhino-os project: use self.sh 4-system score
-    if [[ -f "bin/rhino" && -f "bin/self.sh" ]]; then
-        SCORING_MODE="rhino-os"
-        local product_score
-        product_score=$("$SCRIPT_DIR/self.sh" --score 2>/dev/null) || product_score=""
-        SELF_JSON=$("$SCRIPT_DIR/self.sh" --json 2>/dev/null) || SELF_JSON=""
-        if [[ -n "$product_score" && "$product_score" =~ ^[0-9]+$ ]]; then
-            echo "$product_score"
-        else
-            echo "50"
-        fi
-        return
+# Completion ratchet: 0-50, for projects without assertions yet
+score_completion() {
+    local points=0
+    local cap=$(cfg scoring.onboarding_cap 50)
+
+    # value.hypothesis defined in rhino.yml (10 pts)
+    if [[ -f "config/rhino.yml" ]] && grep -q 'hypothesis:' "config/rhino.yml" 2>/dev/null; then
+        points=$((points + 10))
     fi
 
-    # Project with assertions: use eval.sh --score
+    # value.signals has entries (5 pts)
+    if [[ -f "config/rhino.yml" ]] && grep -q 'signals:' "config/rhino.yml" 2>/dev/null; then
+        local signal_count
+        signal_count=$(grep -A100 'signals:' "config/rhino.yml" 2>/dev/null | grep -c '^ *- name:' || true)
+        [[ "$signal_count" -gt 0 ]] && points=$((points + 5))
+    fi
+
+    # Tests exist (5 pts)
+    local has_tests=0
+    if find . -maxdepth 4 -type f \( -name "*.test.*" -o -name "*.spec.*" -o -name "*_test.*" \) ! -path "*/node_modules/*" 2>/dev/null | head -1 | grep -q .; then
+        has_tests=1
+    elif [[ -d "tests" ]] || [[ -d "test" ]] || [[ -d "__tests__" ]]; then
+        if find tests test __tests__ -type f 2>/dev/null | head -1 | grep -q .; then
+            has_tests=1
+        fi
+    fi
+    [[ "$has_tests" -eq 1 ]] && points=$((points + 5))
+
+    # beliefs.yml exists (10 pts)
     local beliefs_file=""
     for bf in "lens/product/eval/beliefs.yml" "config/evals/beliefs.yml"; do
         [[ -f "$bf" ]] && beliefs_file="$bf" && break
     done
+    [[ -n "$beliefs_file" ]] && points=$((points + 10))
+
+    # beliefs.yml has 1+ assertions (10 pts)
+    local assertion_count=0
     if [[ -n "$beliefs_file" ]]; then
-        local eval_score
-        eval_score=$("$SCRIPT_DIR/eval.sh" . --score 2>/dev/null) || eval_score=""
-        if [[ -n "$eval_score" && "$eval_score" =~ ^[0-9]+$ ]]; then
-            SCORING_MODE="assertions"
-            echo "$eval_score"
-        else
-            # eval.sh returned empty = no assertions planted yet
-            echo ""
-        fi
-        return
+        assertion_count=$(grep -c '^\s*- id:' "$beliefs_file" 2>/dev/null || true)
+        [[ "$assertion_count" -gt 0 ]] && points=$((points + 10))
     fi
 
-    # Generic project: no product score
-    echo ""
+    # At least 1 assertion passes (10 pts) — run eval to check
+    if [[ "$assertion_count" -gt 0 ]]; then
+        local eval_score
+        eval_score=$("$SCRIPT_DIR/eval.sh" . --score 2>/dev/null) || eval_score=""
+        if [[ -n "$eval_score" && "$eval_score" =~ ^[0-9]+$ && "$eval_score" -gt 0 ]]; then
+            points=$((points + 10))
+        fi
+    fi
+
+    # Cap
+    [[ "$points" -gt "$cap" ]] && points="$cap"
+    echo "$points"
+}
+
+# Assertion pass rate: wraps eval.sh --score
+score_assertions() {
+    local eval_score
+    eval_score=$("$SCRIPT_DIR/eval.sh" . --score 2>/dev/null) || eval_score=""
+    if [[ -n "$eval_score" && "$eval_score" =~ ^[0-9]+$ ]]; then
+        echo "$eval_score"
+    else
+        echo ""
+    fi
 }
 
 # ============================================================
@@ -474,35 +500,11 @@ start_spinner "checking hygiene..."
 HYGIENE=$(score_hygiene)
 stop_spinner "hygiene: $HYGIENE/100"
 
-start_spinner "checking product..."
-# Run score_product inline (not in subshell) to preserve SCORING_MODE/SELF_JSON
-PRODUCT=""
-if [[ -f "bin/rhino" && -f "bin/self.sh" ]]; then
-    SCORING_MODE="rhino-os"
-    PRODUCT=$("$SCRIPT_DIR/self.sh" --score 2>/dev/null) || PRODUCT=""
-    SELF_JSON=$("$SCRIPT_DIR/self.sh" --json 2>/dev/null) || SELF_JSON=""
-    if [[ -z "$PRODUCT" || ! "$PRODUCT" =~ ^[0-9]+$ ]]; then
-        PRODUCT="50"
-    fi
-else
-    # Check for assertion-based scoring
-    local_beliefs_file=""
-    for bf in "lens/product/eval/beliefs.yml" "config/evals/beliefs.yml"; do
-        [[ -f "$bf" ]] && local_beliefs_file="$bf" && break
-    done
-    if [[ -n "$local_beliefs_file" ]]; then
-        eval_score=$("$SCRIPT_DIR/eval.sh" . --score 2>/dev/null) || eval_score=""
-        if [[ -n "$eval_score" && "$eval_score" =~ ^[0-9]+$ ]]; then
-            SCORING_MODE="assertions"
-            PRODUCT="$eval_score"
-        fi
-    fi
-fi
-if [[ -n "$PRODUCT" ]]; then
-    stop_spinner "product: $PRODUCT/100"
-else
-    stop_spinner "product: n/a (not a rhino-os project)"
-fi
+# --- Health gate (replaces health-as-score) ---
+HEALTH_MIN=$STRUCTURE
+[[ "$HYGIENE" -lt "$HEALTH_MIN" ]] && HEALTH_MIN=$HYGIENE
+HEALTH_GATE_THRESHOLD=$(cfg scoring.health_gate_threshold 20)
+HEALTH_WARN_THRESHOLD=$(cfg scoring.health_warn_threshold 40)
 
 # Build gate
 BUILD_GATE_THRESHOLD=$(cfg scoring.build.gate_threshold 70)
@@ -512,14 +514,68 @@ else
     BUILD_GATE="PASS"
 fi
 
-# Weakest link (structure, hygiene, product — build is a gate)
-local_min=$STRUCTURE
-[[ "$HYGIENE" -lt "$local_min" ]] && local_min=$HYGIENE
-if [[ -n "$PRODUCT" && "$PRODUCT" =~ ^[0-9]+$ ]]; then
-    [[ "$PRODUCT" -lt "$local_min" ]] && local_min=$PRODUCT
+# --- Determine scoring mode and compute score ---
+ASSERTION_COUNT=0
+ASSERTION_PASS_COUNT=0
+COMPLETION_SCORE=0
+PRODUCT=""
+FEATURES_JSON="{}"
+
+start_spinner "checking value..."
+
+# Check for beliefs/assertions
+local_beliefs_file=""
+for bf in "lens/product/eval/beliefs.yml" "config/evals/beliefs.yml"; do
+    [[ -f "$bf" ]] && local_beliefs_file="$bf" && break
+done
+
+if [[ -n "$local_beliefs_file" ]]; then
+    ASSERTION_COUNT=$(grep -c '^\s*- id:' "$local_beliefs_file" 2>/dev/null || true)
 fi
+
+if [[ "$ASSERTION_COUNT" -gt 0 ]]; then
+    # Assertions exist → score = assertion pass rate
+    eval_score=$("$SCRIPT_DIR/eval.sh" . --score 2>/dev/null) || eval_score=""
+    # Also get per-feature breakdown
+    FEATURES_JSON=$("$SCRIPT_DIR/eval.sh" . --score --by-feature 2>/dev/null) || FEATURES_JSON="{}"
+    [[ -z "$FEATURES_JSON" || "$FEATURES_JSON" == "" ]] && FEATURES_JSON="{}"
+
+    if [[ -n "$eval_score" && "$eval_score" =~ ^[0-9]+$ ]]; then
+        SCORING_MODE="assertions"
+        PRODUCT="$eval_score"
+        # Compute pass count from the percentage
+        ASSERTION_PASS_COUNT=$(( eval_score * ASSERTION_COUNT / 100 ))
+    else
+        SCORING_MODE="assertions"
+        PRODUCT="0"
+        ASSERTION_PASS_COUNT=0
+    fi
+elif [[ -f "config/rhino.yml" ]] && grep -q 'hypothesis:' "config/rhino.yml" 2>/dev/null; then
+    # Has value hypothesis → completion ratchet (capped at 50)
+    SCORING_MODE="onboarding"
+    COMPLETION_SCORE=$(score_completion)
+    PRODUCT="$COMPLETION_SCORE"
+else
+    # Nothing defined
+    SCORING_MODE="empty"
+    PRODUCT="10"
+fi
+
+# --- Apply the formula ---
 if [[ "$BUILD_GATE" == "FAIL" ]]; then
     local_min=0
+elif [[ "$HEALTH_MIN" -lt "$HEALTH_GATE_THRESHOLD" ]]; then
+    local_min=0
+else
+    local_min="$PRODUCT"
+fi
+
+if [[ "$SCORING_MODE" == "assertions" ]]; then
+    stop_spinner "value: $PRODUCT/100 ($ASSERTION_PASS_COUNT/$ASSERTION_COUNT assertions)"
+elif [[ "$SCORING_MODE" == "onboarding" ]]; then
+    stop_spinner "value: $PRODUCT/$(cfg scoring.onboarding_cap 50) (onboarding)"
+else
+    stop_spinner "value: 10/100 (no value hypothesis)"
 fi
 
 # --- History ---
@@ -665,10 +721,7 @@ if [[ -d ".claude/evals/reports" ]]; then
     fi
 fi
 
-# Taste counts toward weakest link when available
-if [[ -n "$TASTE_SCORE" && "$TASTE_SCORE" =~ ^[0-9]+$ ]]; then
-    [[ "$TASTE_SCORE" -lt "$local_min" ]] && local_min=$TASTE_SCORE
-fi
+# Taste is informational — does NOT affect the score number
 
 # --- Build integrity JSON array ---
 INTEGRITY_JSON="[]"
@@ -686,11 +739,6 @@ fi
 
 # --- Cache (AFTER taste read so taste score is included) ---
 mkdir -p "$CACHE_DIR"
-# Build self_scores JSON fragment
-SELF_SCORES_JSON="null"
-if [[ -n "$SELF_JSON" && "$SELF_JSON" != "" ]]; then
-    SELF_SCORES_JSON="$SELF_JSON"
-fi
 
 # Compute readiness
 READY_STRATEGY=false
@@ -701,7 +749,7 @@ if [[ "$SCORING_MODE" == "assertions" && -n "$PRODUCT" && "$PRODUCT" =~ ^[0-9]+$
 fi
 
 cat > "$CACHE_FILE" <<CEOF
-{"score":$local_min,"build":$BUILD,"build_gate":"$BUILD_GATE","structure":$STRUCTURE,"hygiene":$HYGIENE,"product":${PRODUCT:-null},"taste":${TASTE_SCORE:-null},"scoring_mode":"$SCORING_MODE","systems":$SELF_SCORES_JSON,"ready_strategy":$READY_STRATEGY,"ready_todos":$READY_TODOS,"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR","integrity_warnings":$INTEGRITY_JSON,"cached_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+{"score":$local_min,"build":$BUILD,"build_gate":"$BUILD_GATE","structure":$STRUCTURE,"hygiene":$HYGIENE,"health_min":$HEALTH_MIN,"health_gate":"$([ "$HEALTH_MIN" -lt "$HEALTH_GATE_THRESHOLD" ] && echo "FAIL" || echo "PASS")","product":${PRODUCT:-null},"taste":${TASTE_SCORE:-null},"scoring_mode":"$SCORING_MODE","assertion_count":$ASSERTION_COUNT,"assertion_pass_count":$ASSERTION_PASS_COUNT,"features":$FEATURES_JSON,"ready_strategy":$READY_STRATEGY,"ready_todos":$READY_TODOS,"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR","integrity_warnings":$INTEGRITY_JSON,"cached_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
 CEOF
 
 # --- Trends ---
@@ -747,7 +795,7 @@ case "$OUTPUT_MODE" in
         ;;
     json)
         cat <<EOF
-{"score":$local_min,"build":$BUILD,"build_gate":"$BUILD_GATE","structure":$STRUCTURE,"hygiene":$HYGIENE,"product":${PRODUCT:-null},"taste":${TASTE_SCORE:-null},"scoring_mode":"$SCORING_MODE","systems":$SELF_SCORES_JSON,"ready_strategy":$READY_STRATEGY,"ready_todos":$READY_TODOS,"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR","integrity_warnings":$INTEGRITY_JSON}
+{"score":$local_min,"build":$BUILD,"build_gate":"$BUILD_GATE","structure":$STRUCTURE,"hygiene":$HYGIENE,"health_min":$HEALTH_MIN,"health_gate":"$([ "$HEALTH_MIN" -lt "$HEALTH_GATE_THRESHOLD" ] && echo "FAIL" || echo "PASS")","product":${PRODUCT:-null},"taste":${TASTE_SCORE:-null},"scoring_mode":"$SCORING_MODE","assertion_count":$ASSERTION_COUNT,"assertion_pass_count":$ASSERTION_PASS_COUNT,"features":$FEATURES_JSON,"ready_strategy":$READY_STRATEGY,"ready_todos":$READY_TODOS,"project_type":"$PROJECT_TYPE","src_dir":"$SRC_DIR","integrity_warnings":$INTEGRITY_JSON}
 EOF
         ;;
     score)
@@ -759,63 +807,72 @@ EOF
         else
             echo -e "  \033[0;32m✓\033[0m build ($BUILD/100)"
         fi
+
+        # Health gate
+        if [[ "$HEALTH_MIN" -lt "$HEALTH_GATE_THRESHOLD" ]]; then
+            echo -e "  \033[0;31m✗ HEALTH GATE: FAIL (health=$HEALTH_MIN, threshold=$HEALTH_GATE_THRESHOLD)\033[0m"
+        elif [[ "$HEALTH_MIN" -lt "$HEALTH_WARN_THRESHOLD" ]]; then
+            echo -e "  \033[1;33m⚠\033[0m health: $HEALTH_MIN \033[2m(struct:$STRUCTURE hygiene:$HYGIENE — below warning threshold $HEALTH_WARN_THRESHOLD)\033[0m"
+        else
+            echo -e "  \033[0;32m✓\033[0m health: $HEALTH_MIN \033[2m(struct:$STRUCTURE hygiene:$HYGIENE)\033[0m"
+        fi
         echo ""
 
-        # Structure
-        v="$STRUCTURE"
-        bar=$(make_bar "$v")
-        trend=$(trend_for "structure" "$v" 3)
-        color=$(dim_color "$v")
-        marker=""
-        [[ "$v" -eq "$local_min" ]] && marker=" ◀ weakest"
-        echo -e "  Structure  ${color}${bar}\033[0m  ${v}/100  ${trend}  \033[2mdead ends, empty states${marker}\033[0m"
+        # Score display — depends on scoring mode
+        overall_color=$(dim_color "$local_min")
 
-        # Hygiene
-        v="$HYGIENE"
-        bar=$(make_bar "$v")
-        trend=$(trend_for "hygiene" "$v" 4)
-        color=$(dim_color "$v")
-        marker=""
-        [[ "$v" -eq "$local_min" ]] && marker=" ◀ weakest"
-        echo -e "  Hygiene    ${color}${bar}\033[0m  ${v}/100  ${trend}  \033[2many, console.log, todos, @ts-ignore${marker}\033[0m"
+        if [[ "$SCORING_MODE" == "assertions" ]]; then
+            bar=$(make_bar "$local_min")
+            echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m  ${overall_color}${bar}\033[0m  \033[2m($ASSERTION_PASS_COUNT/$ASSERTION_COUNT assertions passing)\033[0m"
 
-        # Product — context-dependent scoring
-        if [[ -n "$PRODUCT" && "$PRODUCT" =~ ^[0-9]+$ ]]; then
-            v="$PRODUCT"
-            bar=$(make_bar "$v")
-            color=$(dim_color "$v")
-            marker=""
-            [[ "$v" -eq "$local_min" ]] && marker=" ◀ weakest"
-            if [[ "$SCORING_MODE" == "rhino-os" ]]; then
-                echo -e "  Product    ${color}${bar}\033[0m  ${v}/100  \033[2mmeasure · think · act · learn${marker}\033[0m"
-                # Show 4-system breakdown if available
-                if [[ -n "$SELF_JSON" ]]; then
-                    m_score=$(echo "$SELF_JSON" | sed 's/.*"measure":\([0-9]*\).*/\1/' 2>/dev/null) || m_score=""
-                    t_score=$(echo "$SELF_JSON" | sed 's/.*"think":\([0-9]*\).*/\1/' 2>/dev/null) || t_score=""
-                    a_score=$(echo "$SELF_JSON" | sed 's/.*"act":\([0-9]*\).*/\1/' 2>/dev/null) || a_score=""
-                    l_score=$(echo "$SELF_JSON" | sed 's/.*"learn":\([0-9]*\).*/\1/' 2>/dev/null) || l_score=""
-                    if [[ -n "$m_score" && -n "$t_score" && -n "$a_score" && -n "$l_score" ]]; then
-                        echo -e "             \033[2mM:${m_score} · T:${t_score} · A:${a_score} · L:${l_score}\033[0m"
-                    fi
-                fi
-            elif [[ "$SCORING_MODE" == "assertions" ]]; then
-                echo -e "  Assertions ${color}${bar}\033[0m  ${v}/100  \033[2massertion pass rate${marker}\033[0m"
-            else
-                echo -e "  Product    ${color}${bar}\033[0m  ${v}/100  \033[2mcommands, tests, learning loop${marker}\033[0m"
+            # Per-feature breakdown
+            if [[ -n "$FEATURES_JSON" && "$FEATURES_JSON" != "{}" ]] && command -v jq &>/dev/null; then
+                echo ""
+                jq -r 'to_entries | sort_by(.value.pass / (.value.total + 0.001)) | .[] | "\(.key) \(.value.pass) \(.value.total)"' <<< "$FEATURES_JSON" 2>/dev/null | while read -r fname fpass ftotal; do
+                    [[ -z "$fname" ]] && continue
+                    fpct=0
+                    [[ "$ftotal" -gt 0 ]] && fpct=$((fpass * 100 / ftotal))
+                    fbar=$(make_bar "$fpct")
+                    fcolor=$(dim_color "$fpct")
+                    printf "  %-12s ${fcolor}${fbar}\033[0m  %s/%s\n" "$fname" "$fpass" "$ftotal"
+                done
             fi
+        elif [[ "$SCORING_MODE" == "onboarding" ]]; then
+            onboarding_cap=$(cfg scoring.onboarding_cap 50)
+            bar=$(make_bar "$((local_min * 100 / onboarding_cap))")
+            echo -e "  \033[1mScore: ${overall_color}${local_min}/${onboarding_cap}\033[0m  ${overall_color}${bar}\033[0m  \033[2m(define assertions to unlock full scoring)\033[0m"
+
+            # Completion checklist
+            echo ""
+            echo -e "  \033[2mCompletion:\033[0m"
+            has_hypothesis=false; [[ -f "config/rhino.yml" ]] && grep -q 'hypothesis:' "config/rhino.yml" 2>/dev/null && has_hypothesis=true
+            has_signals=false; [[ -f "config/rhino.yml" ]] && grep -q 'signals:' "config/rhino.yml" 2>/dev/null && has_signals=true
+            has_beliefs=false; [[ -n "$local_beliefs_file" ]] && has_beliefs=true
+            has_belief_entries=false; [[ "$ASSERTION_COUNT" -gt 0 ]] && has_belief_entries=true
+
+            [[ "$has_hypothesis" == true ]] && echo -e "    \033[0;32m✓\033[0m value hypothesis defined" || echo -e "    \033[2m·\033[0m define value.hypothesis in rhino.yml"
+            [[ "$has_signals" == true ]] && echo -e "    \033[0;32m✓\033[0m value signals defined" || echo -e "    \033[2m·\033[0m add value.signals to rhino.yml"
+            local _ht=0; find . -maxdepth 4 -type f \( -name "*.test.*" -o -name "*.spec.*" \) ! -path "*/node_modules/*" 2>/dev/null | head -1 | grep -q . && _ht=1
+            [[ "$_ht" -eq 1 ]] && echo -e "    \033[0;32m✓\033[0m tests exist" || echo -e "    \033[2m·\033[0m add tests"
+            [[ "$has_beliefs" == true ]] && echo -e "    \033[0;32m✓\033[0m beliefs.yml exists" || echo -e "    \033[2m·\033[0m create beliefs.yml with assertions"
+            [[ "$has_belief_entries" == true ]] && echo -e "    \033[0;32m✓\033[0m assertions planted" || echo -e "    \033[2m·\033[0m plant assertions in beliefs.yml"
+        else
+            # Empty mode — no value hypothesis at all
+            echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m  \033[2m(no value hypothesis)\033[0m"
+            echo ""
+            echo -e "  \033[2mNext: add value.hypothesis to config/rhino.yml\033[0m"
         fi
 
-        # Taste — the product quality layer
+        # Taste — still shown if available
+        echo ""
         if [[ -n "$TASTE_SCORE" && "$TASTE_SCORE" =~ ^[0-9]+$ ]]; then
             bar=$(make_bar "$TASTE_SCORE")
             color=$(dim_color "$TASTE_SCORE")
-            marker=""
-            [[ "$TASTE_SCORE" -eq "$local_min" ]] && marker=" ◀ weakest"
             stale_note=""
             if [[ -n "$TASTE_AGE_DAYS" && "$TASTE_AGE_DAYS" -gt 7 ]]; then
                 stale_note=" \033[1;33m(${TASTE_AGE_DAYS}d old — rerun)\033[0m"
             fi
-            echo -e "  Taste      ${color}${bar}\033[0m  ${TASTE_SCORE}/100  \033[2mUX, flows, delight (visual eval)${marker}\033[0m${stale_note}"
+            echo -e "  Taste      ${color}${bar}\033[0m  ${TASTE_SCORE}/100  \033[2mUX, flows, delight (visual eval)\033[0m${stale_note}"
         else
             echo -e "  Taste      \033[2m░░░░░░░░░░░░░░░░░░░░\033[0m   —     \033[2mrun: rhino taste\033[0m"
         fi
@@ -831,11 +888,7 @@ EOF
             echo ""
         fi
 
-        # Overall
-        overall_color=$(dim_color "$local_min")
-        echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m"
-
-        # Readiness signals — what's unlocked at this score level
+        # Readiness signals
         if [[ "$SCORING_MODE" == "assertions" && -n "$PRODUCT" && "$PRODUCT" =~ ^[0-9]+$ ]]; then
             HAS_STRATEGY=false
             HAS_TODOS=false

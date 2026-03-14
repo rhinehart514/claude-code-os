@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# rhino — CLI for rhino-os v6
-# Measurement tools: score, taste, eval, status, config
+# rhino — CLI for rhino-os v7
+# Score = value, not health. Measurement tools: score, taste, eval, status, config
 
-VERSION="6.0.0"
+VERSION="7.0.0"
 _RHINO_SOURCE="${BASH_SOURCE[0]}"
 while [[ -L "$_RHINO_SOURCE" ]]; do
     _RHINO_SOURCE="$(readlink "$_RHINO_SOURCE")"
@@ -82,14 +82,21 @@ cmd_status() {
 
     # Last score
     if [[ -f ".claude/cache/score-cache.json" ]] && command -v jq &>/dev/null; then
-        local score warnings build struct hygiene
+        local score warnings mode a_count a_pass health_min
         score=$(jq -r '.score // "?"' .claude/cache/score-cache.json 2>/dev/null)
-        build=$(jq -r '.build // "?"' .claude/cache/score-cache.json 2>/dev/null)
-        struct=$(jq -r '.structure // "?"' .claude/cache/score-cache.json 2>/dev/null)
-        hygiene=$(jq -r '.hygiene // "?"' .claude/cache/score-cache.json 2>/dev/null)
+        mode=$(jq -r '.scoring_mode // "empty"' .claude/cache/score-cache.json 2>/dev/null)
+        a_count=$(jq -r '.assertion_count // 0' .claude/cache/score-cache.json 2>/dev/null)
+        a_pass=$(jq -r '.assertion_pass_count // 0' .claude/cache/score-cache.json 2>/dev/null)
+        health_min=$(jq -r '.health_min // "?"' .claude/cache/score-cache.json 2>/dev/null)
         warnings=$(jq -r '.integrity_warnings // [] | join(", ")' .claude/cache/score-cache.json 2>/dev/null)
         echo ""
-        echo -e "  ${DIM}score${NC}    ${BOLD}${score}/100${NC}  ${DIM}build ${build} · struct ${struct} · hygiene ${hygiene}${NC}"
+        if [[ "$mode" == "assertions" ]]; then
+            echo -e "  ${DIM}score${NC}    ${BOLD}${score}/100${NC}  ${DIM}${a_pass}/${a_count} assertions · health ${health_min}${NC}"
+        elif [[ "$mode" == "onboarding" ]]; then
+            echo -e "  ${DIM}score${NC}    ${BOLD}${score}/50${NC}   ${DIM}onboarding · health ${health_min}${NC}"
+        else
+            echo -e "  ${DIM}score${NC}    ${BOLD}${score}/100${NC}  ${DIM}no value hypothesis · health ${health_min}${NC}"
+        fi
         [[ -n "$warnings" ]] && echo -e "           ${YELLOW}⚠ ${warnings}${NC}"
     fi
 
@@ -122,6 +129,9 @@ cmd_config() {
     echo -e "  ${BOLD}Scoring${NC}"
     printf "    cache         %ss\n" "$(cfg scoring.cache_ttl 300)"
     printf "    build gate    %s\n" "$(cfg scoring.build.gate_threshold 70)"
+    printf "    health gate   %s\n" "$(cfg scoring.health_gate_threshold 20)"
+    printf "    health warn   %s\n" "$(cfg scoring.health_warn_threshold 40)"
+    printf "    onboard cap   %s\n" "$(cfg scoring.onboarding_cap 50)"
     echo ""
     echo -e "  ${BOLD}Taste${NC}"
     printf "    max routes    %s\n" "$(cfg taste.max_routes 8)"
@@ -171,6 +181,13 @@ cmd_bench() {
     echo ""
     echo -e "  ${DIM}For visual eval: rhino taste${NC}"
     echo ""
+}
+
+# ============================================================
+# FEATURE
+# ============================================================
+cmd_feature() {
+    bash "$RHINO_DIR/bin/feature.sh" "$@"
 }
 
 # ============================================================
@@ -243,30 +260,35 @@ cmd_eval() {
 cmd_help() {
     echo ""
     echo -e "  ${CYAN}◆${NC} ${BOLD}rhino${NC} ${DIM}v${VERSION}${NC}"
-    echo -e "  ${DIM}eyes, not rails${NC}"
+    echo -e "  ${DIM}score = value, not health${NC}"
     echo ""
     echo -e "  ${BOLD}Usage${NC}  rhino <command> [args...]"
     echo ""
-    echo -e "  ${BOLD}Measure${NC}"
-    echo -e "    score [dir]     ${DIM}Structural lint score${NC}"
-    echo -e "    taste [dir]     ${DIM}Visual product eval (Claude Vision)${NC}"
-    echo -e "    eval [dir]      ${DIM}Run belief evals${NC}"
-    echo -e "    bench [dir]     ${DIM}Benchmark card${NC}"
-    echo -e "    data [dir]      ${DIM}Learning data visualization${NC}"
+    echo -e "  ${BOLD}Features${NC}"
+    echo -e "    feature         ${DIM}List all features with pass rates${NC}"
+    echo -e "    feature <name>  ${DIM}View one feature's assertions${NC}"
+    echo -e "    feature detect  ${DIM}Auto-detect features from codebase${NC}"
     echo ""
-    echo -e "  ${BOLD}Plan${NC}"
-    echo -e "    plan [next|done] ${DIM}View/manage build plan${NC}"
-    echo -e "    todo [add|done]  ${DIM}Persistent backlog${NC}"
+    echo -e "  ${BOLD}Measure${NC}"
+    echo -e "    score [dir]     ${DIM}Value score (assertion pass rate + per-feature)${NC}"
+    echo -e "    eval [dir]      ${DIM}Run assertions (detailed output)${NC}"
+    echo -e "    taste [dir]     ${DIM}Visual product eval (Claude Vision)${NC}"
     echo ""
     echo -e "  ${BOLD}Build${NC}"
-    echo -e "    go [args]       ${DIM}Autonomous build loop${NC}"
+    echo -e "    plan            ${DIM}View/manage build plan${NC}"
+    echo -e "    todo            ${DIM}Persistent backlog${NC}"
+    echo -e "    test            ${DIM}Run test suites${NC}"
     echo ""
     echo -e "  ${BOLD}System${NC}"
     echo -e "    status          ${DIM}Health overview${NC}"
     echo -e "    self            ${DIM}Self-diagnostic${NC}"
-    echo -e "    test            ${DIM}Run test suites${NC}"
     echo -e "    config          ${DIM}Show configuration${NC}"
-    echo -e "    install         ${DIM}Install / update${NC}"
+    echo ""
+    echo -e "  ${BOLD}In Claude Code${NC}"
+    echo -e "    ${DIM}/plan [feature]    Plan work (scoped to feature)${NC}"
+    echo -e "    ${DIM}/go [feature]      Build autonomously (scoped to feature)${NC}"
+    echo -e "    ${DIM}/assert [feature]  Define what must be true${NC}"
+    echo -e "    ${DIM}/ship             Deploy${NC}"
     echo ""
 }
 
@@ -282,6 +304,7 @@ case "${1:-help}" in
     plan)       shift; cmd_plan "$@" ;;
     todo)       shift; cmd_todo "$@" ;;
     go)         shift; cmd_go "$@" ;;
+    feature|feat) shift; cmd_feature "$@" ;;
     self)       shift; cmd_self "$@" ;;
     test)       shift; cmd_test "$@" ;;
     status)     cmd_status ;;

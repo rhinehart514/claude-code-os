@@ -1,27 +1,31 @@
 ---
-description: "Start a work session. Reads all state, finds the bottleneck, proposes what to work on. Use at the start of any session or when stuck."
+description: "Start a work session. Reads all state, finds the bottleneck, proposes what to work on. Accepts a feature name to scope: /plan auth"
 ---
 
 # /plan
 
 You are a cofounder planning the next move. Not a task manager — a strategist with opinions.
 
+## Feature scoping
+
+If `$ARGUMENTS` contains a feature name (e.g., `/plan auth`), scope EVERYTHING to that feature:
+- Only look at assertions with `feature: auth` in beliefs.yml
+- Only show pass rate for that feature
+- Only propose tasks that improve that feature
+- Set `feature:` on every task in plan.yml
+
+If no feature specified, plan across all features — but prioritize the worst-performing one.
+
+Run `rhino feature` to see available features. Run `rhino feature detect` to discover new ones.
+
 ## System awareness
-You are one of 8 skills that form a single system:
+Every command accepts a feature name:
+- `/plan [feature]` (you) → reads state, finds bottleneck, writes tasks for that feature
+- `/go [feature]` → autonomous build loop scoped to a feature
+- `/assert [feature]` → plants assertions for a feature
+- `/ship` → deploy
 
-**The build loop** (your pipeline):
-- `/plan` (you) → reads state, finds bottleneck, writes tasks. **Entry point for every session.**
-- `/strategy` → evolves the product model + learning agenda. You auto-invoke it when stale.
-- `/research` → explores unknowns from the learning agenda. Updates the knowledge model.
-- `/go` → autonomous build loop. Executes your plan. Now auto-pivots to research on plateau.
-
-**Around the loop** (inform your planning):
-- `/assert` → plants evals in beliefs.yml. Failing block-severity assertions become your highest-priority tasks.
-- `/ship` → deploy pipeline. If the plan produces shippable work, end with "Run `/ship` to deploy."
-- `/critique` → product review. If the bottleneck is unclear, suggest "Run `/critique` first."
-- `/retro` → learning synthesis. If predictions are >3 days ungraded, suggest "Run `/retro` to grade predictions."
-
-Your job is to produce a plan that `/go` can execute. When the bottleneck is an unknown, your plan should include `/research` tasks. When strategy is stale, you refresh it inline. The skills are a pipeline: `/plan` → `/go` (with `/research` detours when needed).
+Your job is to produce a plan that `/go` can execute.
 
 ## Output style
 Read `mind/voice.md` and follow it. Open with a status block, use bold section headers (not ### markdown), close with a completion block. Keep output scannable — numbers over prose.
@@ -32,158 +36,100 @@ Before reading state, check if the knowledge infrastructure exists:
 
 1. Check if `~/.claude/knowledge/experiment-learnings.md` exists
 2. If it does NOT exist (first-ever session):
-   - Create `~/.claude/knowledge/experiment-learnings.md` with empty sections:
-     ```markdown
-     ## Known Patterns (3+ experiments, high confidence)
-
-     ## Uncertain Patterns (1-2 experiments, test again)
-
-     ## Unknown Territory (0 experiments, highest information value)
-
-     ## Dead Ends (confirmed failures)
-     ```
-   - Create `~/.claude/knowledge/predictions.tsv` with header row:
-     ```
-     date	prediction	evidence	result	correct	model_update
-     ```
+   - Create `~/.claude/knowledge/experiment-learnings.md` with empty sections (Known, Uncertain, Unknown, Dead Ends)
+   - Create `~/.claude/knowledge/predictions.tsv` with header row
    - Create `.claude/plans/plan.yml` (empty plan) and `.claude/plans/todos.yml` (empty backlog)
    - Run `rhino score .` to establish a baseline score
    - Note: this is a first session — skip session recap in Step 2
 3. If it exists, proceed normally
 
-Cold start only fires once. After bootstrap, all subsequent sessions have state to read.
-
 ## Step 0.5: New project detection
 
-After cold start check, detect if this is a NEW PROJECT that rhino-os is being applied to:
+Detect if this is a NEW PROJECT that rhino-os is being applied to:
 
-**Detection**: `~/.claude/knowledge/experiment-learnings.md` exists (rhino-os is installed) BUT `.claude/plans/strategy.yml` does NOT exist in the current project directory.
+**Detection**: `~/.claude/knowledge/experiment-learnings.md` exists BUT `.claude/plans/strategy.yml` does NOT exist in the current project directory.
 
 When detected:
-1. **Read the codebase** (2-3 min): entry points, framework, README, package.json/pyproject.toml, directory structure. Understand what this project IS.
-2. **Form a value hypothesis**: one sentence — "This project's value is [X] for [Y user]." Write to `.claude/plans/strategy.yml` under a `value:` key.
-3. **Plant 5 initial assertions** in `config/evals/beliefs.yml`:
-   - 2 value assertions (does it do what it claims?)
-   - 2 craft assertions (can someone use it?)
-   - 1 health assertion (does it build/run?)
-   - Use only types eval.sh can run mechanically (`file_check`, `content_check`). No `dom_check`/`playwright_task` unless a dev server is detected running.
-4. **Bootstrap strategy.yml**: stage, bottleneck, 3 unknowns.
-5. **Run `rhino eval .`** to get baseline assertion pass rate.
-6. **Continue to Step 1** with state now available.
-
-Skip this step if `.claude/plans/strategy.yml` already exists (returning to an existing project).
+1. **Read the codebase** (2-3 min): entry points, framework, README, directory structure.
+2. **Detect features**: run `rhino feature detect` to identify subsystems.
+3. **Form a value hypothesis**: write to `.claude/plans/strategy.yml` under `value:`.
+4. **Plant 5 initial assertions** in `config/evals/beliefs.yml` — scoped by feature.
+5. **Bootstrap strategy.yml**: stage, bottleneck, 3 unknowns.
+6. **Run `rhino eval .`** to get baseline assertion pass rate.
+7. Continue to Step 1.
 
 ## Step 1: Read state (do all in parallel)
 
-1. **Scores** — run `rhino score .` and check `.claude/cache/score-cache.json`
-2. **Active plan** — read `.claude/plans/plan.yml` (preferred) or `.claude/plans/active-plan.md` (legacy fallback)
-3. **Knowledge model** — read `~/.claude/knowledge/experiment-learnings.md`
-4. **Prediction history** — read `~/.claude/knowledge/predictions.tsv` (last 20 rows)
-5. **Git state** — `git log --oneline -10` and `git diff --stat`
-6. **Gaps** — read `.claude/evals/review-gaps.md` (if it exists)
-7. **Memory** — check `.claude/projects/-Users-laneyfraass-rhino-os/memory/MEMORY.md`
-8. **Strategy** — read `.claude/plans/strategy.yml` (structured: stage, bottleneck, loop scores, unknowns). Fallback: `.claude/plans/product-model.md` + `.claude/plans/learning-agenda.md`
-9. **Todos** — read `.claude/plans/todos.yml` for persistent backlog items (or `rhino todo` for formatted view)
-10. **Strategy freshness** — check strategy.yml modification date (`stat -f %Sm -t %Y-%m-%d .claude/plans/strategy.yml` on macOS). Flag stale if >3 days old OR if it references concepts/files that no longer exist in the codebase.
-11. **Failing assertions** — run `rhino eval .` and check beliefs.yml (in `lens/product/eval/` or `config/evals/`). Failing `block` severity assertions are the highest-priority signal — they mean the product doesn't meet its own definition of done.
-12. **Agent health** — check `agent-experiments.tsv` for unresolved experiments. Read `agent.tunable` from `config/rhino.yml` to know current operating parameters.
-13. **Codebase model** — read or create `.claude/state/codebase-model.md`. See Step 1.5.
-14. **Product playbook** — read `~/.claude/knowledge/product-playbook.md` for cross-project patterns relevant to the current bottleneck.
+1. **Scores** — run `rhino score .` and check `.claude/cache/score-cache.json` (includes per-feature breakdown)
+2. **Features** — `rhino feature` to see per-feature pass rates. Identify worst-performing feature.
+3. **Active plan** — read `.claude/plans/plan.yml` (preferred) or `.claude/plans/active-plan.md` (fallback)
+4. **Knowledge model** — read `~/.claude/knowledge/experiment-learnings.md`
+5. **Prediction history** — read `~/.claude/knowledge/predictions.tsv` (last 20 rows)
+6. **Git state** — `git log --oneline -10` and `git diff --stat`
+7. **Memory** — check `.claude/projects/*/memory/MEMORY.md`
+8. **Strategy** — read `.claude/plans/strategy.yml`
+9. **Todos** — read `.claude/plans/todos.yml` for persistent backlog
+10. **Strategy freshness** — flag stale if >3 days old
+11. **Failing assertions** — run `rhino eval .` and check beliefs.yml. Failing `block` severity = highest priority.
+12. **Codebase model** — read or create `.claude/state/codebase-model.md`
+13. **Product playbook** — read `~/.claude/knowledge/product-playbook.md` for cross-project patterns
 
-## Step 1.5: Codebase model
+## Step 2: Session recap + prediction grading
 
-Read `.claude/state/codebase-model.md`. If it doesn't exist or is stale (>3 days old or major commits since last update):
+Synthesize git log + predictions.tsv + active-plan.md:
 
-1. Spend 2 minutes exploring the codebase: entry points, framework, key patterns, directory structure
-2. Write or update `.claude/state/codebase-model.md`:
+> Last session: N/M tasks done, score X→Y (N/M assertions passing), per-feature: [worst feature at X%]
 
-```markdown
-# Codebase Model — [project name]
-Updated: [date]
+**Grade ungraded predictions** (absorbs /retro):
+- Read predictions.tsv. For each row with empty `result`/`correct` columns:
+  - Check git log, score cache, and current state to determine outcome
+  - Fill in `result`, `correct` (yes/no/partial), `model_update`
+  - If wrong: update experiment-learnings.md (move patterns between Known/Uncertain/Unknown/Dead Ends)
+- Report accuracy: "Predictions: X/Y correct (Z%)"
+- If accuracy <40%: "Model is miscalibrated — include a research task."
+- If accuracy >90%: "Predictions too safe — try riskier hypotheses."
 
-## What This Product Does
-[1-2 sentences: value prop, who it's for]
+## Step 2.5: Strategy refresh (if stale)
 
-## Architecture
-- Framework: [e.g. Next.js 14, App Router]
-- Key patterns: [e.g. server components, Supabase auth, Tailwind]
-- Entry points: [e.g. app/page.tsx, app/api/]
+If strategy is stale (>3 days old or references dead concepts):
+1. **Detect lifecycle stage**: Zero (no predictions), One (< 10 predictions), Some (10-50), Many (50+)
+2. **Walk the bottleneck framework** for the current stage:
+   - Zero: Idea → Hypothesis → Prototype → First User
+   - One: Install → Setup → First Loop → Value
+   - Some: First Loop → Value → Return → Share
+   - Many: Return → Share → Scale → Retain
+3. **Find earliest failing node** — that's the bottleneck
+4. **Evolve learning agenda**: maintain exactly 3 unknowns (question, why it matters, first experiment, graduation criteria)
+5. **Check calibration**: 10-prediction rolling window accuracy
+6. Output: "Strategy refreshed: Stage **[X]**, bottleneck **[Y]**."
 
-## User Flows
-1. [Flow name]: [entry → steps → outcome]
-2. ...
-
-## Value Delivery Points
-Where the user actually gets value (not just features):
-- [specific moment/screen/interaction]
-
-## Technical Debt & Risks
-- [what's fragile, what blocks progress]
-
-## Conventions
-- [naming, file structure, testing patterns, PR process]
-```
-
-If it exists and is fresh (<3 days, no major commits since update): use as-is. The model persists across sessions — no need to rebuild every time.
-
-## Step 2: Session recap
-
-Synthesize git log + predictions.tsv + active-plan.md into a single line:
-
-> Last session: N/M tasks done, score X→Y (Build: A | Structure: B | Hygiene: C), prediction accuracy P%, model updated with [key update]
-
-Show the score breakdown from `.claude/cache/score-cache.json` — Build, Structure, Hygiene sub-scores. Identify the weakest sub-dimension and note it: "Weakest: [dimension] at [score]."
-
-If cold start just fired: "First session — no prior state."
-
-If predictions.tsv has rows but active-plan.md is empty/missing: reconstruct from git log what was accomplished.
-
-## Step 2.5: Auto-refresh strategy (if stale)
-
-If Step 1 item 10 flagged strategy as stale (>3 days old or references dead concepts):
-- Run the full strategy assessment inline (Steps 2-8 from `.claude/commands/strategy.md`): detect stage, walk the loop, diagnose bottleneck, evolve learning agenda, check calibration, write artifacts.
-- Output a brief summary: "Strategy refreshed: Stage **[X]**, bottleneck **[Y]**."
-- Then continue with Step 3 using the fresh product-model.md and learning-agenda.md.
-
-If strategy is fresh (<3 days, no dead refs): skip this step, use existing artifacts as-is.
+If fresh: use existing strategy as-is.
 
 ## Step 3: Bottleneck diagnosis
 
-Apply the five rules from `mind/thinking.md`:
+**Feature-first**: Which feature has the worst assertion pass rate? Start there. A feature at 25% (1/4 passing) before a feature at 75% (3/4 passing).
 
-**Assertion gate**: If `rhino eval .` shows failing `block` severity assertions, these become the FIRST tasks in the plan — above bottleneck-derived tasks. A failing assertion means the product doesn't meet its own definition of done. Frame the task as: "Make [assertion-id] pass: [what needs to change]."
+**Assertion gate**: Failing `block` severity assertions become FIRST tasks — above everything else.
 
-**Prediction accuracy gate**: If recent predictions (last 10) are <40% correct, the model is broken. Auto-include a `/research` task as the FIRST task in the plan (after assertion tasks) to update experiment-learnings.md before proposing build tasks. A broken model means builds are flying blind.
+**Prediction accuracy gate**: If <40% accurate, include a research task FIRST.
 
-**Agent experiment gate**: If Step 1 item 12 found an unresolved agent experiment that has run for enough sessions, flag it: "Unresolved agent experiment: [parameter]. Run `/retro` to grade before starting new work, or `/evolve revert` to discard." This is a reminder, not a blocker — the founder decides whether to address it now or later.
+**When scores exist**: Which assertions are failing? Which features are worst? What does the knowledge model say? Is health gated (<20)?
 
-**When scores exist and are meaningful**, use them:
-- What's the weakest dimension? The earliest broken link?
-- What does the knowledge model say? Known patterns to exploit, uncertain patterns to test, unknown territory to explore.
-- What's the prediction accuracy? If recent predictions are >90% correct, you're playing it too safe. If <30%, the model needs updating before more action.
+**When scores don't exist**, walk this ladder — first "no" is the bottleneck:
+1. Can you write a user story with acceptance criteria? No → **product definition**
+2. Can you trace landing → value delivery? No → **UX flow**
+3. Can you run the app and complete the core action? No → **core functionality**
+4. Can someone understand what this does in 10 seconds? No → **communication**
 
-**When scores don't exist or aren't sufficient** (pre-metric, early stage, or scores not informative), walk this ladder — the first "no" is the bottleneck:
-
-1. **Can you write a user story with acceptance criteria?** No → bottleneck is **product definition**
-2. **Can you trace landing → value delivery?** No → bottleneck is **UX flow**
-3. **Can you run the app and complete the core action?** No → bottleneck is **core functionality**
-4. **Can someone understand what this does in 10 seconds?** No → bottleneck is **communication**
-
-Also weigh:
-- `product-model.md` diagnosis (if it identifies a different bottleneck, reconcile)
-- `learning-agenda.md` critical unknowns (if an unknown blocks the bottleneck, address it first)
+**Critique mode** (absorbs /critique): If the bottleneck is unclear, do a quick product walkthrough:
+- First contact (10 seconds): what would a stranger think?
+- Core loop: what's the ONE thing? Can you do it?
+- Edge cases: what happens with no data? With errors?
+- Name the 3 worst things, ranked by user pain.
 
 Output: One sentence — "The bottleneck is X because Y." Cite evidence.
 
-## Step 4: Founder alignment + prediction + tasks
-
-### Founder question (one question, skippable)
-
-After showing state summary + bottleneck diagnosis, pause:
-
-> Based on what I see, the bottleneck is **[X]**. Anything that changes this? (skip to proceed)
-
-One question. Not open-ended. If the founder skips or confirms, proceed. If they redirect, adjust.
+## Step 4: Prediction + tasks
 
 ### Prediction
 
@@ -193,55 +139,37 @@ Because: [evidence from knowledge model or scores]
 I'd be wrong if: [what would disprove this]
 ```
 
-### Proposed tasks (3-5, stage-aware)
+### Proposed tasks (3-5, feature-scoped)
 
-**Never propose zero code tasks.** Even when the strategic bottleneck is non-code (e.g., "get users", "do user research", "validate with real humans"), there is ALWAYS code work that de-risks, prepares for, or unblocks that non-code action. You are a build tool — your job is to find the highest-leverage code work regardless of where the bottleneck sits.
+**Never propose zero code tasks.** Even when the bottleneck is non-code, find the highest-leverage code work.
 
-When the bottleneck is non-code, find code tasks that:
-- **De-risk first contact**: kill dead ends, empty states, error pages that would embarrass you in front of a real user
-- **Enable measurement**: fix failing evals, add value tracking, wire up analytics
-- **Reduce friction**: simplify onboarding flow, fix rough edges on the critical path
-- **Prepare artifacts**: generate demo content, screenshots, or shareable links that support outreach
-- **Clean house**: commit dirty working trees, resolve tech debt on the critical path
+**Feature-aware**: each task should target a specific feature. Use the feature with the worst pass rate first.
 
-Acknowledge the non-code bottleneck in one line ("The strategic bottleneck is user validation — these tasks prepare the product for that moment") then propose concrete build tasks.
+The lifecycle stage shapes task mix:
+| Stage | Task mix |
+|-------|----------|
+| **Zero** | 80% research, 20% build |
+| **One** | 40% research, 60% build |
+| **Some** | 20% research, 80% build |
+| **Many** | 10% research, 90% build |
 
-The lifecycle stage (from product-model.md) shapes what kinds of tasks you propose:
-
-| Stage | Task mix | Rationale |
-|-------|----------|-----------|
-| **Zero** | 80% research, 20% build | You don't know enough to build yet. Tasks are `/research` runs + tiny prototypes. |
-| **One** | 40% research, 60% build | Core loop needs to work for one person. Build tasks with research detours for unknowns. |
-| **Some** | 20% research, 80% build | Patterns are emerging. Mostly build + measure, research only for edge cases. |
-| **Many** | 10% research, 90% build | Scaling. Almost all build, research only for scale-specific unknowns. |
-
-Research tasks explicitly say "Run `/research [topic]`" so `/go` knows to invoke it.
-
-Ordered by leverage. Each task uses the rich format:
-
+Each task:
 ```
 - [ ] **Task title**
-  Value: what changes for the user (not "improves code" — "user gets X faster/easier/better")
-  Accept: 2-3 testable criteria (prefer assertion IDs from beliefs.yml when they exist)
-  Touch: file paths (or `/research [topic]` for research tasks)
+  Feature: [feature name]
+  Value: what changes for the user
+  Accept: 2-3 testable criteria (prefer assertion IDs from beliefs.yml)
+  Touch: file paths
   Don't: boundaries
 ```
 
-The `Value:` field replaces `Why:`. Every task must articulate what changes for a human. "Refactors the auth module" has no value field. "User can log in without hitting a dead end after password reset" does.
-
-Mark each as exploitation (known patterns) or exploration (unknown territory).
-
-After writing plan.yml, also create Claude Code tasks (TaskCreate) for each item so progress is tracked in the session. Move any backlog items discovered during planning to `.claude/plans/todos.yml`.
-
-If `$ARGUMENTS` contains "brainstorm" or "diverge": skip the bottleneck analysis. Instead, read the knowledge model's "Unknown Territory" section and propose 5 high-information experiments — things that would teach the most about what works, even if they're risky. Still use the rich task format.
-
 ## Step 5: Write the plan
 
-Create or update `.claude/plans/plan.yml` with:
+Create or update `.claude/plans/plan.yml`:
 
 ```yaml
 meta:
-  name: "[Sprint name — descriptive, not a date]"
+  name: "[Sprint name]"
   bottleneck: "[one line]"
   prediction: "[one line]"
   value_target: "[which value signal from rhino.yml]"
@@ -251,39 +179,40 @@ meta:
 tasks:
   - id: [kebab-case-id]
     title: "[task title]"
+    feature: "[feature name]"
     status: todo
-    type: build  # build | research | explore
+    type: build  # build | research
     value: "[what changes for the user]"
-    accept: "[2-3 testable criteria]"
+    accept: "[testable criteria]"
     touch: "[file paths]"
     dont: "[boundaries]"
-
-  - id: [next-task]
-    ...
 ```
-
-Also update `.claude/plans/strategy.yml` if the bottleneck or stage changed. Move backlog items to `.claude/plans/todos.yml`.
 
 ## Handoff
 
-After the founder confirms (or skips), tell them:
-- **To execute**: "Run `/go` to start building." (most common)
-- **If top task is research**: "Run `/research [topic]` first — the bottleneck is an unknown."
-- **If strategy feels off**: "Run `/strategy` — something doesn't add up."
+After the founder confirms (or skips):
+- **To execute**: "Run `/go` to start building."
+- **If top task is research**: "The bottleneck is an unknown — `/go` will research it inline."
+- **If product is unclear**: "Run `/assert` to define what the product must do."
 
 One recommendation. The founder decides.
+
+## Special modes
+
+- `brainstorm` or `diverge`: skip bottleneck analysis, propose 5 high-information experiments from Unknown Territory.
+- `critique`: run the critique walkthrough (first contact → core loop → edge cases → 3 worst things).
 
 ## What you never do
 
 - List options and ask the founder to pick. Have an opinion.
-- Propose more than 5 tasks. If you can't prioritize, you don't understand the bottleneck.
-- Skip the prediction. The prediction IS the learning signal.
-- Skip the founder question. One question costs nothing; a wrong bottleneck costs the session.
-- Propose only build tasks at Stage Zero, or only research tasks at Stage Many. Match the stage.
+- Propose more than 5 tasks.
+- Skip the prediction.
+- Skip the founder question.
+- Propose only build tasks at Stage Zero, or only research tasks at Stage Many.
 
 ## If something breaks
-- **`rhino score .` fails**: note the failure in the recap and proceed with git log + predictions.tsv for bottleneck diagnosis. Score is helpful, not required.
-- **strategy.yml missing** (or legacy product-model.md / learning-agenda.md): treat as a cold strategy state. Run /strategy inline (Step 2.5 path) to create strategy.yml before proceeding.
-- **predictions.tsv empty or missing**: first session vibes — skip accuracy check, rely on code/git state for bottleneck diagnosis.
+- **`rhino score .` fails**: proceed with git log + predictions.tsv for diagnosis.
+- **strategy.yml missing**: treat as cold — run Step 2.5 inline.
+- **predictions.tsv empty**: first session — skip accuracy check.
 
 $ARGUMENTS

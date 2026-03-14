@@ -14,12 +14,24 @@ export RHINO_EVAL_DEPTH=$((RHINO_EVAL_DEPTH + 1))
 
 # --- Parse args ---
 SCORE_MODE=false
+BY_FEATURE=false
+FEATURE_FILTER=""
 POSITIONAL=""
 for arg in "$@"; do
     case "$arg" in
         --score) SCORE_MODE=true ;;
-        *) POSITIONAL="$arg" ;;
+        --by-feature) BY_FEATURE=true ;;
+        --feature=*) FEATURE_FILTER="${arg#--feature=}" ;;
+        --feature) ;; # next arg is the feature name, handled below
+        *)
+            if [[ "${prev_arg:-}" == "--feature" ]]; then
+                FEATURE_FILTER="$arg"
+            else
+                POSITIONAL="$arg"
+            fi
+            ;;
     esac
+    prev_arg="$arg"
 done
 
 PROJECT_ROOT="${POSITIONAL:-.}"
@@ -32,6 +44,9 @@ PASS=0
 WARN=0
 FAIL=0
 SCORE_PENALTY=0
+
+# Per-feature tracking (feature_name:pass:warn:fail accumulated as lines)
+FEATURE_RESULTS=""
 
 # --- Check functions ---
 
@@ -270,6 +285,14 @@ run_self_eval() {
 process_belief() {
     [[ -z "$belief_id" ]] && return
 
+    # Feature filter: skip beliefs that don't match
+    if [[ -n "$FEATURE_FILTER" && "$belief_feature" != "$FEATURE_FILTER" ]]; then
+        return
+    fi
+
+    # Track pre-counts to detect what this belief contributed
+    local _pre_pass=$PASS _pre_warn=$WARN _pre_fail=$FAIL
+
     case "$belief_type" in
         content_check)
             if [[ ${#forbidden_words[@]} -gt 0 && -n "$SRC_DIRS" ]]; then
@@ -389,6 +412,12 @@ process_belief() {
             fi
             ;;
     esac
+
+    # Track per-feature results
+    local _feat="${belief_feature:-unscoped}"
+    local _dp=$((PASS - _pre_pass)) _dw=$((WARN - _pre_warn)) _df=$((FAIL - _pre_fail))
+    FEATURE_RESULTS="${FEATURE_RESULTS}${_feat}:${_dp}:${_dw}:${_df}
+"
 }
 
 # === beliefs.yml checks ===
@@ -403,6 +432,7 @@ if [[ -f "$BELIEFS_FILE" ]]; then
     belief_metric=""
     belief_scenario=""
     belief_threshold=""
+    belief_feature=""
     in_forbidden=false
     forbidden_words=()
 
@@ -417,6 +447,7 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_metric=""
             belief_scenario=""
             belief_threshold=""
+            belief_feature=""
             in_forbidden=false
             forbidden_words=()
         fi
@@ -424,6 +455,11 @@ if [[ -f "$BELIEFS_FILE" ]]; then
         # Type
         if echo "$line" | grep -q '^\s*type:'; then
             belief_type=$(echo "$line" | sed 's/.*type: *//')
+        fi
+
+        # Feature
+        if echo "$line" | grep -q '^\s*feature:'; then
+            belief_feature=$(echo "$line" | sed 's/.*feature: *//')
         fi
 
         # Metric
@@ -470,14 +506,44 @@ if [[ -f "$BELIEFS_FILE" ]]; then
     process_belief
 fi
 
-# === --score mode: output single integer ===
+# === --score mode: output single integer (or per-feature JSON) ===
 if [[ "$SCORE_MODE" == "true" ]]; then
     TOTAL=$((PASS + WARN + FAIL))
-    if [[ "$TOTAL" -eq 0 ]]; then
-        # No assertions planted — output empty string (not 100)
-        echo ""
+
+    if [[ "$BY_FEATURE" == "true" ]]; then
+        # Aggregate per-feature results from FEATURE_RESULTS
+        # Use temp file approach (no associative arrays — bash 3 compat)
+        _bf_tmpdir=$(mktemp -d)
+        while IFS=: read -r _bf_name _bf_p _bf_w _bf_f; do
+            [[ -z "$_bf_name" ]] && continue
+            _bf_pp=0; _bf_pw=0; _bf_pf=0
+            if [[ -f "$_bf_tmpdir/$_bf_name" ]]; then
+                IFS=: read -r _bf_pp _bf_pw _bf_pf < "$_bf_tmpdir/$_bf_name"
+            fi
+            echo "$((_bf_pp + _bf_p)):$((_bf_pw + _bf_w)):$((_bf_pf + _bf_f))" > "$_bf_tmpdir/$_bf_name"
+        done <<< "$FEATURE_RESULTS"
+
+        # Output JSON
+        _bf_json="{"
+        _bf_first=true
+        for _bf_file in "$_bf_tmpdir"/*; do
+            [[ ! -f "$_bf_file" ]] && continue
+            _bf_fname=$(basename "$_bf_file")
+            IFS=: read -r _bf_p _bf_w _bf_f < "$_bf_file"
+            _bf_t=$((_bf_p + _bf_w + _bf_f))
+            $_bf_first || _bf_json+=","
+            _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t}"
+            _bf_first=false
+        done
+        _bf_json+="}"
+        rm -rf "$_bf_tmpdir"
+        echo "$_bf_json"
     else
-        echo $(( (PASS * 100 + WARN * 50) / TOTAL ))
+        if [[ "$TOTAL" -eq 0 ]]; then
+            echo ""
+        else
+            echo $(( (PASS * 100 + WARN * 50) / TOTAL ))
+        fi
     fi
     exit 0
 fi

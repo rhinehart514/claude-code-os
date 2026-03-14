@@ -29,13 +29,31 @@ fi
 # --- Last score + integrity ---
 SCORE_DISPLAY=""
 INTEGRITY_WARNINGS=""
+SCORING_MODE=""
+ASSERTION_COUNT=0
+ASSERTION_PASS_COUNT=0
+HEALTH_GATE=""
 SCORE_CACHE="$PROJECT_DIR/.claude/cache/score-cache.json"
 if [[ -f "$SCORE_CACHE" ]] && command -v jq &>/dev/null; then
     TOTAL=$(jq -r '.score // "?"' "$SCORE_CACHE" 2>/dev/null || echo "?")
-    BUILD=$(jq -r '.build // "?"' "$SCORE_CACHE" 2>/dev/null || echo "?")
-    STRUCT=$(jq -r '.structure // "?"' "$SCORE_CACHE" 2>/dev/null || echo "?")
-    HYGIENE=$(jq -r '.hygiene // "?"' "$SCORE_CACHE" 2>/dev/null || echo "?")
-    SCORE_DISPLAY="Score: ${TOTAL}/100 (Build:${BUILD} Struct:${STRUCT} Hygiene:${HYGIENE})"
+    SCORING_MODE=$(jq -r '.scoring_mode // "empty"' "$SCORE_CACHE" 2>/dev/null || echo "empty")
+    ASSERTION_COUNT=$(jq -r '.assertion_count // 0' "$SCORE_CACHE" 2>/dev/null || echo "0")
+    ASSERTION_PASS_COUNT=$(jq -r '.assertion_pass_count // 0' "$SCORE_CACHE" 2>/dev/null || echo "0")
+    HEALTH_GATE=$(jq -r '.health_gate // "PASS"' "$SCORE_CACHE" 2>/dev/null || echo "PASS")
+    HEALTH_MIN=$(jq -r '.health_min // "?"' "$SCORE_CACHE" 2>/dev/null || echo "?")
+
+    if [[ "$SCORING_MODE" == "assertions" ]]; then
+        SCORE_DISPLAY="Score: ${TOTAL}/100 (${ASSERTION_PASS_COUNT}/${ASSERTION_COUNT} assertions)"
+    elif [[ "$SCORING_MODE" == "onboarding" ]]; then
+        SCORE_DISPLAY="Score: ${TOTAL}/50 (onboarding)"
+    else
+        SCORE_DISPLAY="Score: ${TOTAL}/100"
+    fi
+
+    # Health gate status
+    if [[ "$HEALTH_GATE" == "FAIL" ]]; then
+        SCORE_DISPLAY="${SCORE_DISPLAY} [HEALTH GATE FAIL]"
+    fi
 
     # Surface integrity warnings
     WARNINGS_JSON=$(jq -r '.integrity_warnings // [] | .[]' "$SCORE_CACHE" 2>/dev/null || true)
@@ -196,12 +214,28 @@ echo ""
 
 # Score with bar
 if [[ -n "$SCORE_DISPLAY" ]]; then
-    SCORE_BAR=$(print_score_bar "$TOTAL")
+    if [[ "$SCORING_MODE" == "onboarding" ]]; then
+        SCORE_BAR=$(print_score_bar "$((TOTAL * 2))")  # scale 0-50 to 0-100 for bar
+    else
+        SCORE_BAR=$(print_score_bar "$TOTAL")
+    fi
     echo -e "  ${C_DIM}score${C_NC}       ${C_BOLD}${TOTAL}${C_NC}${C_DIM}/100${C_NC}  ${SCORE_BAR}"
-    BUILD_C=$(color_score "$BUILD")
-    STRUCT_C=$(color_score "$STRUCT")
-    HYGIENE_C=$(color_score "$HYGIENE")
-    echo -e "              ${C_DIM}build${C_NC} ${BUILD_C}  ${C_DIM}·${C_NC}  ${C_DIM}struct${C_NC} ${STRUCT_C}  ${C_DIM}·${C_NC}  ${C_DIM}hygiene${C_NC} ${HYGIENE_C}"
+    if [[ "$SCORING_MODE" == "assertions" ]]; then
+        local sub_line="              ${C_DIM}assertions${C_NC} ${ASSERTION_PASS_COUNT}/${ASSERTION_COUNT}  ${C_DIM}·${C_NC}  ${C_DIM}health${C_NC} $(color_score "$HEALTH_MIN")"
+        # Show worst feature if available
+        WORST_FEAT=""
+        if command -v jq &>/dev/null && [[ -f "$SCORE_CACHE" ]]; then
+            WORST_FEAT=$(jq -r '.features // {} | to_entries | map(select(.value.total > 0)) | sort_by(.value.pass / .value.total) | .[0] | "\(.key) \(.value.pass)/\(.value.total)"' "$SCORE_CACHE" 2>/dev/null || true)
+        fi
+        if [[ -n "$WORST_FEAT" && "$WORST_FEAT" != "null" && "$WORST_FEAT" != " " ]]; then
+            sub_line="${sub_line}  ${C_DIM}·${C_NC}  ${C_RED}▸${C_NC} ${WORST_FEAT}"
+        fi
+        echo -e "$sub_line"
+    elif [[ "$SCORING_MODE" == "onboarding" ]]; then
+        echo -e "              ${C_DIM}onboarding${C_NC}  ${C_DIM}·${C_NC}  ${C_DIM}health${C_NC} $(color_score "$HEALTH_MIN")"
+    else
+        echo -e "              ${C_DIM}no value hypothesis${C_NC}  ${C_DIM}·${C_NC}  ${C_DIM}health${C_NC} $(color_score "$HEALTH_MIN")"
+    fi
 else
     echo -e "  ${C_DIM}score${C_NC}       ${C_DIM}none yet — run${C_NC} rhino score ."
 fi

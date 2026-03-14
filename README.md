@@ -1,158 +1,181 @@
 # rhino-os
 
-An operating system for Claude Code that turns it into a cofounder — one that measures your product, learns what works, and proposes what to build next.
+An operating system for Claude Code that makes your product measurably better every session.
 
 Built on [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
 
 ---
 
-## What It Actually Does
+## The Idea
 
-Every time you open Claude Code, rhino-os boots and shows you where things stand:
+You define what your product must do. rhino-os measures whether it does. Every session, the score goes up or the change gets reverted.
 
-```
-  ◆ rhino-os
-
-  project  my-saas-app
-  score    75/100  build 100 · struct 90 · hygiene 75
-  plan     3 tasks remaining
-  next     ▸ Fix dead-end after onboarding flow
-  signals  Assertions: 8 planted · Predictions: 3/5 correct
-```
-
-Then you work. rhino-os gives Claude three measurement tools:
-
-**`rhino score .`** — Structural lint. Catches dead ends, empty states, `any` types, stale builds. Fast, free, every commit.
+The score is not code quality. It's not lint. **The score is the percentage of your assertions that pass.** You say "signup completes without errors" — that's an assertion. If 8 of 10 assertions pass, your score is 80.
 
 ```
-  Structure  ██████████████████░░  90/100
-  Hygiene    ███████████████░░░░░  75/100  ◀ weakest
+  score       60/100  ████████████░░░░░░░░
+              assertions 12/20  ·  health 90
+
+  signals     Assertions: 20 planted  ·  Predictions: 3/5 correct
 ```
 
-**`rhino taste`** — Visual eval. Playwright screenshots scored by Claude Vision across 11 dimensions (hierarchy, polish, breathing room, wayfinding...). Expensive, on demand.
+No assertions yet? The score is a **completion ratchet** (0-50) that rewards you for defining what value means: writing a hypothesis, adding signals, planting assertions. You can't score above 50 without saying what your product should do.
 
-**`rhino eval .`** — Belief evals. Mechanical assertions about what your product must do. "The signup flow completes without errors" is a belief. Failing a `block` severity belief stops the build.
+No value hypothesis at all? Score is 10. Honest.
 
-The measurements feed a learning loop: every action has a prediction, every prediction gets graded, wrong predictions update the model. Over sessions, Claude gets better at knowing what works for *your* product.
+---
+
+## How It Works
+
+Three layers, in order of what matters:
+
+### 1. Value (the score)
+
+You write assertions in `beliefs.yml` — mechanical checks that test whether your product works:
+
+```yaml
+- id: signup-completes
+  belief: "New user can sign up without hitting an error"
+  type: playwright_task
+  scenario: "Sign up as a new user"
+  severity: block
+```
+
+`rhino score .` runs them. The pass rate IS your score. The `/go` loop keeps changes that improve the pass rate, reverts changes that regress it.
+
+### 2. Health (a gate, not the score)
+
+Structure and hygiene (dead ends, `any` types, console.logs) are still checked. But they don't reduce your score — they gate it:
+
+- Health < 20 -> score = 0 (hard gate, like a build failure)
+- Health < 40 -> warning in output
+- Health >= 40 -> no effect on the number
+
+Fix your health issues, but don't confuse them with value.
+
+### 3. Craft (on demand)
+
+`rhino taste` — Claude Vision scores your UI across 11 dimensions. Expensive, run when visual quality matters.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Install
 git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
 cd ~/rhino-os && ./install.sh
 
-# Open any project in Claude Code
+# Open any project
 cd ~/your-project
 claude
 ```
 
-rhino-os boots automatically. Run `rhino score .` to get your first score.
+rhino-os boots automatically. Run `rhino score .` to get your first score. It'll be 10. That's correct — you haven't told it what your product should do yet.
+
+**Next steps:**
+1. Add `value.hypothesis` to `config/rhino.yml` (what does your product deliver?)
+2. Run `/assert` to plant assertions (what must be true?)
+3. Run `/go` to build toward passing them
 
 **Requirements:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with OAuth. macOS or Linux. Node 18+ for visual eval.
 
 ### What install.sh does
 
-The installer creates symlinks — it doesn't copy files or modify your project. Everything points back to `~/rhino-os/` so updates are just `git pull`.
+Symlinks only — no copies, no modifications. Updates are `git pull`.
 
 | What | Where | Why |
 |------|-------|-----|
 | Mind files | `~/.claude/rules/` | Always loaded by Claude Code as system context |
 | Hooks | `~/.claude/hooks/` | Boot card on session start |
 | CLI | `~/bin/rhino` | Terminal access to score, taste, eval |
-| Env var | `RHINO_DIR` in `.zshrc` | So scripts can find rhino-os |
-
-Your data (plans, predictions, knowledge) lives in `~/.claude/` and is never touched by install or uninstall.
 
 ### Uninstall
 
 ```bash
-cd ~/rhino-os && ./uninstall.sh        # remove all symlinks
-./uninstall.sh --check                  # dry run — see what would be removed
+cd ~/rhino-os && ./uninstall.sh
+./uninstall.sh --check   # dry run
 ```
 
 ---
 
-## The Slash Commands
+## The Commands
 
-Inside Claude Code, these drive the workflow:
+Every command accepts a feature name. Work on what you want, scoped to the part of the product you care about.
 
 | Command | What it does |
 |---------|-------------|
-| `/plan` | Start a session. Reads scores, git history, predictions. Finds the bottleneck. Writes 3-5 tasks. |
-| `/go` | Autonomous mode. Executes the plan — build, measure, learn, repeat. Karpathy NEVER STOP. |
-| `/research [topic]` | Explore unknown territory. Fills gaps in the knowledge model before building. |
-| `/strategy` | Evolve the product model. Auto-detects lifecycle stage, reassesses the bottleneck. |
-| `/assert` | Plant belief evals. Define what must be true about your product. |
-| `/critique` | Brutal product review. The cofounder who tells you what sucks. |
-| `/ship` | Commit, push, deploy, verify — one command. |
-| `/retro` | Weekly learning synthesis. Grade predictions, extract patterns. |
+| `/plan` | What should I work on? Finds the bottleneck, writes tasks. |
+| `/plan auth` | Same, but scoped to the auth feature. |
+| `/go` | Build it. Autonomous — keeps what passes, reverts what doesn't. |
+| `/go auth` | Build just auth. Only touches auth assertions and files. |
+| `/assert` | Define what must be true. Plants assertions. |
+| `/assert auth` | Define what auth must do. |
+| `/ship` | Commit, push, deploy, verify. |
 
-A typical session: `/plan` to see what matters, `/go` to build it, `/plan` again next time.
+**Terminal:**
+
+| Command | What it does |
+|---------|-------------|
+| `rhino feature` | List all features with pass rates. |
+| `rhino feature auth` | View auth's assertions (passing/failing). |
+| `rhino feature detect` | Auto-detect features from your codebase. |
+| `rhino score .` | The score. Assertion pass rate, per-feature breakdown. |
+
+A typical session: `/plan auth` -> `/go auth` -> `/plan` next time.
 
 ---
 
 ## The Learning System
 
-rhino-os learns across sessions. Here's what accumulates:
+Every action has a prediction. Wrong predictions update the model. Over sessions, Claude gets better at knowing what works for *your* product.
 
-**Predictions** (`~/.claude/knowledge/predictions.tsv`) — Every action has a prediction with evidence. Wrong predictions update the model. Target accuracy: 50-70% (too high = playing it safe, too low = broken model).
+- **Predictions** (`~/.claude/knowledge/predictions.tsv`) — logged with evidence, graded after measurement
+- **Knowledge model** (`~/.claude/knowledge/experiment-learnings.md`) — known patterns, uncertain patterns, unknown territory, dead ends
+- **Assertions** (`beliefs.yml`) — the definition of done, enforced mechanically
 
-**Knowledge model** (`~/.claude/knowledge/experiment-learnings.md`) — Known patterns, uncertain patterns, unknown territory, dead ends. This is the causal model of what makes your product better.
+You don't need to understand this to start. Run `/plan`, follow its lead.
 
-**Beliefs** (`lens/product/eval/beliefs.yml`) — Product assertions checked mechanically. "The dashboard loads in under 3 seconds" is a belief that gets enforced.
+---
 
-You don't need to understand any of this to start. Run `/plan`, follow its lead. The system reveals itself as you use it.
+## The Scoring Formula
+
+```
+if build fails:              score = 0
+elif health < 20:            score = 0  (health gate)
+elif assertions exist:       score = assertion pass rate (0-100)
+elif value hypothesis exists: score = completion ratchet (0-50)
+else:                        score = 10
+```
+
+One number. Measures what matters.
 
 ---
 
 ## CLI Reference
 
 ```
-  ◆ rhino v6.0.0
+  rhino v7.0.0
+
+  Features
+    feature [name]  List features or view one
+    feature detect  Auto-detect features from codebase
 
   Measure
-    score [dir]     Structural lint score
+    score [dir]     Value score (assertion pass rate + per-feature)
     taste [dir]     Visual product eval (Claude Vision)
-    eval [dir]      Run belief evals
-    bench [dir]     Benchmark card
-    data [dir]      Learning data visualization
+    eval [dir]      Run assertions (detailed output)
+    self            Self-diagnostic
 
   Build
     go [args]       Autonomous build loop
+    test            Run test suites
+    plan            View/manage plan tasks
+    todo            Persistent backlog
 
   System
     status          Health overview
-    self            Self-diagnostic
     config          Show configuration
-    install         Install / update
 ```
-
----
-
-## How It Works Under the Hood
-
-rhino-os is 4 mind files, 3 measurement tools, and 8 slash commands.
-
-**The mind** (`mind/`) — Not instructions. Identity. Three files tell Claude who it is, how to reason, and what quality means. Loaded automatically via `~/.claude/rules/` symlinks.
-
-| File | Purpose |
-|------|---------|
-| `identity.md` | Cofounder behavior — opinions, push-back, measurement habits |
-| `thinking.md` | Reasoning protocol — predict, cite evidence, update when wrong |
-| `standards.md` | Quality definition — UX checklist, anti-gaming, experiment discipline |
-
-**Anti-gaming** — Score manipulation is detected: cosmetic-only changes get flagged, 15+ point jumps trigger warnings, plateaus after 5 experiments suggest rethinking.
-
-**Experiment discipline** — One mutable file per experiment. 15-minute cap. Immutable eval harness. Mechanical keep/discard based on score delta.
-
----
-
-## Configuration
-
-Everything tunable in `config/rhino.yml`: scoring weights, taste dimensions, integrity ceilings, experiment rules. See current values with `rhino config`.
 
 ---
 
@@ -160,25 +183,27 @@ Everything tunable in `config/rhino.yml`: scoring weights, taste dimensions, int
 
 ```
 rhino-os/
-  mind/                    identity + reasoning (always loaded)
+  mind/                    identity + reasoning (always loaded via ~/.claude/rules/)
+    identity.md            cofounder behavior
+    thinking.md            predict -> measure -> update model
+    standards.md           what quality means (value > craft > health)
   bin/
     rhino                  CLI entrypoint
-    score.sh               structural lint (base engine)
-    eval.sh                belief eval runner
-    self.sh                self-diagnostic
-    data.sh                learning data visualization
-  .claude/commands/        slash commands (plan, go, strategy, etc.)
+    score.sh               THE score (assertion pass rate, health gate)
+    eval.sh                assertion runner
+    self.sh                4-system self-diagnostic
+    taste.mjs              visual eval via Claude Vision
+  .claude/commands/        slash commands (plan, go, assert, etc.)
   config/
-    rhino.yml              base tunables
-  hooks/                   session start boot card
+    rhino.yml              tunables + value hypothesis + signals
+  hooks/
+    session_start.sh       boot card
   lens/product/            product development lens
-    eval/taste.mjs         visual eval via Claude Vision
     eval/beliefs.yml       product assertions
-    scoring/               web-specific score extensions
-    mind/                  UX checklist, product measurement
-    commands/              assert, critique, ship, evolve
+    eval/taste.mjs         visual eval engine
+    scoring/               web-specific structure/hygiene extensions
     corpus/                taste reference database
-  docs/                    vision docs + screenshots
+  tests/                   mechanical tests for score, eval, self
 ```
 
 ---

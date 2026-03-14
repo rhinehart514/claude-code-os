@@ -37,9 +37,12 @@ value:
       target: "Qualitative — ask"
       measurable: false
 
-# ── Scoring (score.sh) — Health tier ───────────────
+# ── Scoring (score.sh) — Value, not health ────────
 scoring:
   cache_ttl: 300
+  health_gate_threshold: 20    # health < this → score = 0
+  health_warn_threshold: 40    # health < this → warning in output
+  onboarding_cap: 50           # max score without assertions
   build:
     ts_error_penalty: -30
     stale_build_penalty: -10
