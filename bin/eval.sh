@@ -1356,15 +1356,18 @@ if [[ "$SCORE_MODE" == "true" ]]; then
     rm -rf "$_bf_tmpdir"
 
     # Compute blended score:
-    # beliefs contribute: (PASS*100 + WARN*50) / BELIEFS_TOTAL
-    # generative contributes: GENERATIVE_SUM / GENERATIVE_COUNT
-    # Final = weighted average by count
+    # Generative evals (Claude judges value) weight 3x vs beliefs (file checks).
+    # This prevents easy-to-pass file_check beliefs from inflating the score.
+    # beliefs contribute: (PASS*100 + WARN*50) / BELIEFS_TOTAL  (weight: 1x per belief)
+    # generative contributes: GENERATIVE_SUM / GENERATIVE_COUNT  (weight: 3x per feature)
     _eval_score=""
-    _total_weight=$((BELIEFS_TOTAL + GENERATIVE_COUNT))
+    _gen_weight=$((GENERATIVE_COUNT * 3))
+    _total_weight=$((BELIEFS_TOTAL + _gen_weight))
     if [[ "$_total_weight" -gt 0 ]]; then
         _beliefs_points=0
         [[ "$BELIEFS_TOTAL" -gt 0 ]] && _beliefs_points=$(( PASS * 100 + WARN * 50 ))
-        _eval_score=$(( (_beliefs_points + GENERATIVE_SUM) / _total_weight ))
+        _gen_points=$((GENERATIVE_SUM * 3))
+        _eval_score=$(( (_beliefs_points + _gen_points) / _total_weight ))
     fi
 
     if [[ "$JSON_OUTPUT" == "true" ]]; then
@@ -1379,14 +1382,16 @@ fi
 
 # === Display (voice.md format) ===
 if [[ "$SCORE_MODE" != "true" ]]; then
-    # Compute blended score for display
+    # Compute blended score for display (same 3x weighting as --score mode)
     BELIEFS_TOTAL=$((PASS + WARN + FAIL))
     _display_score=""
-    _total_weight=$((BELIEFS_TOTAL + GENERATIVE_COUNT))
+    _gen_weight=$((GENERATIVE_COUNT * 3))
+    _total_weight=$((BELIEFS_TOTAL + _gen_weight))
     if [[ "$_total_weight" -gt 0 ]]; then
         _beliefs_points=0
         [[ "$BELIEFS_TOTAL" -gt 0 ]] && _beliefs_points=$(( PASS * 100 + WARN * 50 ))
-        _display_score=$(( (_beliefs_points + GENERATIVE_SUM) / _total_weight ))
+        _gen_points=$((GENERATIVE_SUM * 3))
+        _display_score=$(( (_beliefs_points + _gen_points) / _total_weight ))
     fi
 
     echo ""
@@ -1398,10 +1403,13 @@ if [[ "$SCORE_MODE" != "true" ]]; then
         echo -e "  ${DIM}eval${NC}  ${BOLD}${_display_score}/100${NC}  ${SCORE_BAR}"
         # Sub-line: feature count + belief count
         _sub_parts=""
-        [[ "$GENERATIVE_COUNT" -gt 0 ]] && _sub_parts="${GENERATIVE_COUNT} features"
+        if [[ "$GENERATIVE_COUNT" -gt 0 ]]; then
+            _gen_avg=$((GENERATIVE_SUM / GENERATIVE_COUNT))
+            _sub_parts="${GENERATIVE_COUNT} features (avg ${_gen_avg}, 3x weight)"
+        fi
         if [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
             [[ -n "$_sub_parts" ]] && _sub_parts="${_sub_parts}  ${DIM}·${NC}  "
-            _sub_parts="${_sub_parts}${PASS}/${BELIEFS_TOTAL} beliefs"
+            _sub_parts="${_sub_parts}${PASS}/${BELIEFS_TOTAL} beliefs (1x weight)"
         fi
         [[ -n "$_sub_parts" ]] && echo -e "        $_sub_parts"
     fi
