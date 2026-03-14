@@ -42,7 +42,7 @@ Parse `$ARGUMENTS`:
 
 Read the current state:
 1. `rhino feature` — what features exist, what's their state
-2. `~/.claude/knowledge/experiment-learnings.md` — Unknown Territory section
+2. `.claude/knowledge/experiment-learnings.md` — Unknown Territory section
 3. `config/rhino.yml` — value hypothesis, user definition
 4. Recent git history — what's been built recently
 5. Current scores if available (`rhino score .`)

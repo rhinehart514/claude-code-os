@@ -122,7 +122,9 @@ fi
 # --- Prediction accuracy (last 10) ---
 PRED_DISPLAY=""
 UNGRADED_COUNT=0
-PRED_FILE="$HOME/.claude/knowledge/predictions.tsv"
+# Project-local first, then global fallback
+PRED_FILE="$PROJECT_DIR/.claude/knowledge/predictions.tsv"
+[[ ! -f "$PRED_FILE" ]] && PRED_FILE="$HOME/.claude/knowledge/predictions.tsv"
 if [[ -f "$PRED_FILE" ]]; then
     PRED_COUNT=$(tail -n +2 "$PRED_FILE" | wc -l | tr -d ' ')
     if (( PRED_COUNT > 0 )); then
@@ -386,7 +388,8 @@ fi
 # 5. Knowledge model stale?
 if [[ -z "$SELF_REC" ]]; then
     KN_STALE=$(cfg self.knowledge_stale_days 14)
-    LEARNINGS="$HOME/.claude/knowledge/experiment-learnings.md"
+    LEARNINGS="$PROJECT_DIR/.claude/knowledge/experiment-learnings.md"
+    [[ ! -f "$LEARNINGS" ]] && LEARNINGS="$HOME/.claude/knowledge/experiment-learnings.md"
     if [[ -f "$LEARNINGS" ]]; then
         if [[ "$(uname)" == "Darwin" ]]; then
             KN_MTIME=$(stat -f %m "$LEARNINGS" 2>/dev/null || echo 0)

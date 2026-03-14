@@ -37,8 +37,8 @@ Before building, read:
 2. `rhino todo active` — promoted todos (founder's priority)
 3. `.claude/plans/strategy.yml` — current bottleneck, stage
 4. `.claude/plans/roadmap.yml` — current thesis (what we're trying to prove)
-5. `~/.claude/knowledge/experiment-learnings.md` — known patterns, dead ends to avoid
-6. `~/.claude/knowledge/predictions.tsv` — recent predictions (calibration)
+5. `.claude/knowledge/experiment-learnings.md` — known patterns, dead ends to avoid
+6. `.claude/knowledge/predictions.tsv` — recent predictions (calibration)
 7. `.claude/cache/score-cache.json` — per-feature scores (baseline)
 
 This context informs every prediction and decision in the loop.
@@ -59,7 +59,7 @@ I predict: [specific outcome]
 Because: [cite experiment-learnings.md or declare exploration]
 I'd be wrong if: [falsification condition]
 ```
-Log to `~/.claude/knowledge/predictions.tsv`.
+Log to `.claude/knowledge/predictions.tsv`.
 
 ### 3. Build
 Build the whole feature end-to-end. Any number of files. Follow `mind/standards.md`.

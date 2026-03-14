@@ -422,6 +422,17 @@ RHINO_SETTINGS='{
         ]
       }
     ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "'"$RHINO_DIR"'/hooks/pre_compact.sh"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -453,7 +464,7 @@ else
 fi
 
 # 3b-iv. Append to .gitignore
-GITIGNORE_ENTRIES=(".claude/rules/" ".claude/commands/" ".claude/settings.json")
+GITIGNORE_ENTRIES=(".claude/rules/" ".claude/commands/" ".claude/settings.json" ".claude/knowledge/" ".claude/cache/")
 if [[ ! -f .gitignore ]]; then
     printf '%s\n' "${GITIGNORE_ENTRIES[@]}" > .gitignore
 else
@@ -465,6 +476,38 @@ else
 fi
 
 echo -e "  ${GREEN}✓${NC} .claude/ scaffolding (rules, commands, hooks)"
+
+# ============================================================
+# Phase 3c: Create project-local knowledge files
+# ============================================================
+# Predictions and learnings should be per-project, not global
+mkdir -p .claude/knowledge
+
+if [[ ! -f ".claude/knowledge/predictions.tsv" ]]; then
+    printf "date\tagent\tprediction\tevidence\tresult\tcorrect\tmodel_update\n" > .claude/knowledge/predictions.tsv
+    echo -e "  ${GREEN}✓${NC} .claude/knowledge/predictions.tsv"
+fi
+
+if [[ ! -f ".claude/knowledge/experiment-learnings.md" ]]; then
+    cat > .claude/knowledge/experiment-learnings.md <<'LEARNINGS'
+# Experiment Learnings
+
+## Known Patterns (3+ experiments, high confidence)
+(none yet — build the model through predictions)
+
+## Uncertain Patterns (1-2 experiments, test again)
+(none yet)
+
+## Unknown Territory (0 experiments, highest information value)
+- What are the most impactful changes for this codebase?
+- What patterns does the codebase follow that scoring should respect?
+- What does "value" mean for this specific product?
+
+## Dead Ends (confirmed failures)
+(none yet)
+LEARNINGS
+    echo -e "  ${GREEN}✓${NC} .claude/knowledge/experiment-learnings.md"
+fi
 
 # ============================================================
 # Phase 4: Validate & Output

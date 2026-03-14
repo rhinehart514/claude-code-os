@@ -11,7 +11,7 @@ You are a cofounder doing research — filling gaps in the knowledge model so th
 Parse `$ARGUMENTS`:
 
 ### No arguments → pick the top unknown
-Read `~/.claude/knowledge/experiment-learnings.md`, find the **Unknown Territory** section. Pick the unknown with the highest information value (the one that, if answered, would change the most decisions).
+Read `.claude/knowledge/experiment-learnings.md`, find the **Unknown Territory** section. Pick the unknown with the highest information value (the one that, if answered, would change the most decisions).
 
 State what you're researching and why it's the top priority.
 
@@ -44,7 +44,7 @@ I predict: [what I expect to find]
 Because: [prior knowledge or "exploring unknown territory"]
 I'd be wrong if: [what would surprise me]
 ```
-Log to `~/.claude/knowledge/predictions.tsv`.
+Log to `.claude/knowledge/predictions.tsv`.
 
 ### 2. Investigation
 Use these tools in parallel where possible:
@@ -57,7 +57,7 @@ Use these tools in parallel where possible:
 Don't dump raw findings. Synthesize into the output format below.
 
 ### 4. Model update
-Write findings to `~/.claude/knowledge/experiment-learnings.md`:
+Write findings to `.claude/knowledge/experiment-learnings.md`:
 - New known pattern → add to Known Patterns with evidence
 - Hypothesis formed → add to Uncertain Patterns with "Needs:" line
 - New unknown discovered → add to Unknown Territory

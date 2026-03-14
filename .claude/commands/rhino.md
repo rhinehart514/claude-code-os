@@ -14,7 +14,7 @@ Run these simultaneously:
 2. `rhino feature` — features + pass rates
 3. `git log --oneline -5` — recent work
 4. TaskList — any active tasks
-5. `~/.claude/knowledge/predictions.tsv` — last 5 predictions (accuracy)
+5. `.claude/knowledge/predictions.tsv` — last 5 predictions (accuracy)
 6. `.claude/plans/plan.yml` — active plan (if exists)
 7. `.claude/plans/roadmap.yml` — current thesis + evidence progress
 8. `config/rhino.yml` — project stage, mode (build/ship), value hypothesis

@@ -54,8 +54,8 @@ Read these simultaneously:
 2. `rhino feature` — per-feature pass rates, identify worst
 3. `.claude/plans/plan.yml` — previous plan
 4. `rhino todo` — backlog items, active todos, feature tags
-5. `~/.claude/knowledge/experiment-learnings.md` — knowledge model
-6. `~/.claude/knowledge/predictions.tsv` — last 20 rows
+5. `.claude/knowledge/experiment-learnings.md` — knowledge model
+6. `.claude/knowledge/predictions.tsv` — last 20 rows
 7. `git log --oneline -10`
 8. TaskList — any existing tasks
 9. `.claude/plans/strategy.yml` — stage, bottleneck

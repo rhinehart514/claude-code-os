@@ -38,7 +38,7 @@ Parse `$ARGUMENTS`:
 
 ### No arguments → reflection + roadmap
 
-1. Read `.claude/plans/roadmap.yml`, `git log --oneline -10`, `~/.claude/knowledge/predictions.tsv`, `config/rhino.yml`
+1. Read `.claude/plans/roadmap.yml`, `git log --oneline -10`, `.claude/knowledge/predictions.tsv`, `config/rhino.yml`
 2. Write the reflection paragraph
 3. Show the version list
 4. One forward-looking thought — not a command, a question
@@ -53,7 +53,7 @@ Show the current version's evidence_needed. For each item:
 ### `ideate` → brainstorm future theses
 
 This is the creative space for what comes after the current version. Read:
-1. `~/.claude/knowledge/experiment-learnings.md` — Unknown Territory section
+1. `.claude/knowledge/experiment-learnings.md` — Unknown Territory section
 2. Current version's evidence — what did we learn?
 3. `config/rhino.yml` — value hypothesis, user definition
 

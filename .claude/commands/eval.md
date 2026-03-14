@@ -136,7 +136,7 @@ net: +6 across 2 features
 Before presenting results, read:
 1. `.claude/cache/score-cache.json` — previous feature scores (for delta/trends)
 2. `config/rhino.yml` — feature definitions (delivers/for/code)
-3. `~/.claude/knowledge/predictions.tsv` — last prediction (to check if eval confirms/denies it)
+3. `.claude/knowledge/predictions.tsv` — last prediction (to check if eval confirms/denies it)
 
 After presenting results:
 - If a prediction was about this feature, grade it inline
