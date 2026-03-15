@@ -23,7 +23,9 @@
 ## Uncertain Patterns (1-2 experiments, test again)
 
 - **Generative eval variance ~15 points.** Same feature scores differently on repeated runs. No temperature control, no rubric anchoring. Research confirmed 5 fixes exist (2026-03-14 research).
+  - Evidence: install.sh got real improvements (mind files + commands globally) but score dropped 62→58 in same session. Other features jumped +8-10 with no code changes.
   - Needs: Implement temperature=0 + rubric-anchored prompt and measure variance reduction.
+  - Boundary: Single-run feature scores are NOT reliable for keep/revert decisions. Only overall score (which blends many signals) is stable enough.
 
 - **Project-local vs global knowledge.** Just switched predictions.tsv and experiment-learnings.md from global to project-local. Unknown whether this improves or hurts cross-project learning.
   - Needs: Run 3+ sessions with project-local knowledge and compare prediction quality.

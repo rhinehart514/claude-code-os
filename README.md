@@ -1,8 +1,10 @@
 # rhino-os
 
-An operating system for Claude Code that makes your product measurably better every session.
+An operating system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic's AI coding agent for the terminal) that makes your product measurably better every session.
 
-Built on [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
+**What is Claude Code?** A CLI tool where you talk to Claude in your terminal and it reads, writes, and runs code. rhino-os gives Claude Code a brain — identity, memory, measurement, and a learning loop that compounds across sessions.
+
+Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
 
 ---
 
@@ -63,23 +65,27 @@ Fix your health issues, but don't confuse them with value.
 
 ## Quick Start
 
+**Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed. macOS or Linux.
+
 ```bash
+# 1. Install rhino-os (one time)
 git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
 cd ~/rhino-os && ./install.sh
+source ~/.zshrc  # or restart your terminal
 
-# Open any project
+# 2. Set up your project
 cd ~/your-project
-claude
+rhino init        # detects project, generates config + assertions
+
+# 3. Start improving
+claude            # rhino-os boots automatically
+/plan             # find the bottleneck
+/go               # autonomous build loop — keeps what passes, reverts what doesn't
 ```
 
-rhino-os boots automatically. Run `rhino score .` to get your first score. It'll be 10. That's correct — you haven't told it what your product should do yet.
+Your first score will be low. That's correct — you haven't told it what your product should do yet. `rhino init` generates assertions, then `/go` builds toward passing them.
 
-**Next steps:**
-1. Add `value.hypothesis` to `config/rhino.yml` (what does your product deliver?)
-2. Run `/eval` to see what's passing and what's not
-3. Run `/go` to build toward passing them
-
-**Requirements:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with OAuth. macOS or Linux. Node 18+ for visual eval.
+**Optional:** Node 18+ for visual eval (`rhino taste`).
 
 ### What install.sh does
 
