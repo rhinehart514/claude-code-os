@@ -2,6 +2,8 @@
 description: "Is my product good? The one measurement command. /eval runs assertions. /eval taste for visual. /eval auth scopes to a feature."
 ---
 
+!cat .claude/cache/score-cache.json 2>/dev/null | jq '{score, features: (.features | to_entries | map({key, score: .value.score}) | from_entries)}' 2>/dev/null || echo "no cache"
+
 # /eval
 
 The one measurement command. Answers: "Is my product good?"
@@ -19,6 +21,9 @@ Score (`rhino score .`) exists for CI/scripts. Don't surface it to the founder u
 ## Routing
 
 Parse `$ARGUMENTS`:
+
+### Feature status filter
+Only evaluate features with status `active` or `proven`. Skip `killed` and `archived` features. Missing `status:` field = `active` (include by default).
 
 ### No arguments → run assertions
 Run `rhino eval .` and present results grouped by feature. Show pass rate as the number.
@@ -138,8 +143,30 @@ Before presenting results, read:
 2. `config/rhino.yml` — feature definitions (delivers/for/code)
 3. `.claude/knowledge/predictions.tsv` — last prediction (to check if eval confirms/denies it)
 
-After presenting results:
-- If a prediction was about this feature, grade it inline
+After presenting results, auto-grade matching predictions:
+
+### Prediction auto-grading protocol
+1. Read `.claude/knowledge/predictions.tsv` (fall back to `~/.claude/knowledge/predictions.tsv`)
+2. Find rows where `correct` column (5th) is empty
+3. Match predictions that mention any feature just evaluated:
+   - Exact feature name match first (e.g., "scoring" in prediction text)
+   - Keyword fallback (feature's `delivers:` keywords)
+4. Grade matched predictions:
+   - "raise X from N to M" → compare against eval score
+   - "X will DELIVER" → check verdict for that feature
+   - "assertion [id] will pass" → check assertion result
+5. Fill in `result`, `correct` (yes/no/partial), and `model_update` columns
+6. Report inline after eval results:
+
+```
+▾ predictions graded
+  ✓ "scoring will reach 65+" → 62 (partial)
+  ✗ "auto-grade will work" → not implemented (no)
+    model update: auto-grading needs explicit build, not emergent
+```
+
+If no ungraded predictions match evaluated features, omit the section (no noise).
+
 - If results contradict experiment-learnings.md, flag it
 
 ## Tools to use

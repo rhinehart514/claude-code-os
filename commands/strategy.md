@@ -30,9 +30,10 @@ Update `bottleneck.name` and `bottleneck.description` in strategy.yml.
 2. `rhino score .` — overall score
 3. `rhino eval . --score --by-feature` — per-feature breakdown
 4. `rhino feature` — feature health
-5. `~/.claude/knowledge/predictions.tsv` — prediction accuracy
+5. `.claude/knowledge/predictions.tsv` — prediction accuracy (fall back to `~/.claude/knowledge/`)
 6. `.claude/plans/roadmap.yml` — thesis progress
 7. `.claude/scores/history.tsv` — score trend
+8. `config/rhino.yml` features section — maturity, weight, depends_on for each feature
 
 ### 2. Score loop health (1-5 each)
 For each loop stage, assess from evidence:
@@ -42,16 +43,24 @@ For each loop stage, assess from evidence:
 - **value**: Does the user get measurable improvement? (score trend, assertion graduation)
 - **return**: Does the user come back? (session continuity, plan freshness)
 
-### 3. Identify bottleneck
+### 3. Compute product completion
+From `config/rhino.yml` features, compute weighted product completion:
+- Map maturity to %: `planned`=0, `building`=33, `working`=66, `polished`=100
+- Product completion = sum(maturity% * weight) / sum(weight)
+- Feature bottleneck = lowest maturity% among highest-weight features (w:4+)
+
+### 4. Identify bottleneck
 The bottleneck is the earliest loop stage scoring ≤2/5. If multiple stages tie, pick the one that blocks downstream stages.
 
-### 4. Check graduation criteria
+Cross-reference with the product map: if the feature bottleneck (highest-weight, lowest-maturity feature) maps to a loop stage, that loop stage is the bottleneck regardless of its score.
+
+### 5. Check graduation criteria
 Read `graduation:` section from strategy.yml. For each criterion, check if it's met from current data.
 
-### 5. Surface unknowns
+### 6. Surface unknowns
 Read `unknowns:` section. Flag any that have been unresolved >30 days.
 
-### 6. Update strategy.yml (if refresh)
+### 7. Update strategy.yml (if refresh)
 Write updated loop scores, bottleneck, unknown status.
 
 ## Output format
@@ -61,6 +70,17 @@ Write updated loop scores, bottleneck, unknown status.
 
   stage: **one** — "core loop works for one person"
   bottleneck: **first-loop** — never proven end-to-end externally
+
+  product completion: **62%**
+
+  ▾ product map
+    scoring     w:5  ██████░░░░  working     66%
+    commands    w:5  ██████░░░░  working     66%
+    learning    w:4  ███░░░░░░░  building    33%  ← feature bottleneck
+    install     w:3  ██████████  polished   100%
+    docs        w:3  ██████░░░░  working     66%
+    self-diag   w:2  ██████░░░░  working     66%
+    todo        w:2  ██████░░░░  working     66%
 
   ▾ loop health
     install:    ███░░  3/5
@@ -88,6 +108,8 @@ Write updated loop scores, bottleneck, unknown status.
 
 **Formatting rules:**
 - Header: `◆ strategy`
+- Product completion: bold %, computed from weighted feature maturity
+- Product map: features sorted by weight desc, showing weight, maturity bar (10 chars), maturity label, %. ← feature bottleneck on lowest-maturity high-weight feature
 - Stage + bottleneck: bold names, em-dash descriptions
 - Loop health: bar graph (█ filled, ░ empty), N/5, ← bottleneck marker
 - Unknowns: ✓ resolved, ▸ high priority, · medium/low

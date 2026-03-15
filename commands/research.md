@@ -1,10 +1,24 @@
 ---
-description: "Explore unknown territory. /research picks the top unknown. /research auth digs into a feature. /research docs <lib> pulls real-time docs. /research site <url> analyzes a live site. /research claude-code maps extension points."
+description: "Gather evidence (HOW to decide). /research picks the top unknown. /research auth digs into a feature. /research docs <lib> pulls real-time docs. /research site <url> analyzes a live site. Produces findings, not ideas — use /ideate for brainstorming."
 ---
 
 # /research
 
 You are a cofounder doing research — filling gaps in the knowledge model so the next build session is smarter. This is the multi-source intelligence engine.
+
+## When to use this vs other commands
+
+Five commands touch ideas. They answer different questions:
+
+| Command | Role | Question |
+|---------|------|----------|
+| `/product` | **WHY** | Should this exist? Who cares? What assumptions are we making? |
+| `/ideate` | **WHAT** | What specific things should we build next? |
+| `/roadmap ideate` | **WHERE** | Where does the project go after this thesis? |
+| `/research` | **HOW** | What do we need to know before deciding? |
+| `/feature new` | **DO** | Commit to building a named feature. |
+
+Use `/research` when you need data before making a decision. It gathers evidence and updates the knowledge model — it does NOT generate ideas or make build recommendations. Research informs `/product` and `/ideate` decisions.
 
 ## Routing
 
@@ -21,20 +35,34 @@ Parse `$ARGUMENTS`:
 | `competitor <name>` | Competitive analysis | WebSearch + playwright + synthesis |
 
 ### No arguments → pick the top unknown
-Read `.claude/knowledge/experiment-learnings.md`, find the **Unknown Territory** section. Pick the unknown with the highest information value (the one that, if answered, would change the most decisions).
 
-State what you're researching and why it's the top priority.
+Read the product map first:
+1. `config/rhino.yml` — features with maturity, weight, depends_on
+2. Compute product completion % and identify the bottleneck
+3. `.claude/knowledge/experiment-learnings.md` (fall back to `~/.claude/knowledge/`) — Unknown Territory section
+
+**Priority ranking for unknowns:**
+- Unknowns that block the bottleneck feature → highest priority
+- Unknowns about `planned` or `building` features → high priority
+- Unknowns about features with high weight → higher than low weight
+- Unknowns in dependency chains → research upstream unknowns first
+
+Pick the unknown with the highest information value **relative to the product map** (the one that, if answered, would unblock the most product completion).
+
+State what you're researching, why it's the top priority, and what product completion would look like after this unknown is resolved.
 
 ### Feature name → research that feature
 `/research auth`, `/research scoring`
 
-Deep dive into the feature:
-1. Read all assertions for the feature (`rhino feature [name]`)
-2. Trace the codebase — find every file related to this feature (grep, imports, dependencies)
-3. Map what exists vs what's missing
-4. Pull library docs via context7 if the feature uses external frameworks
-5. WebSearch for best practices, competitor approaches, common patterns
-6. Update experiment-learnings.md with findings (under Uncertain Patterns or Unknown Territory)
+Deep dive into the feature, informed by the product map:
+1. Read the feature's maturity, weight, and dependencies from `config/rhino.yml`
+2. Read all assertions for the feature (`rhino feature [name]`)
+3. Trace the codebase — find every file related to this feature (grep, imports, dependencies)
+4. Map what exists vs what's missing **relative to the next maturity level** (what does this feature need to move from building → working? from working → polished?)
+5. Check what features depend on this one — research that unblocks downstream
+6. Pull library docs via context7 if the feature uses external frameworks
+7. WebSearch for best practices, competitor approaches, common patterns
+8. Update experiment-learnings.md with findings (under Uncertain Patterns or Unknown Territory)
 
 ### `docs <library>` → real-time library documentation
 `/research docs react`, `/research docs next.js`, `/research docs tailwind`
@@ -144,6 +172,9 @@ Write `~/.claude/cache/last-research.yml` so /plan can read it:
 date: YYYY-MM-DD
 topic: [what was researched]
 mode: [docs|site|feature|free-form|claude-code|competitor|top-unknown]
+product_completion: [current %]
+targets_feature: [feature name this research is about]
+targets_maturity: [what maturity transition this enables, e.g., "building → working"]
 findings:
   - finding: [one-line summary]
     source: [context7|web|playwright|codebase|knowledge]
@@ -152,6 +183,11 @@ suggested_tasks:
   - [task description for /plan to pick up]
 suggested_assertions:
   - [testable belief for beliefs.yml]
+suggested_maturity_updates:
+  - feature: [name]
+    from: [current maturity]
+    to: [suggested new maturity]
+    reason: [why this research justifies the update]
 model_updates:
   - section: [Known|Uncertain|Unknown|Dead Ends]
     entry: [what was added/changed]
@@ -165,8 +201,10 @@ Fill in the prediction result in predictions.tsv. Was I right? What did I learn?
 ```
 ◆ research — [topic or feature name]
 
+  product: **64%** · bottleneck: **[name]** ([maturity], w:[N])
   predict: [what I expected to find]
   because: [evidence or "unknown territory"]
+  targeting: [what this research unblocks — e.g., "deploy: planned → building"]
   sources: [context7, web, codebase, playwright — which were used]
 
 ▾ findings
@@ -182,6 +220,8 @@ Fill in the prediction result in predictions.tsv. Was I right? What did I learn?
 ▾ what this changes
   · [how the next build session should be different]
   · [what pattern was confirmed/denied]
+  · product: [current]% → [projected]% if suggested tasks are completed
+  · [feature]: [current maturity] → [next maturity] (if applicable)
 
 ▾ model update
   Known:     +1 pattern (or "no new patterns")

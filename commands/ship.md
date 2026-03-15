@@ -34,6 +34,10 @@ You are a cofounder handling the deploy. Check the work, ship it, verify it land
 - Check `git status` — flag untracked files, refuse .env/credentials
 - Check `git diff --stat` — flag large changesets
 - Check block-severity assertions — failing = ask before shipping
+- Read `config/rhino.yml` features section — check maturity of features being shipped:
+  - Any feature at `planned` or `building` maturity → warn: "**[feature]** is still [maturity] — not ready to ship"
+  - Check `depends_on`: if any upstream dependency is at `planned` or `building` → warn: "**[feature]** depends on **[dep]** which is still [maturity]"
+  - Compute product completion % and version completion % for ship summary
 
 ### 2. Stage and commit
 - Stage relevant files (never `git add -A` blindly)
@@ -64,8 +68,16 @@ Append to `.claude/changelog.md` (created on first /ship if it doesn't exist)
   files: 7 changed, 2 new
   assertions: 25/31 passing (no block failures)
   secrets: none detected
+  product: **62%** complete
+  version: **v7.2** — 40% of thesis proven
 
-  ✓ clear to ship
+  ▾ feature maturity
+    ✓ scoring     w:5  working
+    ✓ commands    w:5  working
+    ⚠ learning    w:4  building — not ready to ship
+    ✓ install     w:3  polished
+
+  ⚠ learning is still building — ship anyway?
 ```
 
 ### Pre-flight with issues:
@@ -91,6 +103,7 @@ Append to `.claude/changelog.md` (created on first /ship if it doesn't exist)
   `a1b2c3d` feat: score reasons — show why each dimension scored what it did
 
   score: 92 → 92 (stable)
+  product: **62%** complete · version: **v7.2** — 40% proven
   branch: main → origin/main
   deploy: vercel — building (polling every 2m)
 

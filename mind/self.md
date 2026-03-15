@@ -11,12 +11,15 @@ How rhino-os itself is performing. Updated from real data, not guesses.
 - `rhino self` — 4-system self-diagnostic. Status: operational.
 
 ### Commands (the product surface)
-9 slash commands, each with explicit output templates and state awareness:
-/plan, /go, /eval, /feature, /ideate, /research, /roadmap, /rhino, /ship
+17 slash commands, each with explicit output templates and state awareness:
+/plan, /go, /eval, /feature, /init, /ship, /ideate, /research, /roadmap, /rhino, /assert, /clone, /retro, /skill, /strategy, /todo, /product
+
+### Agents
+4 custom agents in agents/: measurer, explorer, builder, reviewer
 
 ### Intelligence Layer
-- **Symlinks**: mind/ files loaded via .claude/rules/ on every conversation
-- **Hooks**: session_start (boot card), post_edit (quality checks), post_skill (YAML validation), pre_compact (context recovery)
+- **Symlinks**: mind/ files (identity, thinking, standards) loaded via .claude/rules/ on every conversation. self.md is project-local only — not symlinked globally to avoid contaminating other projects.
+- **Hooks**: 7 total — session_start (boot card), pre_compact (context recovery), post_edit (quality checks), post_skill (YAML validation), stop, post_commit, subagent_stop, pre_commit_check
 - **Learning loop**: predict → act → measure → update model → repeat
 
 ## Known Weaknesses
@@ -40,15 +43,50 @@ How rhino-os itself is performing. Updated from real data, not guesses.
 
 - Does prediction accuracy actually correlate with product improvement?
 - Does the measurement stack catch regressions that matter to users, or just structural noise?
-- Can someone who isn't us complete a full loop (/init → /plan → /go → /eval) without getting stuck?
+- Can someone who isn't us complete the full /go loop without getting stuck? (init→score validated on commander.js 2026-03-15 at 80/100, /go loop untested)
 - Do the output templates in commands actually produce consistent output across different Claude models/sessions?
 - Does the pre_compact hook actually help context recovery, or is the compacted context already sufficient?
 
+## Product Completion Model
+
+rhino tracks product completion across multiple signals, not just score:
+
+**Feature maturity** (the primary signal):
+- `planned` (0%) → `building` (33%) → `working` (66%) → `polished` (100%)
+- Each feature has a `weight` (1-5) indicating importance to the value hypothesis
+- Product completion = weighted average of feature maturities
+- Auto-detected from assertions + code, or manually set in rhino.yml
+
+**Completion signals** (all aggregated in /rhino dashboard):
+- Feature maturity × weight → product completion %
+- Assertion pass rate → value delivery %
+- Todo done/total → backlog clearance %
+- Plan tasks completed/total → session momentum %
+- Roadmap evidence proven/total → thesis progress %
+- Prediction accuracy → model quality %
+
+**Dependency graph**: features can declare `depends_on: [other_feature]`. The bottleneck is always the lowest-maturity, highest-weight feature. Dependencies determine build order.
+
+**Visualization**: /rhino renders a product map with bars, weights, bottleneck markers, and dependency arrows. /plan includes a compact version.
+
+**Version completion cycle**: product completion is cumulative (features mature over time), but VERSION completion resets on each `/roadmap bump`. Each version thesis defines what "done" means — evidence items, relevant features, tagged todos. When version completion hits ~80%, rhino suggests bumping. After bump, new thesis starts, version completion drops, climb begins again. This creates the natural rhythm: define thesis → work → prove/disprove → next thesis.
+
+**Three-tier version lifecycle**:
+- `major` (v9.0) — New thesis. Big question. Resets version completion fully. Evidence: 4-5 items, weeks to prove.
+- `minor` (v8.1) — Significant improvement within current thesis. Resets partially. Evidence: 2-3 items, days-weeks.
+- `patch` (v8.0.1) — Bug fix, polish, incremental. No new question. Doesn't reset completion. Evidence: 0-1 items, hours-days. Can auto-suggest after /go fixes a regression.
+
+Bump auto-detection: thesis changed → major, new features/evidence → minor, assertions fixed/score improved → patch. `/roadmap bump` suggests tier, founder confirms.
+
 ## Calibration Data
 - Prediction accuracy: 63% (10/16 graded, with partials at 0.5). In target range (50-70%).
-- Score: 92/100 (25/31 assertions passing)
-- Worst feature: learning at 48/100
-- Best feature: commands at 70/100
+- Score: 50/100 (26/37 assertions, includes integration plan changes not yet stabilized)
+- Assertions: 38 planted, 26 passing
+- Health: 85
+- Worst features: commands 50, self-diagnostic 50, scoring 54
+- Best feature: docs at 73-76
+- External project (commander.js): 80/100 on first init (6 features, 8/10 assertions)
+- 5 large files >500 lines, 1 broken file reference, 19 TODO/FIXME markers
 
 ## What I Would Change About Myself
 - The learning feature should be the smartest part of the system. It's the worst.

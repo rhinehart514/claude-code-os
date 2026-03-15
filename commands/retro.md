@@ -2,6 +2,8 @@
 description: "What did we learn? Grade predictions, update the knowledge model, detect staleness. The command that closes the learning loop."
 ---
 
+!tail -n +2 .claude/knowledge/predictions.tsv 2>/dev/null | awk -F'\t' '$5 == "" { c++ } END { print c+0 " ungraded" }' || echo "0 ungraded"
+
 # /retro
 
 The command that closes the learning loop. Predictions without grading are noise — this turns them into signal.
@@ -23,11 +25,13 @@ Scan experiment-learnings.md for entries older than 30 days without new evidence
 
 ### 1. Read state (parallel)
 Read these simultaneously:
-1. `~/.claude/knowledge/predictions.tsv` — all predictions
-2. `~/.claude/knowledge/experiment-learnings.md` — knowledge model
+1. `.claude/knowledge/predictions.tsv` — all predictions (fall back to `~/.claude/knowledge/`)
+2. `.claude/knowledge/experiment-learnings.md` — knowledge model (fall back to `~/.claude/knowledge/`)
 3. `git log --oneline -20` — recent commits (evidence for grading)
 4. `.claude/scores/history.tsv` — score history (evidence for grading)
 5. `.claude/plans/strategy.yml` — unknowns that predictions might resolve
+6. `config/rhino.yml` features section — maturity, weight (for product completion context)
+7. `.claude/plans/todos.yml` — todo completion rate
 
 ### 1.5. Auto-grade with grade.sh (mechanical first pass)
 Run `bash bin/grade.sh` first. This mechanically grades any predictions with extractable directional claims (e.g., "raise X from N to M") by comparing against score-cache.json. Review the auto-grades for correctness. Then manually grade the remainder that grade.sh couldn't handle.
@@ -64,7 +68,14 @@ Scan experiment-learnings.md:
 2. Dead ends >60 days with no citations in predictions.tsv → move to `## Archived Dead Ends`
 3. Report: "N stale patterns — consider re-testing or archiving"
 
-### 6. Compute accuracy
+### 6. Check maturity transitions
+Review recent work and determine if any features should change maturity:
+- Feature with 100% assertion pass rate + tests → consider promoting to `polished`
+- Feature with >50% assertions passing → consider promoting to `working`
+- Feature that had code added since last retro → consider promoting from `planned` to `building`
+- Propose maturity updates in the output. Don't auto-write — let the founder confirm.
+
+### 7. Compute accuracy
 - Total graded predictions
 - Correct (yes=1, partial=0.5, no=0)
 - Accuracy = correct / total
@@ -74,6 +85,8 @@ Scan experiment-learnings.md:
 
 ```
 ◆ retro — N ungraded, M stale
+
+product: **64%** · score: 50 · todos: 8/14 done
 
 ▾ grading
   ✓ "prediction text" → outcome (yes)
@@ -91,6 +104,10 @@ trend: ↑ from 55% (improving)
 ▾ pruned
   · Moved "X" to Stale Patterns (no evidence in 35 days)
   · Archived "Y" from Dead Ends (60+ days, no citations)
+
+▾ maturity updates (proposed)
+  · scoring: working → polished (100% assertions, tests exist)
+  · deploy: planned → building (code added this session)
 
 ▾ model updates
   ▸ Move "X" from Uncertain → Known (3+ experiments now)
@@ -115,6 +132,7 @@ artifact: ~/.claude/cache/last-retro.yml (for /plan and /ideate)
 Write `~/.claude/cache/last-retro.yml` so /ideate and /plan can read it:
 ```yaml
 date: YYYY-MM-DD
+product_completion: 64
 accuracy: 63
 accuracy_trend: improving  # improving / stable / declining
 graded_count: 3
@@ -125,6 +143,11 @@ model_updates:
   - "Moved X from Uncertain → Known"
 unknowns_surfaced:
   - "new unknown from grading"
+maturity_proposals:
+  - feature: scoring
+    from: working
+    to: polished
+    reason: "100% assertions, tests exist"
 ```
 
 ## Tools to use

@@ -16,6 +16,7 @@ Format: `feature: belief text`
 Example: `/assert auth: users can log in`
 
 1. Parse feature name (before colon) and belief text (after colon)
+1b. Read `config/rhino.yml` features section. Check the feature's weight. If a w:5 feature has 0 existing assertions, flag it: "**[feature]** is weight 5 (critical) with no assertions — this belief is high priority."
 2. Auto-detect assertion type from the belief text:
    - Mentions a file path (contains `/` or `.sh` or `.ts` etc.) → `file_check`
    - Mentions "should contain" / "has" / "includes" → `content_check`
@@ -36,6 +37,7 @@ Example: `/assert auth: users can log in`
 Optionally scoped: `/assert list scoring`
 
 Read beliefs.yml, group by feature, show pass/fail status by running `rhino eval . --score --by-feature`.
+Also read `config/rhino.yml` for feature weights. Show weight next to each feature group header. Flag any w:4+ features with 0 assertions: "⚠ **[feature]** (w:[N]) has no assertions — high-weight features need coverage."
 
 ### `check [id]` → run single assertion
 Run `rhino eval . --no-generative` and grep for the specific assertion id in output.
@@ -62,7 +64,7 @@ Find and remove the belief block with matching id from beliefs.yml.
 ```
 ◆ assert — 25 beliefs across 6 features
 
-▾ scoring (6 beliefs)
+▾ scoring  w:5  (6 beliefs)
   ✓ score-runs
   ✓ value-hypothesis-exists
   ✓ value-hypothesis-defined
@@ -70,15 +72,17 @@ Find and remove the belief block with matching id from beliefs.yml.
   · score-not-stagnant
   ✓ score-has-history
 
-▾ learning (5 beliefs)
+▾ learning  w:4  (5 beliefs)
   ✓ knowledge-model-exists
   · predictions-logged
   ✗ learning-compounds
 
-▾ commands (3 beliefs)
+▾ commands  w:5  (3 beliefs)
   ✓ commands-have-descriptions
   ✓ plan-has-recovery
   ✓ go-has-recovery
+
+⚠ [feature]  w:4+  has no assertions — needs coverage
 
 /eval       run full assertions
 /assert scoring: score should trend up   add a new one
@@ -94,7 +98,7 @@ Find and remove the belief block with matching id from beliefs.yml.
 
 ## Tools to use
 
-**Use Read** to read beliefs.yml, rhino.yml (for feature code paths)
+**Use Read** to read beliefs.yml, rhino.yml (for feature code paths, maturity, weight)
 **Use Edit** to append new beliefs or remove existing ones from beliefs.yml
 **Use Bash** to run `rhino eval . --score --by-feature` for list mode
 

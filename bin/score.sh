@@ -39,7 +39,8 @@ set -uo pipefail
 # │        score = 10. Baseline for unconfigured projects.      │
 # │                                                             │
 # │  Output: single integer 0-100.                              │
-# │  Cache: .claude/cache/score-cache.json (5min TTL).          │
+# │  Cache: .claude/cache/score-cache.json (5min TTL,            │
+# │         auto-invalidated when source files change).          │
 # │  History: .claude/scores/history.tsv (append-only).         │
 # └─────────────────────────────────────────────────────────────┘
 #
@@ -148,8 +149,31 @@ CACHE_FILE="$CACHE_DIR/score-cache.json"
 CACHE_MAX_AGE=$(cfg scoring.cache_ttl 300)
 
 if [[ "$FORCE" != true && -f "$CACHE_FILE" ]]; then
-    cache_age=$(( $(date +%s) - $(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0) ))
-    if [[ "$cache_age" -lt "$CACHE_MAX_AGE" ]]; then
+    cache_mtime=$(stat -f %m "$CACHE_FILE" 2>/dev/null || stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)
+    cache_age=$(( $(date +%s) - cache_mtime ))
+
+    # Invalidate cache if any project file changed since the cache was written.
+    # Uses find to check for files newer than the cache in likely source dirs.
+    cache_stale=false
+    for _dir in bin src app commands config mind lens; do
+        if [[ -d "$_dir" ]]; then
+            if find "$_dir" -type f -newer "$CACHE_FILE" -print -quit 2>/dev/null | grep -q .; then
+                cache_stale=true
+                break
+            fi
+        fi
+    done
+    # Also check top-level config files
+    if [[ "$cache_stale" != true ]]; then
+        for _f in rhino.yml config/rhino.yml package.json tsconfig.json; do
+            if [[ -f "$_f" ]] && [[ $(stat -f %m "$_f" 2>/dev/null || stat -c %Y "$_f" 2>/dev/null || echo 0) -gt "$cache_mtime" ]]; then
+                cache_stale=true
+                break
+            fi
+        done
+    fi
+
+    if [[ "$cache_stale" != true && "$cache_age" -lt "$CACHE_MAX_AGE" ]]; then
         case "$OUTPUT_MODE" in
             quiet)
                 cached_score=$(jq -r '.score // empty' "$CACHE_FILE" 2>/dev/null)
@@ -607,7 +631,7 @@ if [[ "$ASSERTION_COUNT" -gt 0 ]]; then
     if [[ -n "$eval_json" ]] && command -v jq &>/dev/null; then
         eval_score=$(echo "$eval_json" | jq -r '.score // empty' 2>/dev/null) || eval_score=""
         ASSERTION_PASS_COUNT=$(echo "$eval_json" | jq -r '.pass // 0' 2>/dev/null) || ASSERTION_PASS_COUNT=0
-        ASSERTION_COUNT=$(echo "$eval_json" | jq -r '.total // 0' 2>/dev/null) || ASSERTION_COUNT=0
+        ASSERTION_COUNT=$(echo "$eval_json" | jq -r '.beliefs_total // 0' 2>/dev/null) || ASSERTION_COUNT=0
         FEATURES_JSON=$(echo "$eval_json" | jq -c '.features // {}' 2>/dev/null) || FEATURES_JSON="{}"
     else
         eval_score=""
@@ -645,7 +669,7 @@ else
 fi
 
 if [[ "$SCORING_MODE" == "assertions" ]]; then
-    stop_spinner "value: $PRODUCT/100 ($ASSERTION_PASS_COUNT/$ASSERTION_COUNT assertions)"
+    stop_spinner "value: $PRODUCT/100 ($ASSERTION_PASS_COUNT/$ASSERTION_COUNT beliefs)"
 elif [[ "$SCORING_MODE" == "onboarding" ]]; then
     stop_spinner "value: $PRODUCT/$(cfg scoring.onboarding_cap 50) (onboarding)"
 else
@@ -910,102 +934,73 @@ EOF
         # Score display — depends on scoring mode
         overall_color=$(dim_color "$local_min")
         score_trend=$(trend_for score "$local_min" 5)
+        # Get previous score for "was X" display
+        prev_score_val=""
+        if [[ -f "$HISTORY_FILE" ]] && [[ $(wc -l < "$HISTORY_FILE" | tr -d ' ') -ge 3 ]]; then
+            prev_score_val=$(tail -2 "$HISTORY_FILE" | head -1 | cut -f5)
+        fi
         # Format delta with color: green for up, red for down, dim for unchanged
         score_delta_display=""
         if [[ "$score_trend" == ↑* ]]; then
             score_delta_display=" \033[0;32m$score_trend\033[0m"
+            [[ -n "$prev_score_val" && "$prev_score_val" =~ ^[0-9]+$ ]] && score_delta_display="$score_delta_display \033[2mfrom $prev_score_val\033[0m"
         elif [[ "$score_trend" == ↓* ]]; then
             score_delta_display=" \033[0;31m$score_trend\033[0m"
+            [[ -n "$prev_score_val" && "$prev_score_val" =~ ^[0-9]+$ ]] && score_delta_display="$score_delta_display \033[2mfrom $prev_score_val\033[0m"
         elif [[ "$score_trend" != "·" ]]; then
             score_delta_display=" \033[2m$score_trend\033[0m"
         fi
 
         if [[ "$SCORING_MODE" == "assertions" ]]; then
             bar=$(make_bar "$local_min")
-            echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m${score_delta_display}  ${overall_color}${bar}\033[0m  \033[2m($ASSERTION_PASS_COUNT/$ASSERTION_COUNT assertions passing)\033[0m"
+            echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m${score_delta_display}  ${overall_color}${bar}\033[0m  \033[2m(${ASSERTION_PASS_COUNT}/${ASSERTION_COUNT} beliefs)\033[0m"
 
-            # Per-feature breakdown with quality sub-lines
+            # Per-feature breakdown — score + top gap
             if [[ -n "$FEATURES_JSON" && "$FEATURES_JSON" != "{}" ]] && command -v jq &>/dev/null; then
                 echo ""
-                # Handle both beliefs features (pass/total) and generative features (score)
+                # Sort by score ascending (worst first)
                 jq -r 'to_entries | sort_by(
-                    if .value.type == "generative" then .value.score / 100
-                    else .value.pass / (.value.total + 0.001)
+                    if .value.type == "generative" then .value.score
+                    else (.value.pass / (.value.total + 0.001)) * 100
                     end
                 ) | .[] | .key' <<< "$FEATURES_JSON" 2>/dev/null | while read -r fname; do
                     [[ -z "$fname" ]] && continue
                     ftype=$(jq -r ".\"$fname\".type // \"beliefs\"" <<< "$FEATURES_JSON" 2>/dev/null)
+
                     if [[ "$ftype" == "generative" ]]; then
                         fscore=$(jq -r ".\"$fname\".score // 0" <<< "$FEATURES_JSON" 2>/dev/null)
-                        fpct="$fscore"
-                        fbar=$(make_bar "$fpct")
-                        fcolor=$(dim_color "$fpct")
-                        fdelta=""
-                        if [[ -n "$PREV_FEATURES_JSON" && "$PREV_FEATURES_JSON" != "{}" ]]; then
-                            prev_score=$(echo "$PREV_FEATURES_JSON" | jq -r ".\"$fname\".score // empty" 2>/dev/null)
-                            if [[ -n "$prev_score" && "$prev_score" =~ ^[0-9]+$ ]]; then
-                                change=$((fscore - prev_score))
-                                if [[ "$change" -gt 0 ]]; then
-                                    fdelta="  \033[0;32m↑${change}\033[0m"
-                                elif [[ "$change" -lt 0 ]]; then
-                                    fdelta="  \033[0;31m↓$((change * -1))\033[0m"
-                                fi
-                            fi
-                        fi
-                        printf "  %-16s ${fcolor}${fbar}\033[0m  %s/100${fdelta}\n" "$fname" "$fpct"
-                        # Quality sub-lines (also for generative features that have belief data)
-                        _has_quality=$(jq -r ".\"$fname\".quality // empty" <<< "$FEATURES_JSON" 2>/dev/null)
-                        if [[ -n "$_has_quality" && "$_has_quality" != "null" ]]; then
-                            _qline="    "
-                            for _qdim in correctness craft completeness; do
-                                _qpass=$(jq -r ".\"$fname\".quality.\"$_qdim\".pass // empty" <<< "$FEATURES_JSON" 2>/dev/null)
-                                _qtotal=$(jq -r ".\"$fname\".quality.\"$_qdim\".total // empty" <<< "$FEATURES_JSON" 2>/dev/null)
-                                if [[ -n "$_qpass" && -n "$_qtotal" && "$_qtotal" != "0" ]]; then
-                                    if [[ "$_qpass" -eq "$_qtotal" ]]; then _qc="\033[0;32m"
-                                    elif [[ $((_qpass * 100 / _qtotal)) -ge 50 ]]; then _qc="\033[1;33m"
-                                    else _qc="\033[0;31m"
-                                    fi
-                                    _qline+="\033[2m${_qdim}\033[0m ${_qc}${_qpass}/${_qtotal}\033[0m  "
-                                fi
-                            done
-                            echo -e "$_qline"
-                        fi
                     else
                         fpass=$(jq -r ".\"$fname\".pass // 0" <<< "$FEATURES_JSON" 2>/dev/null)
                         ftotal=$(jq -r ".\"$fname\".total // 0" <<< "$FEATURES_JSON" 2>/dev/null)
-                        fpct=0
-                        [[ "$ftotal" -gt 0 ]] && fpct=$((fpass * 100 / ftotal))
-                        fbar=$(make_bar "$fpct")
-                        fcolor=$(dim_color "$fpct")
-                        fdelta=""
-                        if [[ -n "$PREV_FEATURES_JSON" && "$PREV_FEATURES_JSON" != "{}" ]]; then
-                            prev_pass=$(echo "$PREV_FEATURES_JSON" | jq -r ".\"$fname\".pass // empty" 2>/dev/null)
-                            if [[ -n "$prev_pass" && "$prev_pass" =~ ^[0-9]+$ ]]; then
-                                change=$((fpass - prev_pass))
-                                if [[ "$change" -gt 0 ]]; then
-                                    fdelta="  \033[0;32m+${change}\033[0m"
-                                elif [[ "$change" -lt 0 ]]; then
-                                    fdelta="  \033[0;31m${change}\033[0m"
-                                fi
+                        fscore=0
+                        [[ "$ftotal" -gt 0 ]] && fscore=$((fpass * 100 / ftotal))
+                    fi
+
+                    fcolor=$(dim_color "$fscore")
+                    fbar=$(make_bar "$fscore")
+
+                    # Delta from previous
+                    fdelta=""
+                    if [[ -n "$PREV_FEATURES_JSON" && "$PREV_FEATURES_JSON" != "{}" ]]; then
+                        prev_score=$(echo "$PREV_FEATURES_JSON" | jq -r ".\"$fname\".score // empty" 2>/dev/null)
+                        if [[ -n "$prev_score" && "$prev_score" =~ ^[0-9]+$ ]]; then
+                            change=$((fscore - prev_score))
+                            if [[ "$change" -gt 0 ]]; then
+                                fdelta="  \033[0;32m↑${change}\033[0m"
+                            elif [[ "$change" -lt 0 ]]; then
+                                fdelta="  \033[0;31m↓$((change * -1))\033[0m"
                             fi
                         fi
-                        printf "  %-16s ${fcolor}${fbar}\033[0m  %s/%s${fdelta}\n" "$fname" "$fpass" "$ftotal"
-                        # Quality sub-lines
-                        _has_quality=$(jq -r ".\"$fname\".quality // empty" <<< "$FEATURES_JSON" 2>/dev/null)
-                        if [[ -n "$_has_quality" && "$_has_quality" != "null" ]]; then
-                            _qline="    "
-                            for _qdim in correctness craft completeness; do
-                                _qpass=$(jq -r ".\"$fname\".quality.\"$_qdim\".pass // empty" <<< "$FEATURES_JSON" 2>/dev/null)
-                                _qtotal=$(jq -r ".\"$fname\".quality.\"$_qdim\".total // empty" <<< "$FEATURES_JSON" 2>/dev/null)
-                                if [[ -n "$_qpass" && -n "$_qtotal" && "$_qtotal" != "0" ]]; then
-                                    if [[ "$_qpass" -eq "$_qtotal" ]]; then _qc="\033[0;32m"
-                                    elif [[ $((_qpass * 100 / _qtotal)) -ge 50 ]]; then _qc="\033[1;33m"
-                                    else _qc="\033[0;31m"
-                                    fi
-                                    _qline+="\033[2m${_qdim}\033[0m ${_qc}${_qpass}/${_qtotal}\033[0m  "
-                                fi
-                            done
-                            echo -e "$_qline"
+                    fi
+
+                    printf "  %-16s ${fcolor}${fbar}\033[0m  %s${fdelta}\n" "$fname" "$fscore"
+
+                    # Show top gap from cached eval
+                    if [[ -f ".claude/cache/eval-cache.json" ]]; then
+                        _gap=$(jq -r ".\"$fname\".gaps[0] // empty" ".claude/cache/eval-cache.json" 2>/dev/null)
+                        if [[ -n "$_gap" && "$_gap" != "null" ]]; then
+                            [[ ${#_gap} -gt 60 ]] && _gap="${_gap:0:57}..."
+                            echo -e "    \033[2m${_gap}\033[0m"
                         fi
                     fi
                 done
@@ -1025,13 +1020,13 @@ EOF
 
             [[ "$has_hypothesis" == true ]] && echo -e "    \033[0;32m✓\033[0m value hypothesis defined" || echo -e "    \033[2m·\033[0m value hypothesis — what does the user get? (one sentence in rhino.yml)"
             [[ "$has_signals" == true ]] && echo -e "    \033[0;32m✓\033[0m value signals defined" || echo -e "    \033[2m·\033[0m value signals — how do you know it's working? (measurable proxies)"
-            local _ht=0; find . -maxdepth 4 -type f \( -name "*.test.*" -o -name "*.spec.*" \) ! -path "*/node_modules/*" 2>/dev/null | head -1 | grep -q . && _ht=1
+            _ht=0; find . -maxdepth 4 -type f \( -name "*.test.*" -o -name "*.spec.*" \) ! -path "*/node_modules/*" 2>/dev/null | head -1 | grep -q . && _ht=1
             [[ "$_ht" -eq 1 ]] && echo -e "    \033[0;32m✓\033[0m tests exist" || echo -e "    \033[2m·\033[0m tests — any test file (*.test.*, *.spec.*)"
             [[ "$has_beliefs" == true ]] && echo -e "    \033[0;32m✓\033[0m beliefs.yml exists" || echo -e "    \033[2m·\033[0m beliefs.yml — assertions about what must be true"
-            [[ "$has_belief_entries" == true ]] && echo -e "    \033[0;32m✓\033[0m assertions planted" || echo -e "    \033[2m·\033[0m assertions — run /init to generate from your project"
+            [[ "$has_belief_entries" == true ]] && echo -e "    \033[0;32m✓\033[0m assertions planted" || echo -e "    \033[2m·\033[0m assertions — add to config/evals/beliefs.yml"
             echo ""
             echo -e "  \033[2mScore is capped at ${onboarding_cap} until assertions are defined.\033[0m"
-            echo -e "  \033[2mAssertions measure what matters — run /init to set them up.\033[0m"
+            echo -e "  \033[2mAdd assertions to config/evals/beliefs.yml, or run /assert in Claude Code.\033[0m"
         else
             # Empty mode — no value hypothesis at all
             echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m${score_delta_display}  \033[2m(unconfigured)\033[0m"

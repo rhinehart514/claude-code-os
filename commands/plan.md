@@ -2,6 +2,9 @@
 description: "Start a work session. Reads all state, finds the bottleneck, proposes what to work on. Accepts a feature name to scope: /plan auth. Also captures tasks: /plan fix the login bug"
 ---
 
+!cat .claude/cache/score-cache.json 2>/dev/null | jq -r '.score // "?"' 2>/dev/null || echo "no score"
+!cat .claude/plans/plan.yml 2>/dev/null | head -20 || echo "no plan"
+
 # /plan
 
 You are a cofounder planning the next move. Not a task manager — a strategist with opinions.
@@ -54,25 +57,63 @@ Read these simultaneously:
 2. `rhino feature` — per-feature pass rates, identify worst
 3. `.claude/plans/plan.yml` — previous plan
 4. `rhino todo` — backlog items, active todos, feature tags
-5. `.claude/knowledge/experiment-learnings.md` — knowledge model
-6. `.claude/knowledge/predictions.tsv` — last 20 rows
+5. `.claude/knowledge/experiment-learnings.md` (fall back to `~/.claude/knowledge/`) — knowledge model
+6. `.claude/knowledge/predictions.tsv` (fall back to `~/.claude/knowledge/`) — last 20 rows
 7. `git log --oneline -10`
 8. TaskList — any existing tasks
 9. `.claude/plans/strategy.yml` — stage, bottleneck
-10. `~/.claude/cache/last-research.yml` — recent research findings (if exists). Incorporate suggested_tasks and findings into move proposals. Research-informed moves get priority.
+10. `config/rhino.yml` features section — maturity, weight, depends_on for completion map
+11. `~/.claude/cache/last-research.yml` — recent research findings (if exists). Incorporate suggested_tasks and findings into move proposals. Research-informed moves get priority.
+12. `.claude/plans/roadmap.yml` — current thesis, evidence_needed items and their status. Identify unproven evidence items for the current version.
+
+**Compute product completion** from the features:
+- Each feature: maturity_pct × weight (planned=0, building=33, working=66, polished=100)
+- Product completion = sum(maturity_pct × weight) / sum(100 × weight)
+- Bottleneck = lowest-maturity feature with highest weight
+
+**Compute version completion** from roadmap.yml:
+- Find the current version's `evidence_needed` items
+- Each item: proven=100%, partial=50%, todo=0%
+- Version completion = average of all evidence item percentages
+- Display as `v8.0: **43%**` in the plan header
 
 ### 3. Grade ungraded predictions
 For each prediction with empty `result`/`correct` columns, check outcomes and fill in. Report accuracy.
 
-### 4. Bottleneck diagnosis
-**Feature-first**: worst assertion pass rate = first priority.
+### 4. Research override
+If `~/.claude/cache/last-research.yml` exists AND `date:` is less than 24 hours old:
+- Surface findings between the state section and bottleneck in output
+- Use `suggested_tasks` from research as move 1 (or moves 1-2)
+- If findings contradict bottleneck diagnosis: "Research suggests [X] but scoring says [Y] — research takes priority (fresher evidence)"
+- Tag moves with `informed_by: research ([topic])`
+
+If `last-research.yml` is >24h old: mention in state section only ("last research: [topic] (N days ago)").
+
+If missing: no change to flow.
+
+Output section (insert between state and bottleneck):
+```
+▾ research — [topic] (N hours ago)
+  [key findings, 2-3 lines]
+  suggested: [task from research]
+```
+
+### 5. Bottleneck diagnosis
+**Layer-first**: find the lowest layer score (infrastructure/logic/ux) across all features. That layer in that feature = first priority.
+**Infrastructure gates**: if any feature has infrastructure < 3, its logic and ux are capped at 2. Fix infra first.
 **Assertion gate**: failing `block` severity = FIRST tasks.
 **Ladder** (when no scores): product definition → UX flow → core functionality → communication
 
-### 5. Founder alignment (use AskUserQuestion)
+### 6. Thesis-aware move generation
+**Version completion >80%**: if the current thesis is nearly proven, the FIRST recommendation should be `/roadmap bump` — define the next thesis before starting new work. Surface this prominently in the output.
+
+**Thesis-informed moves**: when proposing moves, check the current version's `evidence_needed` for `todo` or `partial` items. At least one move should directly advance an unproven evidence item. Tag these moves with `advances: [evidence_id]` (e.g., `advances: first-go`). Moves that advance the thesis AND fix the product bottleneck get highest priority.
+
+### 7. Founder alignment (use AskUserQuestion)
 Present your diagnosis with options. Surface relevant backlog items.
 
-### 6. Write moves (use TaskCreate)
+### 8. Write moves (use TaskCreate)
+Include `advances: [evidence_id]` on moves that target thesis evidence items.
 For each move (1-2 moves, not 3-5 tasks):
 - A move = feature-level intent with prediction + acceptance criteria tied to eval assertions
 - TaskCreate with title, description including feature name, acceptance criteria
@@ -82,10 +123,10 @@ For each move (1-2 moves, not 3-5 tasks):
 
 Also write `.claude/plans/plan.yml` as a snapshot.
 
-### 7. Exit plan mode
+### 9. Exit plan mode
 Call ExitPlanMode with the plan summary. User approves or adjusts.
 
-### 8. Output the plan
+### 10. Output the plan
 
 ## Output format
 
@@ -94,11 +135,19 @@ Always use this structure. Dense, scannable, opinionated.
 ```
 ◆ plan — [feature name or "full product"]
 
-score: **92** · features: 6 · predictions: 63% accurate (16 graded)
+v8.0: **43%** · product: **64%** · score: 92 · predictions: 63%
+thesis: "Someone who isn't us can complete a loop without help"
+evidence: install-clean ◐ · reach-plan ◐ · first-go · · return ·
 
-▾ state
-  worst: **learning** at 48/100
-  stale: 2 ungraded predictions (graded inline ↓)
+▾ product map
+  scoring    ████████████████████  polished  w:5
+  commands   ████████████░░░░░░░░  working   w:5
+  learning   ██████░░░░░░░░░░░░░░  building  w:4  ← bottleneck
+  install    ████████████████████  polished  w:3
+  docs       ████████████░░░░░░░░  working   w:3
+
+▾ signals
+  assertions 26/37  ·  todos 8/14 done  ·  plan 3/5 tasks
   previous plan: "Structured Plans + Todos" — all tasks done
   last 3 commits: [hash] [msg], [hash] [msg], [hash] [msg]
 
@@ -106,21 +155,22 @@ score: **92** · features: 6 · predictions: 63% accurate (16 graded)
   ✓ "trend_for() will raise scoring to 60+" → 58 (partial)
   ✗ "auto-grade will work without API" → not implemented (wrong)
 
-◆ bottleneck: **learning** — predictions log but never auto-grade
+◆ bottleneck: **learning** · layer: **logic** (score: 2/5)
 
   The learning feature claims "a model that gets smarter every session"
   but predictions.tsv has 16 entries with only 8 auto-graded. The knowledge
   model is append-only. No mechanism detects when learning stalls.
 
 ▸ move 1 — auto-grade predictions on session start
-  feature: learning
+  feature: learning · layer: logic
+  advances: first-go (thesis evidence: does /go produce improvement?)
   informed_by: "Predictions log but never grade" (Known — self.md)
-  predict: grading predictions mechanically will raise learning from 48 to 60+
+  predict: grading predictions mechanically will raise learning logic from 2 to 3
   accept: session_start hook grades predictions with filled result columns
   touch: hooks/session_start.sh, bin/self.sh
 
 ▸ move 2 — knowledge model pruning
-  feature: learning
+  feature: learning · layer: logic
   informed_by: "Knowledge model is append-only" (Known — self.md)
   predict: adding a staleness check will surface dead patterns
   accept: experiment-learnings.md entries older than 30 days get flagged
@@ -132,11 +182,14 @@ score: **92** · features: 6 · predictions: 63% accurate (16 graded)
 
 **Formatting rules:**
 - Header: `◆ plan — [scope]`
-- State bar: score, feature count, prediction accuracy — one line
+- State bar: `v[N]: **[pct]%**` version completion, product completion, score, prediction accuracy — one line
+- Thesis line: current thesis quoted, then evidence items with status markers (filled circle = proven, half circle = partial, empty dot = todo)
 - State section: collapsed, 4-5 lines max, worst feature bolded
 - Graded predictions: ✓/✗ prefix, quoted prediction, outcome
 - Bottleneck: `◆ bottleneck: **[name]**` — bold, with 2-3 sentence diagnosis
+- If version completion >80%: `◆ thesis nearly proven — recommend /roadmap bump` before moves
 - Moves: `▸ move N — [title]` with feature/informed_by/predict/accept/touch fields
+- `advances:` on moves that target a thesis evidence item (reference the evidence_needed id)
 - `informed_by:` cites the learning (from experiment-learnings.md or self.md) or declares "Exploring: [what this will teach us]"
 - Bottom: 2-3 relevant next commands
 

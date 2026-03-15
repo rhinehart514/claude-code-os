@@ -1,10 +1,26 @@
 ---
-description: "Brainstorm possibilities. /ideate generates product ideas. /ideate auth brainstorms for a feature. /ideate wild goes high-risk."
+description: "Brainstorm WHAT to build (feature-level ideas). /ideate generates build ideas. /ideate auth brainstorms for a feature. /ideate wild goes high-risk. For product direction, use /product. For thesis-level direction, use /roadmap ideate."
 ---
 
 # /ideate
 
-Creative divergence. Generate ideas, explore directions, imagine what could be. This is the opposite of /plan — no convergence, no tasks, no commitment. Just possibilities with enough detail to actually evaluate them.
+Creative divergence. Generate specific things to build — features, improvements, experiments. This is the opposite of /plan — no convergence, no tasks, no commitment. Just possibilities with enough detail to actually evaluate them.
+
+## When to use this vs other commands
+
+Five commands touch ideas. They answer different questions:
+
+| Command | Role | Question |
+|---------|------|----------|
+| `/product` | **WHY** | Should this exist? Who cares? What assumptions are we making? |
+| `/ideate` | **WHAT** | What specific things should we build next? |
+| `/roadmap ideate` | **WHERE** | Where does the project go after this thesis? |
+| `/research` | **HOW** | What do we need to know before deciding? |
+| `/feature new` | **DO** | Commit to building a named feature. |
+
+Use `/ideate` when direction is clear and you need concrete build ideas.
+If you're questioning product direction, use `/product`.
+If you're planning the next version thesis, use `/roadmap ideate`.
 
 ## Innovation Matrix
 
@@ -42,24 +58,51 @@ Parse `$ARGUMENTS`:
 
 Read the current state:
 1. `rhino feature` — what features exist, what's their state
-2. `.claude/knowledge/experiment-learnings.md` — Unknown Territory section
-3. `config/rhino.yml` — value hypothesis, user definition
+2. `.claude/knowledge/experiment-learnings.md` (fall back to `~/.claude/knowledge/`) — Unknown Territory section
+3. `config/rhino.yml` — value hypothesis, user definition, **feature maturity/weight/depends_on**
 4. Recent git history — what's been built recently
 5. Current scores if available (`rhino score .`)
 6. `~/.claude/cache/last-retro.yml` — recent retro findings (if exists). Avoid proposing ideas in Dead End territory. Use stale patterns as brainstorming seeds — stale patterns are underexplored, not disproven.
+7. `.claude/plans/todos.yml` — backlog items (ideas already captured but not built)
+8. `.claude/plans/plan.yml` — active plan tasks
+9. `.claude/plans/roadmap.yml` — current thesis and evidence_needed items. Identify `todo` and `partial` evidence items for the current version.
+
+**Compute the product map** before generating ideas:
+- Calculate product completion % from feature maturity × weight
+- Identify the bottleneck (lowest-maturity, highest-weight feature)
+- Identify `planned` features — these are the biggest opportunity for ideas
+- Identify dependency gaps — features that depend on incomplete features
+
+**Idea generation is informed by the product map:**
+- At least 1 idea must target the bottleneck feature or its dependencies
+- At least 1 idea must target a `planned` or `building` feature (not just polish)
+- Ideas that would move a feature from `building → working` get priority over `working → polished`
+- If product completion is <50%, bias toward Sustaining quadrant (proven patterns, high impact). If >70%, bias toward Radical/Disruptive (time to push boundaries).
+
+**Thesis-aware ideation:**
+- At least 1 of the 4 ideas MUST directly target an unproven (`todo` or `partial`) evidence item from the current thesis in roadmap.yml
+- Tag that idea with `advances: [evidence_id]` in the brief
+- Ideas that prove/disprove the thesis are higher value than ideas that just improve features — they decide what the NEXT version is about
 
 Generate **4 ideas**, one per quadrant.
+
+10. Count Unknown Territory entries in `experiment-learnings.md`. At least 1 of 4 ideas MUST target an Unknown Territory entry. Prefer the Radical quadrant for unknowns. Cite the specific entry.
 
 ### Feature name → feature-level ideation
 `/ideate auth`, `/ideate scoring`
 
-Focused brainstorm scoped to that feature. Read the feature's assertions, code, pass rate. Generate 4 ideas using the matrix.
+Focused brainstorm scoped to that feature:
+1. Read the feature's assertions, code, pass rate
+2. Read its maturity, weight, and dependencies from rhino.yml
+3. Check what depends ON this feature — ideas here unblock downstream
+4. Generate 4 ideas using the matrix, biased toward moving this feature to its next maturity level (e.g., building→working needs core functionality; working→polished needs edge cases and tests)
 
 ### `wild` → high-risk ideation
 Moonshot mode. Generate 3 ideas that are all **Disruptive quadrant**:
 - Have <30% chance of working
 - Would be transformative if they did work
 - Are in Unknown Territory (highest information value)
+- Must each cite a specific Unknown Territory entry from experiment-learnings.md
 
 ### `[any text]` → constrained ideation
 `/ideate "what if we dropped auth entirely"`, `/ideate "mobile-first redesign"`
@@ -83,7 +126,9 @@ Every idea must be a **brief**, not a bullet point. Each contains:
 ```
 ◆ ideate — [scope or "product"]
 
-  reading: 6 features · score 92 · 3 unknowns in model
+  v8.0: **43%** · thesis: "Someone who isn't us can complete a loop without help"
+  product: **64%** · score: 92 · bottleneck: **learning** (building, w:4)
+  6 features · 3 unknowns · 5 backlog items · 2 unproven evidence items
 
 ▸ **Auto-grade predictions** — sustaining
   what: Session start hook reads predictions.tsv, checks git log for
@@ -130,15 +175,43 @@ Every idea must be a **brief**, not a bullet point. Each contains:
   learns: whether Claude Code commands can fully replace a CLI
 
 [Present with AskUserQuestion — which direction interests you?]
+```
 
-/feature new [name]   define the chosen idea
-/go [feature]         build it
-/research [topic]     validate before building
+## Materializing the Idea
+
+When the founder picks an idea from the AskUserQuestion:
+
+1. **Write feature to `config/rhino.yml`**:
+   - `delivers:` from the idea's What field
+   - `for:` from the idea's Who field
+   - `code:` from a codebase scan (Glob for related files)
+   - `status: active`
+   - `weight:` estimated importance to value hypothesis (1-5)
+   - `maturity: planned` (new features start as planned)
+   - `depends_on:` if this feature requires another feature to work first
+   - `origin: ideate`
+
+2. **Convert draft assertions to `lens/product/eval/beliefs.yml`**:
+   - Auto-detect type: `file_check` (file exists), `content_check` (file contains text), `score_trend` (score delta), `command_check` (command exits 0), `llm_judge` (Claude evaluates claim vs code)
+   - Set `severity: warn` for all draft assertions
+
+3. **Run baseline eval**: `rhino eval . --feature [name] --fresh`
+
+4. **Log prediction**: "I predict [name] will start at [PARTIAL/MISSING] because [evidence]"
+   Write to `.claude/knowledge/predictions.tsv`.
+
+5. **Output** using `/feature new` template + "planted N assertions from idea brief"
+
+```
+/go [name]           build the new feature
+/eval [name]         check progress
+/research [topic]    validate before building
 ```
 
 **Formatting rules:**
 - Header: `◆ ideate — [scope]`
-- Context line: what was read (feature count, score, unknowns)
+- Thesis line: `v[N]: **[pct]%**` version completion + current thesis quoted
+- Context line: what was read (feature count, score, unknowns, unproven evidence count)
 - Each idea: `▸ **[Name]** — [quadrant]` with brief fields indented
 - Brief fields: what/why now/who/changes/kills it/learns/draft assertions
 - No more than 5 ideas (paradox of choice)
@@ -152,6 +225,7 @@ Every idea must be a **brief**, not a bullet point. Each contains:
 - **Includes the failure mode.** Every idea must include why it might not work.
 - **Generates assertions.** An idea that can't be expressed as a testable belief isn't concrete enough.
 - **Covers the matrix.** If all ideas cluster in one quadrant, push into the others.
+- **Explores unknowns.** At least 1 of 4 ideas targets Unknown Territory from experiment-learnings.md. If `/retro` recently surfaced new unknowns (`~/.claude/cache/last-retro.yml`), 2 of 4 should target unknowns.
 
 ## Tools to use
 
@@ -173,5 +247,7 @@ Every idea must be a **brief**, not a bullet point. Each contains:
 - No features defined: ideate at the product level, suggest `/feature new [name]`
 - No experiment-learnings.md: ideate from codebase and config/rhino.yml only
 - AskUserQuestion not available: present ideas as numbered list, ask for selection
+- predictions.tsv missing: skip prediction logging, note it for the founder
+- rhino.yml missing features: ideate at product level from README + code scan
 
 $ARGUMENTS

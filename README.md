@@ -41,6 +41,32 @@ No assertions yet? The score is a **completion ratchet** (0-50) that rewards you
 
 No value hypothesis at all? Score is 10. Honest.
 
+### What a session looks like
+
+```
+$ cd ~/my-project
+$ rhino init
+  ◆ rhino init
+  ✓ detected: node (src/)
+  ✓ features: auth dashboard api (3 detected)
+  ✓ config/rhino.yml (3 features)
+  ✓ config/evals/beliefs.yml
+
+  score  20/100  ████░░░░░░░░░░░░░░░░
+         3 features
+
+$ claude                    # start Claude Code
+> /plan                     # finds the bottleneck, writes tasks
+> /go                       # autonomous loop — builds, measures, keeps/reverts
+
+# ... 20 minutes later ...
+
+$ rhino score .
+  Score: 65/100 ↑45 from 20  █████████████░░░░░░░  (7/10 assertions passing)
+```
+
+Init detects your project, generates assertions, and scores it. `/go` improves the score by building what's failing and reverting what regresses. Each session picks up where the last one left off.
+
 ---
 
 ## How It Works
@@ -83,15 +109,6 @@ Fix your health issues, but don't confuse them with value.
 
 **Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed. macOS or Linux.
 
-### Option 1: Plugin (recommended)
-
-```
-/plugin marketplace add rhinehart514/rhino-os
-/plugin install rhino-os@rhino-marketplace
-```
-
-### Option 2: Manual
-
 ```bash
 # 1. Install rhino-os (one time)
 git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
@@ -114,15 +131,16 @@ Your first score will be low. That's correct — you haven't told it what your p
 
 ### What install.sh does
 
-Symlinks only — no copies, no modifications. Updates are `git pull`.
+Symlinks only — no copies, no modifications. Updates are `rhino update` (pulls latest + refreshes symlinks).
 
 | What | Where | Why |
 |------|-------|-----|
 | Mind files | `~/.claude/rules/` | Always loaded by Claude Code as system context |
 | Commands | `~/.claude/commands/` | /plan, /go, /eval available in every project |
 | CLI | `~/bin/rhino` | Terminal access to score, taste, eval, trail |
+| PATH | `~/.zshrc` / `~/.bashrc` | Ensures `rhino` command works from any directory |
 
-Then run `rhino init` in each project to set up per-project hooks and config.
+Verifies everything linked correctly before finishing. Then run `rhino init` in each project to set up per-project hooks and config.
 
 ### Uninstall
 
@@ -139,23 +157,34 @@ Every command accepts a feature name. Work on what you want, scoped to the part 
 
 | Command | What it does |
 |---------|-------------|
-| `/plan` | What should I work on? Finds the bottleneck, writes tasks. |
-| `/plan auth` | Same, but scoped to the auth feature. |
-| `/go` | Build it. Autonomous — keeps what passes, reverts what doesn't. |
-| `/go auth` | Build just auth. Only touches auth assertions and files. |
-| `/eval` | Run assertions. See what's passing, what's failing. |
-| `/eval auth` | Evaluate just auth. |
-| `/feature` | List features with pass rates. |
-| `/ship` | Commit, push, deploy, verify. |
+| `/plan [feature]` | Find the bottleneck, write tasks |
+| `/go [feature]` | Autonomous build loop — keeps what passes, reverts what doesn't |
+| `/eval [taste\|full]` | Run assertions, visual eval |
+| `/feature [name]` | List, create, detect features |
+| `/todo [add\|done]` | Manage backlog across sessions |
+| `/assert [feat: x]` | Add assertions from chat |
+| `/ideate [wild]` | Brainstorm possibilities |
+| `/research [topic]` | Explore unknown territory |
+| `/retro` | Grade predictions, close learning loop |
+| `/roadmap` | Version theses and progress |
+| `/strategy` | Stage, bottleneck, loop health |
+| `/rhino` | Status dashboard |
+| `/ship` | Commit, push, deploy, verify |
+| `/init` | Bootstrap into any repo |
+| `/clone <url>` | Screenshot → components |
+| `/skill [create]` | Manage lenses |
+| `/product` | Product thinking — who, why, assumptions, focus, delight |
 
 **Terminal:**
 
 | Command | What it does |
 |---------|-------------|
-| `rhino feature` | List all features with pass rates. |
-| `rhino feature auth` | View auth's assertions (passing/failing). |
-| `rhino feature detect` | Auto-detect features from your codebase. |
 | `rhino score .` | The score. Assertion pass rate, per-feature breakdown. |
+| `rhino feature` | List all features with pass rates. |
+| `rhino feature detect` | Auto-detect features from your codebase. |
+| `rhino todo` | Backlog management (show, add, done, promote). |
+| `rhino eval .` | Run assertions from the terminal. |
+| `rhino taste` | Visual eval (Claude Vision, expensive). |
 
 A typical session: `/plan auth` -> `/go auth` -> `/plan` next time.
 
@@ -211,6 +240,8 @@ One number. Measures what matters.
   System
     trail           Evidence trail — session arc over time
     init            Bootstrap rhino-os into any repo
+    update          Pull latest + refresh symlinks
+    doctor          Verify install health (symlinks, deps)
     status          Health overview
     self            Self-diagnostic
     bench           Calibration check
@@ -231,6 +262,7 @@ rhino-os/
   skills/                  auto-triggered skills for plugin system
     rhino-mind/SKILL.md    core operating model (identity + thinking + standards + self)
     product-lens/SKILL.md  product measurement (eyes + self + UX checklist)
+  agents/                  custom agents (measurer, explorer, builder, reviewer)
   mind/                    identity + reasoning (source of truth)
     identity.md            cofounder behavior
     thinking.md            predict -> measure -> update model

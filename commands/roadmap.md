@@ -50,32 +50,66 @@ Show the current version's evidence_needed. For each item:
 - `testing` → show what's been collected and what's still needed
 - `todo` → suggest the first experiment
 
-### `ideate` → brainstorm future theses
+### `ideate` → brainstorm future theses (WHERE the project goes)
 
-This is the creative space for what comes after the current version. Read:
+This is thesis-level brainstorming — what question the project asks next, not what features to build. For feature-level ideas, use `/ideate`. For product direction questioning, use `/product`.
+
+Read:
 1. `.claude/knowledge/experiment-learnings.md` — Unknown Territory section
 2. Current version's evidence — what did we learn?
 3. `config/rhino.yml` — value hypothesis, user definition
 
 Generate 3-4 candidate theses. Each one:
-- States a question, not a feature list
+- States a question, not a feature list — theses are hypotheses to test, not roadmap items
 - Says what evidence would prove/disprove it
 - Says what we'd learn even if it's disproven
 - Flags whether it's exploitation (known territory) or exploration (unknown)
+
+Do NOT generate specific feature ideas here. Once a thesis is chosen, `/ideate` brainstorms what to build to test it.
 
 Present with **AskUserQuestion**.
 
 Based on selection, write a new version entry in roadmap.yml with `status: planned` and `evidence_needed`.
 
-### `bump` → prove/graduate the current thesis
+### `bump` → prove/graduate the current thesis (auto-detect tier)
+### `bump major` → new thesis, resets version completion
+### `bump minor` → improvement within current thesis
+### `bump patch` → bug fix / polish, no new question
 
+**Version tiers:**
+```
+MAJOR (v9.0)   — New thesis. Big question. Resets version completion.
+                 Evidence: 4-5 items. Weeks to prove.
+
+MINOR (v8.1)   — Significant improvement within current thesis.
+                 Evidence: 2-3 items. Days-weeks to prove.
+                 Inherits parent thesis — doesn't fully reset completion.
+
+PATCH (v8.0.1) — Bug fix, polish, incremental. No new question.
+                 Evidence: 0-1 items. Hours-days.
+                 Can auto-suggest after /go fixes a regression.
+```
+
+**Bump auto-detection (when no tier specified):**
+- If thesis question changed → major
+- If new features added or evidence items changed → minor
+- If only assertions fixed / score improved / bug fixes → patch
+- Present suggestion, founder confirms
+
+**Steps:**
 1. Check all evidence_needed items
 2. If any are `todo` or `testing`:
    - Use AskUserQuestion: "N evidence items still unproven. Graduate anyway?"
 3. If all proven (or founder confirms):
    - Update `status: proven` and add `proven: [today]`
    - Write a `summary:` capturing what was learned
+   - Add `tier:` field (major/minor/patch)
    - Advance `current:` to the next version (if one exists)
+
+**Version completion by tier:**
+- Major: resets fully (new thesis, new evidence)
+- Minor: resets partially (new evidence within same thesis, features carry over)
+- Patch: doesn't reset (just fixes within current state)
 
 ### `add [version] [milestone]` → add evidence needed
 
@@ -92,27 +126,34 @@ Based on selection, write a new version entry in roadmap.yml with `status: plann
 
 [2-3 sentence reflection in the tone described above]
 
-✓ **v6.0** — "Identity + measurement > prescribed workflows"
+✓ **v6.0** [major] — "Identity + measurement > prescribed workflows"
   proven 2026-03-12 · cut 3,700 lines to ~2,000
 
-✓ **v7.0** — "Score = value, not health"
+✓ **v7.0** [major] — "Score = value, not health"
   proven 2026-03-13 · assertions are the score, features as units
 
-✓ **v7.1** — "Every workflow needs a command"
+✓ **v7.1** [minor] — "Every workflow needs a command"
   proven 2026-03-14 · 9 commands with cross-recommendations
 
-▸ **v7.2** — "The loop works on itself"
-  ✓ rhino-beliefs — 25 assertions, all running
-  ✓ self-loop — score 85→89 in one session
-  · prediction-accuracy — 63%, need 2 more graded
+✓ **v7.2** [minor] — "The loop works on itself"
+  proven 2026-03-15
 
-  **v8.0** — "Someone who isn't us can complete a loop"
-  planned · 4 evidence items
+▸ **v8.0** [major] — "Someone who isn't us can complete a loop"
+  version: **43%** ████████░░░░░░░░░░░░
+  evidence  2/4  ██████████░░░░░░░░░░  (first-init ✓, reach-plan ~, first-go ·, return ·)
+  features  3/5 working+              (install ✓, commands ~, learning ←)
+  todos     8/14 done                 (tagged to v8.0)
+  ✓ v8.0.1 [patch] — eval fixes, cache invalidation
+  ✓ v8.0.2 [patch] — product map, /product command
+
+· **v9.0** [major] — "Plugin marketplace distribution"
+  planned · 3 evidence items
 
 [forward-looking thought — a question, not a recommendation]
 
-/roadmap next     what's needed to prove v7.2
-/roadmap bump     graduate current thesis
+/roadmap next     what's needed to prove v8.0
+/roadmap bump     graduate — auto-detect tier from changes
+/roadmap bump major/minor/patch   explicit tier
 /roadmap ideate   brainstorm what comes after
 ```
 
@@ -143,15 +184,16 @@ gap: **1 evidence item** remaining · `/go` to generate predictions, then grade
 ### Bump:
 
 ```
-◆ roadmap bump — v7.2 → proven
+◆ roadmap bump — v7.2 [minor] → proven
 
   thesis: "The loop works on itself"
+  tier: minor (improvement within v7.x thesis)
   proven: 2026-03-14
   summary: rhino-os can define assertions about itself, improve its own
            score through the /plan → /go → /eval loop, and maintain
            calibrated predictions (63% accuracy, target 50-70%)
 
-  current → **v8.0**: "Someone who isn't us can complete a loop"
+  current → **v8.0** [major]: "Someone who isn't us can complete a loop"
 
 /roadmap next     see what v8.0 needs
 /plan             start working toward v8.0
@@ -160,7 +202,8 @@ gap: **1 evidence item** remaining · `/go` to generate predictions, then grade
 **Formatting rules:**
 - Header: `◆ roadmap` (or `◆ roadmap next`, `◆ roadmap bump`)
 - Reflection: 2-3 sentences, thinking-out-loud tone, before the version list
-- Versions: ✓ for proven, ▸ for testing, · for planned
+- Versions: ✓ for proven, ▸ for testing, · for planned — with `[major]`, `[minor]`, or `[patch]` tier label
+- Patch versions: indented under their parent major version
 - Evidence items: indented under version, ✓/· prefix
 - Forward thought: one sentence at the bottom, italicized or plain
 - Bottom: 2-3 relevant next commands
@@ -170,9 +213,43 @@ gap: **1 evidence item** remaining · `/go` to generate predictions, then grade
 - **roadmap.yml** = theses being tested (months-level thinking)
 - **strategy.yml** = current bottleneck (weeks-level thinking)
 - **plan.yml** = current session tasks (hours-level thinking)
+- **todos.yml** = backlog items, taggable to versions (cross-session)
 - **experiment-learnings.md** = the causal model (permanent)
 
 Proven theses feed into experiment-learnings.md as Known Patterns. Disproven theses become Dead Ends.
+
+## The Version Completion Cycle
+
+Product completion % is **per-version**, not global. Each version defines what done looks like.
+
+```
+v8.0 starts → completion: 15%
+  work happens, features mature, evidence collected
+v8.0 proven → completion hit ~80%, /roadmap bump
+  ─────────────────────────────────────────────
+v9.0 starts → completion: 10% (new thesis, new requirements)
+  new features planned, new evidence needed
+  climb again
+```
+
+**How to compute version completion** (for the current version):
+
+1. **Evidence completion** (50% weight): proven evidence items / total evidence items
+2. **Feature readiness** (30% weight): for features relevant to this version's thesis, compute weighted maturity average. Identify relevant features by checking which features' `delivers:` text relates to the thesis question, or by explicit `version:` tags.
+3. **Todo clearance** (20% weight): todos tagged to this version done / total tagged
+
+When version completion crosses 80%, rhino should surface: "v[X] is nearing proven. `/roadmap bump` when ready."
+
+When `/roadmap bump` confirms:
+- Current version → `proven`
+- Completion for next version recalculates (drops because new thesis)
+- Todos not tagged to the new version carry forward
+- Features retain their maturity (they don't reset — the product keeps growing)
+- But the QUESTION changes, so what matters changes
+
+**The /rhino dashboard shows both:**
+- Product completion % (cumulative — all features, all time)
+- Version completion % (current thesis — what's this version asking, how close are we to answering it)
 
 ## Tools to use
 

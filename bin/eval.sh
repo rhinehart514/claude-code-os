@@ -60,6 +60,9 @@ FEATURE_RESULTS=""
 # Per-quality tracking (quality_dim:pass:warn:fail accumulated as lines)
 QUALITY_RESULTS=""
 
+# Per-layer tracking (feature~layer:pass:warn:fail accumulated as lines)
+LAYER_RESULTS=""
+
 # Generative eval numeric scores (feature_name:score accumulated as lines)
 # These contribute directly to the final score as numbers, not pass/warn/fail buckets.
 GENERATIVE_SCORES=""
@@ -388,14 +391,14 @@ EVAL_CACHE_FILE="$EVAL_CACHE_DIR/eval-cache.json"
 BELIEFS_CACHE_FILE="$EVAL_CACHE_DIR/beliefs-cache.json"
 
 # Read features from rhino.yml using simple YAML parsing
-# Outputs lines: feature_name|delivers|for|code_path1,code_path2
+# Outputs lines: feature_name|delivers|for|code_path1,code_path2|cmd1,cmd2
 parse_features() {
     local config_file="config/rhino.yml"
     [[ ! -f "$config_file" ]] && return
 
     local in_features=false
-    local current_feat="" current_delivers="" current_for="" current_code=""
-    local in_code=false
+    local current_feat="" current_delivers="" current_for="" current_code="" current_commands=""
+    local in_code=false in_commands=false
 
     while IFS= read -r line; do
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -410,7 +413,7 @@ parse_features() {
         if [[ "$in_features" == true ]] && echo "$line" | grep -qE '^[a-z]'; then
             # Emit last feature
             if [[ -n "$current_feat" ]]; then
-                echo "${current_feat}|${current_delivers}|${current_for}|${current_code}"
+                echo "${current_feat}|${current_delivers}|${current_for}|${current_code}|${current_commands}"
                 current_feat=""
             fi
             in_features=false
@@ -423,13 +426,15 @@ parse_features() {
         if echo "$line" | grep -qE '^  [a-z][a-z0-9_-]*:$'; then
             # Emit previous feature
             if [[ -n "$current_feat" ]]; then
-                echo "${current_feat}|${current_delivers}|${current_for}|${current_code}"
+                echo "${current_feat}|${current_delivers}|${current_for}|${current_code}|${current_commands}"
             fi
             current_feat=$(echo "$line" | sed 's/^[[:space:]]*//;s/:[[:space:]]*$//')
             current_delivers=""
             current_for=""
             current_code=""
+            current_commands=""
             in_code=false
+            in_commands=false
             continue
         fi
 
@@ -450,12 +455,26 @@ parse_features() {
         # code: (inline array)
         if echo "$line" | grep -q '^\s*code:'; then
             in_code=true
+            in_commands=false
             # Parse inline array: ["a", "b"]
             local inline
             inline=$(echo "$line" | grep -o '\[.*\]' || true)
             if [[ -n "$inline" ]]; then
                 current_code=$(echo "$inline" | tr -d '[]"' | sed 's/, */,/g')
                 in_code=false
+            fi
+            continue
+        fi
+
+        # commands: (inline array — CLI commands for UX eval)
+        if echo "$line" | grep -q '^\s*commands:'; then
+            in_commands=true
+            in_code=false
+            local inline
+            inline=$(echo "$line" | grep -o '\[.*\]' || true)
+            if [[ -n "$inline" ]]; then
+                current_commands=$(echo "$inline" | tr -d '[]"' | sed 's/, */,/g')
+                in_commands=false
             fi
             continue
         fi
@@ -472,6 +491,21 @@ parse_features() {
                 fi
             else
                 in_code=false
+            fi
+        fi
+
+        # commands array items
+        if [[ "$in_commands" == true ]]; then
+            if echo "$line" | grep -q '^\s*-'; then
+                local item
+                item=$(echo "$line" | sed 's/^[[:space:]]*- *//;s/^"//;s/"$//')
+                if [[ -n "$current_commands" ]]; then
+                    current_commands="${current_commands},${item}"
+                else
+                    current_commands="$item"
+                fi
+            else
+                in_commands=false
             fi
         fi
     done < "$config_file"
@@ -539,43 +573,85 @@ check_eval_cache() {
     echo ""
 }
 
-# Call Claude to judge a feature
-judge_feature() {
+# Full product quality audit — evaluates whether a feature is genuinely good
+# Returns JSON: {"score":62,"verdict":"PARTIAL","gaps":[...],"strengths":[...],"evidence":"..."}
+run_logic_research() {
     local feat_name="$1"
     local delivers="$2"
     local for_whom="$3"
     local code_context="$4"
 
-    local prompt="You are a code evaluator. Output ONLY a single JSON object, nothing else. No markdown, no explanation, no preamble.
+    local prompt="You are a product quality auditor. Your job is to find real problems. You evaluate whether this feature is genuinely good — not whether files exist or code compiles. Output ONLY a single JSON object — no markdown fences, no commentary before or after.
 
-Feature claim: \"${delivers}\"
+Feature: \"${feat_name}\"
+Claim: \"${delivers}\"
 Target user: \"${for_whom}\"
 
 Code:
 ${code_context}
 
-Evaluate: does the code deliver on the claim for this user? Rate 0-100.
-List specific gaps between claim and reality (max 5).
+AUDIT PROTOCOL:
 
-Output format (ONLY this JSON, nothing else):
-{\"verdict\":\"DELIVERS\",\"gaps\":[],\"evidence\":\"brief\",\"score\":85}"
+1. VALUE DELIVERY (40% of score)
+   - Does this code actually deliver what the claim promises?
+   - Would the target user get real value from this?
+   - Is there a complete path from 'user wants X' to 'user gets X'?
+   - For each promise in the claim: cite file:line that delivers it, or mark MISSING.
+
+2. QUALITY & ROBUSTNESS (30% of score)
+   - Error handling: what happens when things go wrong? Trace every external call (file I/O, API, subprocess, shell command). List caught vs unhandled.
+   - Edge cases: empty input, missing files, malformed data, concurrent access, first-run vs nth-run.
+   - Silent failures: find || true, 2>/dev/null without fallback, empty catch blocks, swallowed errors.
+   - Code contradictions: code that contradicts its own comments, docs, or other code paths.
+
+3. USER EXPERIENCE (30% of score)
+   - Output quality: is the output clear, well-formatted, actionable?
+   - Feedback: does the user know what happened and what to do next?
+   - Error messages: helpful or cryptic? Does a failure tell the user how to fix it?
+   - Progressive disclosure: right level of detail for the target user?
+
+SCORING RUBRIC (0-100, use these anchors exactly):
+- 80-100: Feature fully delivers on its claim. Code matches description end-to-end. Error paths handled. UX is clear. You would ship this unchanged. REQUIRES: zero critical gaps, all promises met with cited evidence.
+- 60-79: Feature mostly delivers. Core value path works. Minor gaps exist (edge cases, polish, secondary promises). No critical failures.
+- 40-59: Feature partially delivers. Happy path may work but significant gaps remain. Some promises unmet. Error handling incomplete. Real limitations a user would hit.
+- 20-39: Feature has code but doesn't deliver the claim. Major value gaps. Core promises broken or stubbed. User would not get the promised value.
+- 0-19: Feature claim exists but no matching implementation, or code is fundamentally broken/empty.
+
+SCORING PROCEDURE — follow these steps in order:
+1. List each promise in the claim. For each, cite file:line evidence or mark MISSING.
+2. Count: promises_met / promises_total. This anchors your VALUE score.
+3. Count unhandled error paths (I/O, subprocess, API calls without error handling). This anchors QUALITY.
+4. Assess output clarity and user feedback. This anchors UX.
+5. Compute: value_pct * 0.40 + quality_pct * 0.30 + ux_pct * 0.30 = raw score (0-100).
+6. Apply integrity checks below. Final score must be an integer.
+
+INTEGRITY RULES — violating these means YOUR audit is unreliable:
+- You MUST find at least 2 genuine problems. If you found 0, you didn't look hard enough. Penalty: cap at 60.
+- Evidence MUST cite file:line. Vague claims like 'handles errors well' = audit failure.
+- If code contains 2>/dev/null or || true and you report 0 silent failures, you missed them. Penalty: -10.
+- Score > 80 requires you to explain what makes this genuinely excellent, not just 'it works'.
+- Score > 70 requires zero unhandled error paths in code that does I/O.
+- A growth-stage product should average 45-65 across features. If you're averaging higher, you're inflating.
+
+Output ONLY this JSON object — no markdown fences, no text before or after:
+{\"score\":55,\"verdict\":\"PARTIAL\",\"gaps\":[\"specific problem with file:line evidence\"],\"strengths\":[\"what genuinely works well\"],\"evidence\":\"1-2 sentence summary of the audit\"}"
 
     local api_key="${ANTHROPIC_API_KEY:-}"
     local result=""
 
     if [[ -z "$api_key" ]]; then
-        # Try claude CLI
+        # Try claude CLI (no temperature flag available — use system prompt to reduce variance)
         local tmp_file
         tmp_file=$(mktemp)
         echo "$prompt" > "$tmp_file"
-        result=$(claude -p "$(cat "$tmp_file")" --model haiku 2>/dev/null </dev/null) || result=""
+        result=$(claude -p "$(cat "$tmp_file")" --model haiku --append-system-prompt "Be deterministic. Output only valid JSON. No markdown fences." 2>/dev/null </dev/null) || result=""
         rm -f "$tmp_file"
     else
-        # Direct API call
+        # Direct API call with temperature 0 for deterministic output
         local payload
         payload=$(jq -n \
             --arg prompt "$prompt" \
-            '{model:"claude-haiku-4-5-20251001",max_tokens:500,messages:[{role:"user",content:$prompt}]}')
+            '{model:"claude-haiku-4-5-20251001",max_tokens:800,temperature:0,messages:[{role:"user",content:$prompt}]}')
         local response
         response=$(curl -s "https://api.anthropic.com/v1/messages" \
             -H "x-api-key: $api_key" \
@@ -585,43 +661,118 @@ Output format (ONLY this JSON, nothing else):
         result=$(echo "$response" | jq -r '.content[0].text // empty' 2>/dev/null)
     fi
 
-    # Parse the JSON response
+    # Parse the JSON response — robust extraction handles common LLM output formats
     if [[ -n "$result" ]]; then
-        # Strip markdown fences if present
+        # Strip markdown fences: ```json, ```, and variations with language tags
         local cleaned
-        cleaned=$(echo "$result" | sed '/^```/d')
+        cleaned=$(echo "$result" | sed -E '/^```[a-zA-Z]*$/d')
+        # Also strip leading/trailing whitespace lines
+        cleaned=$(echo "$cleaned" | sed -e '/^[[:space:]]*$/d')
+
         # Try 1: full response is valid JSON
         if echo "$cleaned" | jq -c . &>/dev/null 2>&1; then
-            echo "$cleaned" | jq -c .
+            local parsed
+            parsed=$(echo "$cleaned" | jq -c .)
+            echo "$parsed" | _apply_logic_antisycophancy
             return
         fi
+
         # Try 2: extract from first { to last } on their own lines
         local json_part
         json_part=$(echo "$cleaned" | sed -n '/^{/,/^}/p')
         if [[ -n "$json_part" ]] && echo "$json_part" | jq -c . &>/dev/null 2>&1; then
-            echo "$json_part" | jq -c .
+            echo "$json_part" | jq -c . | _apply_logic_antisycophancy
             return
         fi
-        # Try 3: find any line starting with { and extract JSON object
-        json_part=$(echo "$cleaned" | grep -o '{.*}' | while IFS= read -r line; do
-            if echo "$line" | jq -c . 2>/dev/null; then
-                break
-            fi
-        done)
-        if [[ -n "$json_part" ]]; then
-            echo "$json_part"
+
+        # Try 3: extract from first { to last } anywhere (not just line-start)
+        json_part=$(echo "$cleaned" | sed -n '/[[:space:]]*{/,/}[[:space:]]*$/p')
+        if [[ -n "$json_part" ]] && echo "$json_part" | jq -c . &>/dev/null 2>&1; then
+            echo "$json_part" | jq -c . | _apply_logic_antisycophancy
             return
         fi
-        # Try 4: use perl to extract balanced braces (handles multi-line)
+
+        # Try 4: use perl to extract first balanced JSON object (handles multi-line, nested braces)
         json_part=$(echo "$cleaned" | perl -0777 -ne 'if (/(\{(?:[^{}]|(?:\{(?:[^{}]|\{[^{}]*\})*\}))*\})/s) { print $1 }' 2>/dev/null)
         if [[ -n "$json_part" ]] && echo "$json_part" | jq -c . &>/dev/null 2>&1; then
-            echo "$json_part" | jq -c .
+            echo "$json_part" | jq -c . | _apply_logic_antisycophancy
+            return
+        fi
+
+        # Try 5: grep any single-line JSON object containing "score"
+        json_part=$(echo "$cleaned" | grep -o '{[^}]*"score"[^}]*}' | head -1)
+        if [[ -n "$json_part" ]] && echo "$json_part" | jq -c . &>/dev/null 2>&1; then
+            echo "$json_part" | jq -c . | _apply_logic_antisycophancy
+            return
+        fi
+
+        # Try 6: last resort — extract score/verdict from free text and build JSON
+        local extracted_score extracted_verdict
+        extracted_score=$(echo "$cleaned" | grep -oE '"score"\s*:\s*[0-9]+' | head -1 | grep -oE '[0-9]+$')
+        extracted_verdict=$(echo "$cleaned" | grep -oE '"verdict"\s*:\s*"[A-Z]+"' | head -1 | grep -oE '"[A-Z]+"$' | tr -d '"')
+        if [[ -n "$extracted_score" ]]; then
+            echo "{\"score\":${extracted_score},\"verdict\":\"${extracted_verdict:-PARTIAL}\",\"gaps\":[\"response required free-text extraction — audit may be incomplete\"],\"strengths\":[],\"evidence\":\"parsed from non-JSON response\"}" | _apply_logic_antisycophancy
             return
         fi
     fi
 
-    # Fallback: couldn't parse
-    echo '{"verdict":"PARTIAL","gaps":["could not evaluate"],"evidence":"eval failed","score":50}'
+    # Fallback: couldn't parse at all
+    echo '{"verdict":"PARTIAL","gaps":["could not evaluate — LLM response unparseable"],"evidence":"eval failed","score":30}'
+}
+
+# Anti-sycophancy filter for audit results (0-100 scale)
+# Reads JSON from stdin, applies integrity checks, outputs corrected JSON
+_apply_logic_antisycophancy() {
+    local input
+    input=$(cat)
+    local score
+    score=$(echo "$input" | jq -r '.score // 50' 2>/dev/null)
+
+    # Normalize: if score somehow came back on 1-5 scale, convert to 0-100
+    if [[ "$score" -le 5 ]]; then
+        score=$((score * 20))
+        input=$(echo "$input" | jq -c --argjson s "$score" '.score = $s')
+    fi
+
+    local gap_count
+    gap_count=$(echo "$input" | jq -r '.gaps | length // 0' 2>/dev/null)
+
+    # 0 gaps found → auditor didn't look hard enough. Cap at 60.
+    if [[ "$gap_count" -eq 0 ]]; then
+        [[ "$score" -gt 60 ]] && score=60
+        input=$(echo "$input" | jq -c --argjson s "$score" '.score = $s | .gaps += ["integrity: 0 problems found — audit was not thorough enough"]')
+    fi
+
+    # Score > 80 with any gaps → cap at 75
+    if [[ "$score" -gt 80 && "$gap_count" -gt 0 ]]; then
+        score=75
+        input=$(echo "$input" | jq -c --argjson s "$score" '.score = $s | .gaps += ["integrity: score capped at 75 — gaps exist"]')
+    fi
+
+    # Score > 70 with 3+ gaps → cap at 65
+    if [[ "$score" -gt 70 && "$gap_count" -ge 3 ]]; then
+        score=65
+        input=$(echo "$input" | jq -c --argjson s "$score" '.score = $s | .gaps += ["integrity: score capped at 65 — too many gaps for this score"]')
+    fi
+
+    # Stage cap: read project stage from rhino.yml
+    local stage_cap=100
+    if [[ -f "config/rhino.yml" ]]; then
+        local stage
+        stage=$(grep 'stage:' config/rhino.yml 2>/dev/null | head -1 | sed 's/.*stage: *//')
+        case "$stage" in
+            mvp)    stage_cap=65 ;;
+            early)  stage_cap=75 ;;
+            growth) stage_cap=85 ;;
+            mature) stage_cap=95 ;;
+        esac
+    fi
+    if [[ "$score" -gt "$stage_cap" ]]; then
+        score="$stage_cap"
+        input=$(echo "$input" | jq -c --argjson s "$score" '.score = $s | .gaps += ["integrity: capped at stage ceiling"]')
+    fi
+
+    echo "$input"
 }
 
 # Run generative eval for all features (or filtered)
@@ -637,7 +788,7 @@ run_generative_eval() {
     local cache_json="{"
     local cache_first=true
 
-    while IFS='|' read -r feat_name delivers for_whom code_paths; do
+    while IFS='|' read -r feat_name delivers for_whom code_paths feat_commands; do
         [[ -z "$feat_name" ]] && continue
 
         # Feature filter
@@ -663,7 +814,7 @@ run_generative_eval() {
 
             if [[ -n "$code_context" ]]; then
                 local judge_result
-                judge_result=$(judge_feature "$feat_name" "$delivers" "$for_whom" "$code_context")
+                judge_result=$(run_logic_research "$feat_name" "$delivers" "$for_whom" "$code_context")
                 verdict=$(echo "$judge_result" | jq -r '.verdict // "PARTIAL"' 2>/dev/null)
                 gaps=$(echo "$judge_result" | jq -r '.gaps // [] | join("; ")' 2>/dev/null)
                 evidence=$(echo "$judge_result" | jq -r '.evidence // ""' 2>/dev/null)
@@ -676,8 +827,12 @@ run_generative_eval() {
             fi
         fi
 
-        # Track as numeric score (not pass/warn/fail buckets)
-        [[ -z "$feat_score" || "$feat_score" == "null" ]] && feat_score=50
+        # Track as numeric score (0-100)
+        [[ -z "$feat_score" || "$feat_score" == "null" ]] && feat_score=30
+        # Normalize: if score came back on 1-5 scale, convert to 0-100
+        if [[ "$feat_score" -le 5 ]]; then
+            feat_score=$((feat_score * 20))
+        fi
         GENERATIVE_SCORES="${GENERATIVE_SCORES}${feat_name}:${feat_score}
 "
         GENERATIVE_COUNT=$((GENERATIVE_COUNT + 1))
@@ -745,8 +900,11 @@ process_belief() {
         file_check)
             # Machine-evaluable file assertions from beliefs.yml
             if [[ -n "$belief_path" ]]; then
-                # Expand ~ to $HOME
+                # Expand ~ to $HOME, resolve relative paths against project root
                 local expanded_path="${belief_path/#\~/$HOME}"
+                if [[ "$expanded_path" != /* ]]; then
+                    expanded_path="${PROJECT_ROOT}/${expanded_path}"
+                fi
                 if [[ "$belief_exists" == "false" ]]; then
                     # File should NOT exist
                     if [[ ! -e "$expanded_path" ]]; then
@@ -887,16 +1045,21 @@ process_belief() {
             ;;
         llm_judge)
             # LLM-as-judge: Claude evaluates code/files against a quality prompt
-            # Skip entirely in --score mode or --no-llm mode
+            # In --score or --no-llm mode: count as WARN (not invisible)
+            # This prevents inflated scores when LLM checks haven't run
             if [[ "$SCORE_MODE" == "true" || "$NO_LLM" == "true" ]]; then
-                return
+                check_warn "$belief_id" "llm_judge: not evaluated (run rhino eval . for full score)"
             elif [[ -n "$belief_prompt" ]]; then
                 local judge_context=""
                 # Gather context from specified paths or feature files
                 if [[ -n "$belief_path" ]]; then
                     local expanded_path="${belief_path/#\~/$HOME}"
+                    # Resolve relative paths against project root
+                    if [[ "$expanded_path" != /* ]]; then
+                        expanded_path="${PROJECT_ROOT}/${expanded_path}"
+                    fi
                     if [[ -f "$expanded_path" ]]; then
-                        judge_context=$(head -200 "$expanded_path" 2>/dev/null)
+                        judge_context=$(head -500 "$expanded_path" 2>/dev/null)
                     elif [[ -d "$expanded_path" ]]; then
                         # Directory: concatenate first 50 lines of each file
                         judge_context=$(find "$expanded_path" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.py" -o -name "*.sh" -o -name "*.md" \) ! -path "*/node_modules/*" 2>/dev/null | head -10 | while read -r f; do
@@ -949,12 +1112,12 @@ ${judge_context}"
                             fi
                         fi
                     else
-                        # Direct API call with curl (faster, no CLI overhead)
+                        # Direct API call with curl (faster, no CLI overhead, temperature 0)
                         local judge_payload
                         judge_payload=$(jq -n \
                             --arg prompt "$belief_prompt" \
                             --arg context "$(echo "$judge_context" | head -100)" \
-                            '{model:"claude-haiku-4-5-20251001",max_tokens:100,messages:[{role:"user",content:("Evaluate this code. Answer ONLY pass or fail on the first line, then a one-sentence reason on the second line.\n\nQuestion: " + $prompt + "\n\nCode:\n" + $context)}]}')
+                            '{model:"claude-haiku-4-5-20251001",max_tokens:100,temperature:0,messages:[{role:"user",content:("Evaluate this code. Answer ONLY pass or fail on the first line, then a one-sentence reason on the second line.\n\nQuestion: " + $prompt + "\n\nCode:\n" + $context)}]}')
                         local judge_response
                         judge_response=$(curl -s "https://api.anthropic.com/v1/messages" \
                             -H "x-api-key: $api_key" \
@@ -982,28 +1145,32 @@ ${judge_context}"
             ;;
         feature_review)
             # Claude evaluates feature completeness — explicit capabilities or inferred
-            # Skip in --score mode or --no-llm mode (expensive LLM call)
+            # In --score or --no-llm mode: count as WARN (not invisible)
             if [[ "$SCORE_MODE" == "true" || "$NO_LLM" == "true" ]]; then
-                return
-            fi
+                check_warn "$belief_id" "feature_review: not evaluated (run rhino eval . for full score)"
+            else
 
             # Gather code context for the feature
             local review_context=""
             if [[ -n "$belief_path" ]]; then
                 local expanded_path="${belief_path/#\~/$HOME}"
+                # Resolve relative paths against project root
+                if [[ "$expanded_path" != /* ]]; then
+                    expanded_path="${PROJECT_ROOT}/${expanded_path}"
+                fi
                 if [[ -f "$expanded_path" ]]; then
-                    review_context=$(head -300 "$expanded_path" 2>/dev/null)
+                    review_context=$(head -500 "$expanded_path" 2>/dev/null)
                 elif [[ -d "$expanded_path" ]]; then
                     review_context=$(find "$expanded_path" -type f \( -name "*.sh" -o -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.py" -o -name "*.mjs" -o -name "*.yml" -o -name "*.md" \) ! -path "*/node_modules/*" 2>/dev/null | head -10 | while read -r f; do
                         echo "=== $f ==="
-                        head -80 "$f" 2>/dev/null
+                        head -150 "$f" 2>/dev/null
                     done)
                 fi
             elif [[ -n "$belief_feature" ]]; then
                 # Auto-discover: find files related to this feature
                 review_context=$(grep -rl "$belief_feature" bin/ .claude/commands/ lens/ config/ 2>/dev/null | grep -v node_modules | head -8 | while read -r f; do
                     echo "=== $f ==="
-                    head -80 "$f" 2>/dev/null
+                    head -150 "$f" 2>/dev/null
                 done)
             fi
 
@@ -1052,7 +1219,7 @@ ${review_context}"
                 local review_payload
                 review_payload=$(jq -n \
                     --rawfile prompt "$review_tmp" \
-                    '{model:"claude-haiku-4-5-20251001",max_tokens:500,messages:[{role:"user",content:$prompt}]}')
+                    '{model:"claude-haiku-4-5-20251001",max_tokens:500,temperature:0,messages:[{role:"user",content:$prompt}]}')
                 local review_response
                 review_response=$(curl -s "https://api.anthropic.com/v1/messages" \
                     -H "x-api-key: $api_key" \
@@ -1088,6 +1255,7 @@ ${review_context}"
                 fi
             fi
             fi  # end review_context not empty
+            fi  # end SCORE_MODE/NO_LLM check
             ;;
         bench_check)
             # Run rhino bench --json and check calibration percentage
@@ -1111,9 +1279,10 @@ ${review_context}"
             ;;
         command_check)
             # Run arbitrary shell command — PASS if exit 0, FAIL otherwise
+            # Commands run in the project directory, not rhino-os
             if [[ -n "$belief_command" ]]; then
                 local cmd_output
-                cmd_output=$(eval "$belief_command" 2>&1) && \
+                cmd_output=$(cd "$PROJECT_ROOT" && eval "$belief_command" 2>&1) && \
                     check_pass "$belief_id" "$cmd_output" || \
                     check_fail "$belief_id" "${cmd_output:-command failed}" "warn" 3
             else
@@ -1285,6 +1454,10 @@ ${review_context}"
     local _qual="${belief_quality:-unscoped}"
     QUALITY_RESULTS="${QUALITY_RESULTS}${_feat}~${_qual}:${_dp}:${_dw}:${_df}
 "
+    # Track per-feature~layer results
+    local _layer="${belief_layer:-unscoped}"
+    LAYER_RESULTS="${LAYER_RESULTS}${_feat}~${_layer}:${_dp}:${_dw}:${_df}
+"
 }
 
 # === beliefs.yml checks ===
@@ -1301,6 +1474,7 @@ if [[ -f "$BELIEFS_FILE" ]]; then
     belief_threshold=""
     belief_feature=""
     belief_quality=""
+    belief_layer=""
     belief_max_gap_days=""
     in_forbidden=false
     in_capabilities=false
@@ -1330,6 +1504,7 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_direction=""
             belief_command=""
             belief_quality=""
+            belief_layer=""
             belief_max_gap_days=""
             in_forbidden=false
             in_capabilities=false
@@ -1350,6 +1525,11 @@ if [[ -f "$BELIEFS_FILE" ]]; then
         # Quality dimension
         if echo "$line" | grep -q '^\s*quality:'; then
             belief_quality=$(echo "$line" | sed 's/.*quality: *//')
+        fi
+
+        # Layer (infrastructure | logic | ux)
+        if echo "$line" | grep -q '^\s*layer:'; then
+            belief_layer=$(echo "$line" | sed 's/.*layer: *//')
         fi
 
         # Metric
@@ -1497,6 +1677,21 @@ if [[ "$SCORE_MODE" == "true" ]]; then
         echo "$((_fq_pp + _fq_p)):$((_fq_pw + _fq_w)):$((_fq_pf + _fq_f))" > "$_fq_tmpdir/$_fq_feat/$_fq_qual"
     done <<< "$QUALITY_RESULTS"
 
+    # Aggregate per-feature~layer results
+    _fl_tmpdir=$(mktemp -d)
+    while IFS=: read -r _fl_key _fl_p _fl_w _fl_f; do
+        [[ -z "$_fl_key" ]] && continue
+        _fl_feat="${_fl_key%%~*}"
+        _fl_layer="${_fl_key##*~}"
+        [[ "$_fl_layer" == "unscoped" ]] && continue
+        mkdir -p "$_fl_tmpdir/$_fl_feat"
+        _fl_pp=0; _fl_pw=0; _fl_pf=0
+        if [[ -f "$_fl_tmpdir/$_fl_feat/$_fl_layer" ]]; then
+            IFS=: read -r _fl_pp _fl_pw _fl_pf < "$_fl_tmpdir/$_fl_feat/$_fl_layer"
+        fi
+        echo "$((_fl_pp + _fl_p)):$((_fl_pw + _fl_w)):$((_fl_pf + _fl_f))" > "$_fl_tmpdir/$_fl_feat/$_fl_layer"
+    done <<< "$LAYER_RESULTS"
+
     # Add generative scores to feature JSON
     while IFS=: read -r _gf_name _gf_score; do
         [[ -z "$_gf_name" ]] && continue
@@ -1555,17 +1750,76 @@ if [[ "$SCORE_MODE" == "true" ]]; then
             _qual_frag+="}"
         fi
 
+        # Build layer JSON fragment — compute 1-5 score per layer from pass rates
+        _layer_frag=""
+        if [[ -d "$_fl_tmpdir/$_bf_fname" ]]; then
+            _layer_frag=",\"layers\":{"
+            _bfl_first=true
+            for _ldim in infrastructure logic ux; do
+                if [[ -f "$_fl_tmpdir/$_bf_fname/$_ldim" ]]; then
+                    IFS=: read -r _lp _lw _lf < "$_fl_tmpdir/$_bf_fname/$_ldim"
+                    _lt=$((_lp + _lw + _lf))
+                    [[ "$_lt" -eq 0 ]] && continue
+                    # Compute 1-5 from pass rate: 100%=5, 80-99%=4, 60-79%=3, 40-59%=2, <40%=1
+                    _lpct=0
+                    [[ "$_lt" -gt 0 ]] && _lpct=$((_lp * 100 / _lt))
+                    if [[ "$_lpct" -ge 100 ]]; then _lscore=5
+                    elif [[ "$_lpct" -ge 80 ]]; then _lscore=4
+                    elif [[ "$_lpct" -ge 60 ]]; then _lscore=3
+                    elif [[ "$_lpct" -ge 40 ]]; then _lscore=2
+                    else _lscore=1
+                    fi
+                    $_bfl_first || _layer_frag+=","
+                    _layer_frag+="\"$_ldim\":{\"score\":$_lscore,\"pass\":$_lp,\"total\":$_lt}"
+                    _bfl_first=false
+                fi
+            done
+            _layer_frag+="}"
+        fi
+
+        # Infrastructure gates: if infra < 3, cap logic and ux at 2
+        if [[ -f "$_fl_tmpdir/$_bf_fname/infrastructure" ]]; then
+            IFS=: read -r _gi_p _gi_w _gi_f < "$_fl_tmpdir/$_bf_fname/infrastructure"
+            _gi_t=$((_gi_p + _gi_w + _gi_f))
+            _gi_pct=0
+            [[ "$_gi_t" -gt 0 ]] && _gi_pct=$((_gi_p * 100 / _gi_t))
+            if [[ "$_gi_pct" -ge 100 ]]; then _gi_score=5
+            elif [[ "$_gi_pct" -ge 80 ]]; then _gi_score=4
+            elif [[ "$_gi_pct" -ge 60 ]]; then _gi_score=3
+            elif [[ "$_gi_pct" -ge 40 ]]; then _gi_score=2
+            else _gi_score=1
+            fi
+            if [[ "$_gi_score" -lt 3 ]]; then
+                # Cap logic and ux layer scores at 2
+                for _gated_layer in logic ux; do
+                    if echo "$_layer_frag" | grep -q "\"$_gated_layer\""; then
+                        _layer_frag=$(echo "$_layer_frag" | sed "s/\"$_gated_layer\":{\"score\":[0-9]*/\"$_gated_layer\":{\"score\":2/")
+                    fi
+                done
+            fi
+        fi
+
+        # Use generative score as logic layer score if present and no belief-based logic layer
+        if [[ "$_has_gen" == true ]]; then
+            if ! echo "$_layer_frag" | grep -q '"logic"'; then
+                if [[ -z "$_layer_frag" ]]; then
+                    _layer_frag=",\"layers\":{\"logic\":{\"score\":$_gf_s,\"pass\":0,\"total\":0}}"
+                else
+                    _layer_frag="${_layer_frag%\}},\"logic\":{\"score\":$_gf_s,\"pass\":0,\"total\":0}}"
+                fi
+            fi
+        fi
+
         if [[ "$_has_gen" == true && "$_has_beliefs" == true ]]; then
-            # Both: merge generative score + beliefs pass/fail + quality
-            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\",\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t${_qual_frag}}"
+            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\",\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t${_qual_frag}${_layer_frag}}"
         elif [[ "$_has_gen" == true ]]; then
-            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\"}"
+            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\"${_layer_frag}}"
         else
-            _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t${_qual_frag}}"
+            _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t${_qual_frag}${_layer_frag}}"
         fi
     done < "$_bf_tmpdir/.names"
     _bf_json+="}"
-    rm -rf "$_bf_tmpdir" "$_fq_tmpdir"
+    rm -rf "$_bf_tmpdir" "$_fq_tmpdir" "$_fl_tmpdir"
 
     # Merge cached belief quality data (from last full eval run)
     # This fills in craft/completeness dimensions that --score mode skips
@@ -1602,19 +1856,36 @@ if [[ "$SCORE_MODE" == "true" ]]; then
         fi
     fi
 
-    # Compute blended score:
-    # Generative evals (Claude judges value) weight 3x vs beliefs (file checks).
-    # This prevents easy-to-pass file_check beliefs from inflating the score.
-    # beliefs contribute: (PASS*100 + WARN*50) / BELIEFS_TOTAL  (weight: 1x per belief)
-    # generative contributes: GENERATIVE_SUM / GENERATIVE_COUNT  (weight: 3x per feature)
+    # ── Score formula ──
+    # Primary signal: generative feature audit scores (0-100 each, from LLM)
+    # Modifier: belief failures deduct from the score
+    # No generative data: beliefs-only fallback (degraded — flag it)
+    #
+    # Stage caps (from anti-sycophancy): mvp≤65, early≤75, growth≤85, mature≤95
+    # Block severity failure: score = 0 regardless
     _eval_score=""
-    _gen_weight=$((GENERATIVE_COUNT * 3))
-    _total_weight=$((BELIEFS_TOTAL + _gen_weight))
-    if [[ "$_total_weight" -gt 0 ]]; then
-        _beliefs_points=0
-        [[ "$BELIEFS_TOTAL" -gt 0 ]] && _beliefs_points=$(( PASS * 100 + WARN * 50 ))
-        _gen_points=$((GENERATIVE_SUM * 3))
-        _eval_score=$(( (_beliefs_points + _gen_points) / _total_weight ))
+    _has_block_fail=false
+    for _entry in "${BELIEF_FAILS[@]+"${BELIEF_FAILS[@]}"}"; do
+        if echo "$_entry" | grep -q '|block$'; then
+            _has_block_fail=true
+            break
+        fi
+    done
+
+    if [[ "$_has_block_fail" == true ]]; then
+        _eval_score=0
+    elif [[ "$GENERATIVE_COUNT" -gt 0 ]]; then
+        # Generative avg is the score. Belief failures are deductions.
+        _gen_avg=$((GENERATIVE_SUM / GENERATIVE_COUNT))
+        # Deduct for belief failures: -3 per warn, -5 per fail (non-block)
+        _belief_penalty=$((WARN * 3 + FAIL * 5))
+        _eval_score=$((_gen_avg - _belief_penalty))
+        [[ "$_eval_score" -lt 0 ]] && _eval_score=0
+    elif [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
+        # No generative eval — beliefs-only fallback, capped at 50
+        # This signals "run rhino eval . for a real score"
+        _raw_belief=$(( (PASS * 100 + WARN * 50) / BELIEFS_TOTAL ))
+        _eval_score=$((_raw_belief > 50 ? 50 : _raw_belief))
     fi
 
     # Aggregate per-quality results (global, across all features)
@@ -1646,7 +1917,7 @@ if [[ "$SCORE_MODE" == "true" ]]; then
     rm -rf "$_bq_tmpdir"
 
     if [[ "$JSON_OUTPUT" == "true" ]]; then
-        echo "{\"score\":${_eval_score:-null},\"pass\":$PASS,\"warn\":$WARN,\"fail\":$FAIL,\"beliefs_total\":$BELIEFS_TOTAL,\"generative_count\":$GENERATIVE_COUNT,\"generative_sum\":$GENERATIVE_SUM,\"total\":$_total_weight,\"features\":$_bf_json,\"quality\":$_bq_json}"
+        echo "{\"score\":${_eval_score:-null},\"pass\":$PASS,\"warn\":$WARN,\"fail\":$FAIL,\"beliefs_total\":$BELIEFS_TOTAL,\"generative_count\":$GENERATIVE_COUNT,\"generative_sum\":$GENERATIVE_SUM,\"layer_count\":${_layer_count:-0},\"layer_sum\":${_layer_sum:-0},\"features\":$_bf_json,\"quality\":$_bq_json}"
     elif [[ "$BY_FEATURE" == "true" ]]; then
         echo "$_bf_json"
     else
@@ -1657,17 +1928,33 @@ fi
 
 # === Display (voice.md format) ===
 if [[ "$SCORE_MODE" != "true" ]]; then
-    # Compute blended score for display (same 3x weighting as --score mode)
+    # Compute display score (same formula as --score mode)
     BELIEFS_TOTAL=$((PASS + WARN + FAIL))
     _display_score=""
-    _gen_weight=$((GENERATIVE_COUNT * 3))
-    _total_weight=$((BELIEFS_TOTAL + _gen_weight))
-    if [[ "$_total_weight" -gt 0 ]]; then
-        _beliefs_points=0
-        [[ "$BELIEFS_TOTAL" -gt 0 ]] && _beliefs_points=$(( PASS * 100 + WARN * 50 ))
-        _gen_points=$((GENERATIVE_SUM * 3))
-        _display_score=$(( (_beliefs_points + _gen_points) / _total_weight ))
+    if [[ "$GENERATIVE_COUNT" -gt 0 ]]; then
+        _gen_avg=$((GENERATIVE_SUM / GENERATIVE_COUNT))
+        _belief_penalty=$((WARN * 3 + FAIL * 5))
+        _display_score=$((_gen_avg - _belief_penalty))
+        [[ "$_display_score" -lt 0 ]] && _display_score=0
+    elif [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
+        _raw_belief=$(( (PASS * 100 + WARN * 50) / BELIEFS_TOTAL ))
+        _display_score=$((_raw_belief > 50 ? 50 : _raw_belief))
     fi
+
+    # Aggregate layer results for display
+    _display_layer_tmpdir=$(mktemp -d)
+    while IFS=: read -r _dl_key _dl_p _dl_w _dl_f; do
+        [[ -z "$_dl_key" ]] && continue
+        _dl_feat="${_dl_key%%~*}"
+        _dl_layer="${_dl_key##*~}"
+        [[ "$_dl_layer" == "unscoped" ]] && continue
+        mkdir -p "$_display_layer_tmpdir/$_dl_feat"
+        _dl_pp=0; _dl_pw=0; _dl_pf=0
+        if [[ -f "$_display_layer_tmpdir/$_dl_feat/$_dl_layer" ]]; then
+            IFS=: read -r _dl_pp _dl_pw _dl_pf < "$_display_layer_tmpdir/$_dl_feat/$_dl_layer"
+        fi
+        echo "$((_dl_pp + _dl_p)):$((_dl_pw + _dl_w)):$((_dl_pf + _dl_f))" > "$_display_layer_tmpdir/$_dl_feat/$_dl_layer"
+    done <<< "$LAYER_RESULTS"
 
     echo ""
     echo -e "$SEP"
@@ -1680,11 +1967,13 @@ if [[ "$SCORE_MODE" != "true" ]]; then
         _sub_parts=""
         if [[ "$GENERATIVE_COUNT" -gt 0 ]]; then
             _gen_avg=$((GENERATIVE_SUM / GENERATIVE_COUNT))
-            _sub_parts="${GENERATIVE_COUNT} features (avg ${_gen_avg}, 3x weight)"
+            _sub_parts="${GENERATIVE_COUNT} features (avg ${_gen_avg})"
+        else
+            _sub_parts="no feature audit — run rhino eval . for full score"
         fi
         if [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
             [[ -n "$_sub_parts" ]] && _sub_parts="${_sub_parts}  ${DIM}·${NC}  "
-            _sub_parts="${_sub_parts}${PASS}/${BELIEFS_TOTAL} beliefs (1x weight)"
+            _sub_parts="${_sub_parts}${PASS}/${BELIEFS_TOTAL} beliefs"
         fi
         [[ -n "$_sub_parts" ]] && echo -e "        $_sub_parts"
     fi
@@ -1692,27 +1981,34 @@ if [[ "$SCORE_MODE" != "true" ]]; then
     echo -e "$SEP"
     echo ""
 
-    # Features section (sorted by score descending)
+    # Features section — each feature gets a score and its top gap
     if [[ ${#GENERATIVE_DISPLAY[@]} -gt 0 ]]; then
         echo -e "  ${BOLD}features${NC}"
-        # Sort by score descending
-        printf '%s\n' "${GENERATIVE_DISPLAY[@]}" | sort -t'|' -k2 -rn | while IFS='|' read -r _fname _fscore _fdelivers _fgaps; do
-            # Icon and color
-            if [[ "$_fscore" -ge 80 ]]; then
-                _icon="${GREEN}✓${NC}"
+        printf '%s\n' "${GENERATIVE_DISPLAY[@]}" | sort -t'|' -k2 -n | while IFS='|' read -r _fname _fscore _fdelivers _fgaps; do
+            # Color by score band
+            if [[ "$_fscore" -ge 70 ]]; then
                 _score_color="${GREEN}"
-            elif [[ "$_fscore" -ge 40 ]]; then
-                _icon="${DIM}·${NC}"
+            elif [[ "$_fscore" -ge 50 ]]; then
                 _score_color="${YELLOW}"
             else
-                _icon="${RED}✗${NC}"
                 _score_color="${RED}"
             fi
-            # Truncate description to fit
-            _desc="$_fdelivers"
-            [[ "$_fscore" -lt 80 && -n "$_fgaps" ]] && _desc="$_fgaps"
-            [[ ${#_desc} -gt 40 ]] && _desc="${_desc:0:37}..."
-            printf "  %b %b%-3s%b %-14s %b%s%b\n" "$_icon" "$_score_color" "$_fscore" "$NC" "$_fname" "$DIM" "$_desc" "$NC"
+            # Score bar (20-char)
+            _filled=$(( (_fscore + 2) / 5 ))
+            [[ $_filled -gt 20 ]] && _filled=20
+            _empty=$((20 - _filled))
+            _fbar=""
+            for ((i=0; i<_filled; i++)); do _fbar+="█"; done
+            for ((i=0; i<_empty; i++)); do _fbar+="░"; done
+
+            printf "  %-16s %b%s%b  %b%-3s%b\n" "$_fname" "$_score_color" "$_fbar" "$NC" "$_score_color" "$_fscore" "$NC"
+
+            # Show gap (always — the gap is the point)
+            if [[ -n "$_fgaps" && "$_fgaps" != "null" ]]; then
+                _desc="$_fgaps"
+                [[ ${#_desc} -gt 60 ]] && _desc="${_desc:0:57}..."
+                echo -e "    ${DIM}${_desc}${NC}"
+            fi
         done
         echo ""
     fi
@@ -1813,6 +2109,8 @@ if [[ "$SCORE_MODE" != "true" ]]; then
 
     echo -e "$SEP"
     echo ""
+
+    rm -rf "$_display_layer_tmpdir"
 
     # Cache per-feature quality results for --score mode to use later
     # This lets score.sh show craft/completeness without re-running LLM judges

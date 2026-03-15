@@ -4,7 +4,7 @@
 # ── Project ─────────────────────────────────────────
 project:
   # Maps to strategy.yml: mvp≈one, early≈some, growth≈many
-  stage: growth  # mvp → early → growth → mature. Controls score ceiling warnings.
+  stage: early  # mvp → early → growth → mature. Controls score ceiling warnings.
   mode: build   # build → workshop mode (no shipping pressure, learning focus)
                 # ship  → pipeline mode (/ship visible, ceiling warnings active)
 
@@ -79,31 +79,75 @@ go:
 # Each feature declares what it delivers and for whom.
 # `rhino eval .` reads these and has Claude judge the gap
 # between claim and code. DELIVERS/PARTIAL/MISSING → score.
+#
+# Maturity levels (auto-computed from assertions + code, or set manually):
+#   planned   — idea exists, no code yet
+#   building  — code in progress, not working end-to-end
+#   working   — delivers on its claim, assertions passing
+#   polished  — edge cases handled, tests exist, UX solid
+#
+# Optional fields:
+#   depends_on: [feature_name]  — what must work first
+#   weight: 1-5                 — importance to value hypothesis (default: 1)
+#   maturity: planned|building|working|polished
 features:
   scoring:
     delivers: "honest number that tells a founder if their product improved"
     for: "solo founder who just made changes"
     code: ["bin/score.sh", "bin/eval.sh", "bin/lib/config.sh"]
+    commands: ["rhino score .", "rhino eval ."]
+    status: active
+    weight: 5
+    maturity: working
   learning:
     delivers: "a model that gets smarter every session — predictions, grading, knowledge updates, session trail"
     for: "the system itself — compounds over time"
     code: ["hooks/session_start.sh", "bin/self.sh", "bin/grade.sh", "bin/trail.sh", "~/.claude/knowledge/predictions.tsv"]
+    commands: ["rhino trail"]
+    status: active
+    weight: 4
+    maturity: building
+    depends_on: [scoring]
   self-diagnostic:
     delivers: "system health check — measures calibration, staleness, learning loop integrity"
     for: "solo founder who wants to know if the system is working"
     code: ["bin/self.sh", "bin/bench.sh"]
+    commands: ["rhino self", "rhino bench"]
+    status: active
+    weight: 2
+    maturity: working
+    depends_on: [scoring, learning]
   commands:
     delivers: "slash commands that route founder intent to the right action"
     for: "solo founder working in Claude Code"
-    code: [".claude/commands/plan.md", ".claude/commands/go.md", ".claude/commands/eval.md", ".claude/commands/feature.md", ".claude/commands/init.md", ".claude/commands/ship.md", ".claude/commands/ideate.md", ".claude/commands/research.md", ".claude/commands/roadmap.md", ".claude/commands/rhino.md", ".claude/commands/clone.md"]
+    code: [".claude/commands/plan.md", ".claude/commands/go.md", ".claude/commands/eval.md", ".claude/commands/feature.md", ".claude/commands/init.md", ".claude/commands/ship.md", ".claude/commands/ideate.md", ".claude/commands/research.md", ".claude/commands/roadmap.md", ".claude/commands/rhino.md", ".claude/commands/clone.md", ".claude/commands/assert.md", ".claude/commands/retro.md", ".claude/commands/skill.md", ".claude/commands/strategy.md", ".claude/commands/todo.md", ".claude/commands/product.md"]
+    commands: ["rhino help"]
+    status: active
+    weight: 5
+    maturity: working
   install:
     delivers: "one-command setup — clone, run install.sh, everything works"
     for: "new user trying rhino-os for the first time"
     code: ["install.sh", "README.md"]
+    commands: ["rhino init"]
+    status: active
+    weight: 3
+    maturity: polished
+  todo:
+    delivers: "persistent backlog that survives across sessions — capture, tag, prioritize, promote"
+    for: "solo founder managing ideas across sessions"
+    code: ["bin/todo.sh", "commands/todo.md"]
+    commands: ["rhino todo"]
+    status: active
+    weight: 2
+    maturity: working
   docs:
     delivers: "clear explanation of what rhino-os is and how to use it"
     for: "someone who has never heard of rhino-os"
     code: ["README.md"]
+    status: active
+    weight: 3
+    maturity: working
 
 # ── Evals ────────────────────────────────────────────
 evals:

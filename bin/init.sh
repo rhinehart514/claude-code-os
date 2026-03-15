@@ -68,10 +68,14 @@ elif [[ -f "go.mod" ]]; then
     PROJECT_TYPE="go"
 fi
 
-# CLI fallback
+# Fallbacks for projects without standard config files
 if [[ "$PROJECT_TYPE" == "unknown" ]]; then
     if [[ -d "bin" ]] && find bin -maxdepth 1 \( -name "*.sh" -o -name "*.mjs" \) -print -quit 2>/dev/null | grep -q .; then
         PROJECT_TYPE="cli"
+    elif find . -maxdepth 2 -name "*.py" -not -path "*/venv/*" -not -path "*/.venv/*" -print -quit 2>/dev/null | grep -q .; then
+        PROJECT_TYPE="python"
+    elif find . -maxdepth 2 -name "*.go" -print -quit 2>/dev/null | grep -q .; then
+        PROJECT_TYPE="go"
     fi
 fi
 
@@ -149,6 +153,17 @@ if [[ -d "bin" ]]; then
     done
 fi
 
+# lib/ modules (common in Node libraries like commander.js, express, etc.)
+if [[ -d "lib" ]] && [[ ${#FEATURES[@]} -eq 0 ]]; then
+    for f in lib/*.js lib/*.ts lib/*.mjs; do
+        [[ ! -f "$f" ]] && continue
+        name=$(basename "$f" | sed 's/\.[^.]*$//')
+        [[ "$name" == "index" || "$name" == "main" ]] && continue
+        FEATURES+=("$name")
+        FEATURE_PATHS+=("$f")
+    done
+fi
+
 if [[ ${#FEATURES[@]} -gt 0 ]]; then
     echo -e "  ${GREEN}✓${NC} features: ${BOLD}${FEATURES[*]}${NC} (${#FEATURES[@]} detected)"
 else
@@ -168,10 +183,13 @@ FEAT_DELIVERS_KEYS=""
 FEAT_DELIVERS_VALS=""
 FEAT_FOR_KEYS=""
 FEAT_FOR_VALS=""
+FEAT_WEIGHT_KEYS=""
+FEAT_WEIGHT_VALS=""
 
 # Helper: set feature data (bash 3 compatible — no associative arrays)
 _set_feat_delivers() { FEAT_DELIVERS_KEYS="${FEAT_DELIVERS_KEYS}${1}|"; FEAT_DELIVERS_VALS="${FEAT_DELIVERS_VALS}${2}|"; }
 _set_feat_for() { FEAT_FOR_KEYS="${FEAT_FOR_KEYS}${1}|"; FEAT_FOR_VALS="${FEAT_FOR_VALS}${2}|"; }
+_set_feat_weight() { FEAT_WEIGHT_KEYS="${FEAT_WEIGHT_KEYS}${1}|"; FEAT_WEIGHT_VALS="${FEAT_WEIGHT_VALS}${2}|"; }
 _get_feat_delivers() {
     local key="$1" i=1
     echo "$FEAT_DELIVERS_KEYS" | tr '|' '\n' | while read -r k; do
@@ -187,6 +205,16 @@ _get_feat_for() {
     echo "$FEAT_FOR_KEYS" | tr '|' '\n' | while read -r k; do
         if [[ "$k" == "$key" ]]; then
             echo "$FEAT_FOR_VALS" | cut -d'|' -f"$i"
+            return
+        fi
+        i=$((i + 1))
+    done
+}
+_get_feat_weight() {
+    local key="$1" i=1
+    echo "$FEAT_WEIGHT_KEYS" | tr '|' '\n' | while read -r k; do
+        if [[ "$k" == "$key" ]]; then
+            echo "$FEAT_WEIGHT_VALS" | cut -d'|' -f"$i"
             return
         fi
         i=$((i + 1))
@@ -256,7 +284,8 @@ if command -v claude &>/dev/null; then
 {\"description\":\"one-line project description\",\"user\":\"who specifically uses this\",\"hypothesis\":\"value hypothesis in format: Users can X faster/better than Y\",\"features\":{}}
 
 For the features object, use these detected feature names as keys: [${FEATURE_NAMES}]
-For each, add: {\"delivers\":\"specific value this delivers\",\"for\":\"who uses it\"}
+For each, add: {\"delivers\":\"specific value this delivers\",\"for\":\"who uses it\",\"weight\":N}
+weight is 1-5 — how critical is this feature to the value hypothesis? Core features that the hypothesis depends on = 4-5. Supporting/utility features = 1-2.
 
 Be specific. Not \"handles auth\" but \"user signup and login with OAuth\".
 Not \"users\" but \"sales teams who share decks with prospects\".
@@ -277,11 +306,13 @@ ${CONTEXT}"
             HYPOTHESIS=$(echo "$CLEANED" | jq -r '.hypothesis // empty' 2>/dev/null)
 
             # Extract per-feature data
-            for feat in "${FEATURES[@]}"; do
+            for feat in "${FEATURES[@]+"${FEATURES[@]}"}"; do
                 feat_delivers=$(echo "$CLEANED" | jq -r --arg f "$feat" '.features[$f].delivers // empty' 2>/dev/null)
                 feat_for=$(echo "$CLEANED" | jq -r --arg f "$feat" '.features[$f].for // empty' 2>/dev/null)
+                feat_weight=$(echo "$CLEANED" | jq -r --arg f "$feat" '.features[$f].weight // empty' 2>/dev/null)
                 [[ -n "$feat_delivers" ]] && _set_feat_delivers "$feat" "$feat_delivers"
                 [[ -n "$feat_for" ]] && _set_feat_for "$feat" "$feat_for"
+                [[ -n "$feat_weight" && "$feat_weight" =~ ^[1-5]$ ]] && _set_feat_weight "$feat" "$feat_weight"
             done
 
             CLAUDE_ANALYZED=true
@@ -331,6 +362,10 @@ if [[ ${#FEATURES[@]} -gt 0 ]]; then
 # ── Features ─────────────────────────────────────────
 # Each feature declares what it delivers and for whom.
 # rhino eval reads these and has Claude judge the gap.
+#
+# maturity: planned → building → working → polished
+# weight: 1-5 (importance to value hypothesis)
+# depends_on: [feature_name] (what must work first)
 features:"
 
     for i in "${!FEATURES[@]}"; do
@@ -361,12 +396,122 @@ features:"
             fi
         fi
 
+        # --- Infer weight from Claude analysis or default ---
+        feat_weight=$(_get_feat_weight "$feat")
+        [[ -z "$feat_weight" || ! "$feat_weight" =~ ^[1-5]$ ]] && feat_weight=1
+
+        # --- Infer maturity from code + test presence ---
+        feat_maturity="building"
+        if [[ -f "$feat_path" ]]; then
+            # File feature — check for associated tests
+            feat_base=$(basename "$feat_path" | sed 's/\.[^.]*$//')
+            feat_dir=$(dirname "$feat_path")
+            has_tests=false
+            # Check common test patterns: *.test.*, *.spec.*, __tests__/*, test/*
+            for test_pattern in \
+                "${feat_dir}/${feat_base}.test."* \
+                "${feat_dir}/${feat_base}.spec."* \
+                "${feat_dir}/__tests__/${feat_base}."* \
+                "test/${feat_base}."* \
+                "tests/${feat_base}."* \
+                "test/test-${feat_base}."* \
+                "test/test_${feat_base}."*; do
+                # shellcheck disable=SC2086
+                if ls $test_pattern 2>/dev/null | head -1 | grep -q .; then
+                    has_tests=true
+                    break
+                fi
+            done
+            if [[ "$has_tests" == true ]]; then
+                feat_maturity="working"
+            else
+                feat_maturity="building"
+            fi
+        elif [[ -d "$feat_path" ]]; then
+            # Directory feature — check if it has source files and test files
+            has_code=false
+            has_tests=false
+            if find "$feat_path" -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' -o -name '*.go' -o -name '*.sh' \) -not -name '*.test.*' -not -name '*.spec.*' -print -quit 2>/dev/null | grep -q .; then
+                has_code=true
+            fi
+            if find "$feat_path" -type f \( -name '*.test.*' -o -name '*.spec.*' \) -print -quit 2>/dev/null | grep -q .; then
+                has_tests=true
+            fi
+            # Also check for __tests__ or test subdirs within the feature dir
+            if [[ "$has_tests" != true ]] && find "$feat_path" -type d -name '__tests__' -print -quit 2>/dev/null | grep -q .; then
+                has_tests=true
+            fi
+
+            if [[ "$has_code" == true && "$has_tests" == true ]]; then
+                feat_maturity="working"
+            elif [[ "$has_code" == true ]]; then
+                feat_maturity="building"
+            else
+                feat_maturity="planned"
+            fi
+        else
+            # Path doesn't exist — aspirational feature
+            feat_maturity="planned"
+        fi
+
         FEATURES_YAML+="
   ${feat}:
     delivers: \"${delivers_text}\"
     for: \"${for_text}\"
-    code: [\"${feat_path}\"]"
+    code: [\"${feat_path}\"]
+    status: active
+    weight: ${feat_weight}
+    maturity: ${feat_maturity}"
         FEATURE_COUNT=$((FEATURE_COUNT + 1))
+    done
+
+    # --- Auto-detect depends_on from import chains ---
+    # For each feature, check if its code imports from another feature's code paths
+    # Collect deps as "feat:dep1,dep2" entries, then patch the YAML
+    DEPS_LIST=""
+    for i in "${!FEATURES[@]}"; do
+        feat="${FEATURES[$i]}"
+        feat_path="${FEATURE_PATHS[$i]}"
+        deps=""
+
+        for j in "${!FEATURES[@]}"; do
+            [[ "$i" == "$j" ]] && continue
+            other="${FEATURES[$j]}"
+            other_path="${FEATURE_PATHS[$j]}"
+
+            # Normalize other_path for import matching (strip trailing slash, leading ./)
+            other_import="${other_path%/}"
+            other_import="${other_import#./}"
+
+            # Search for imports/requires of the other feature's path in this feature's code
+            found_dep=false
+            if [[ -f "$feat_path" ]]; then
+                if grep -qE "(import .+ from ['\"].*${other_import}|require\(['\"].*${other_import}|from ${other_import})" "$feat_path" 2>/dev/null; then
+                    found_dep=true
+                fi
+            elif [[ -d "$feat_path" ]]; then
+                if grep -rqE "(import .+ from ['\"].*${other_import}|require\(['\"].*${other_import}|from ${other_import})" "$feat_path" 2>/dev/null; then
+                    found_dep=true
+                fi
+            fi
+
+            if [[ "$found_dep" == true ]]; then
+                if [[ -z "$deps" ]]; then
+                    deps="$other"
+                else
+                    deps="${deps}, ${other}"
+                fi
+            fi
+        done
+
+        if [[ -n "$deps" ]]; then
+            # Append depends_on line after the maturity line for this feature
+            FEATURES_YAML=$(printf '%s' "$FEATURES_YAML" | awk -v feat="  ${feat}:" -v depline="    depends_on: [${deps}]" '
+                $0 == feat { in_feat=1 }
+                in_feat && /^    maturity:/ { print; print depline; in_feat=0; next }
+                { print }
+            ')
+        fi
     done
 fi
 
@@ -399,9 +544,230 @@ RHINO_YML
 echo -e "  ${GREEN}✓${NC} config/rhino.yml (${FEATURE_COUNT} features)"
 
 # ============================================================
+# Phase 2b: Generate config/evals/beliefs.yml
+# ============================================================
+mkdir -p config/evals
+
+if [[ ! -f "config/evals/beliefs.yml" ]]; then
+    # Build project-appropriate assertions
+    cat > config/evals/beliefs.yml <<'BELIEFS_HEADER'
+# beliefs.yml — What must be true about this project
+#
+# Types:
+#   file_check     — file exists, contains string, min lines
+#   command_check  — run a shell command, exit 0 = pass (runs in project dir)
+#   llm_judge      — Claude evaluates code against a prompt (requires prompt: field)
+#   feature_review — Claude evaluates feature completeness
+#
+# Fields:
+#   id:        unique identifier
+#   belief:    human-readable description
+#   type:      one of the types above
+#   severity:  block (score = 0 if failing) | warn (flags but continues)
+#   path:      file or directory to check (file_check, llm_judge)
+#   contains:  string that must appear in the file (file_check)
+#   min_lines: minimum line count (file_check)
+#   command:   shell command to run (command_check)
+#   prompt:    evaluation question for Claude (llm_judge)
+#   feature:   feature name to scope context (llm_judge, feature_review)
+
+beliefs:
+BELIEFS_HEADER
+
+    # Always: project has a value hypothesis
+    cat >> config/evals/beliefs.yml <<'BELIEFS_CORE'
+
+  # ── Core — does the project know what it's for? ──
+
+  - id: has-value-hypothesis
+    belief: "Project has a defined value hypothesis"
+    type: file_check
+    path: "config/rhino.yml"
+    contains: "hypothesis:"
+    severity: block
+
+  - id: has-readme
+    belief: "README exists and explains the project"
+    type: file_check
+    path: "README.md"
+    min_lines: 5
+    severity: warn
+BELIEFS_CORE
+
+    # Project-type-specific assertions
+    case "$PROJECT_TYPE" in
+        nextjs|react|vue|svelte)
+            cat >> config/evals/beliefs.yml <<'BELIEFS_WEB'
+
+  # ── Web — does the app build and render? ──
+
+  - id: build-succeeds
+    belief: "Project builds without errors"
+    type: command_check
+    command: npm run build 2>&1 | tail -1
+    severity: block
+
+  - id: no-console-log-in-components
+    belief: "No console.log left in component files"
+    type: command_check
+    command: "! grep -r 'console.log' src/ --include='*.tsx' --include='*.jsx' --include='*.vue' --include='*.svelte' -l 2>/dev/null | head -1 | grep -q ."
+    severity: warn
+
+  - id: has-entry-point
+    belief: "App has a main entry point"
+    type: command_check
+    command: test -f src/App.tsx -o -f src/App.jsx -o -f src/main.tsx -o -f src/main.ts -o -f app/page.tsx -o -f app/layout.tsx -o -f src/App.vue -o -f src/App.svelte
+    severity: warn
+BELIEFS_WEB
+            ;;
+        node|cli)
+            cat >> config/evals/beliefs.yml <<'BELIEFS_CLI'
+
+  # ── CLI/Node — does the tool run? ──
+
+  - id: main-entry-exists
+    belief: "Main entry point exists"
+    type: command_check
+    command: "test -f index.js -o -f index.mjs -o -f index.cjs -o -f lib/index.js -o -f src/index.ts -o -f src/index.js || node -e 'var m=require(\"./package.json\").main;if(!m)process.exit(1);require(\"fs\").accessSync(m)' 2>/dev/null"
+    severity: warn
+
+  - id: tests-pass
+    belief: "Test suite passes"
+    type: command_check
+    command: npm test 2>&1 | tail -1
+    severity: warn
+BELIEFS_CLI
+            ;;
+        python)
+            cat >> config/evals/beliefs.yml <<'BELIEFS_PY'
+
+  # ── Python — does the code run? ──
+
+  - id: no-syntax-errors
+    belief: "No Python syntax errors"
+    type: command_check
+    command: python -m py_compile $(find . -name '*.py' -not -path '*/venv/*' -not -path '*/.venv/*' | head -5) 2>&1
+    severity: block
+
+  - id: tests-pass
+    belief: "Test suite passes"
+    type: command_check
+    command: python -m pytest --tb=no -q 2>&1 | tail -1
+    severity: warn
+BELIEFS_PY
+            ;;
+        go)
+            cat >> config/evals/beliefs.yml <<'BELIEFS_GO'
+
+  # ── Go — does the code compile? ──
+
+  - id: build-succeeds
+    belief: "Go build succeeds"
+    type: command_check
+    command: go build ./... 2>&1
+    severity: block
+
+  - id: tests-pass
+    belief: "Go tests pass"
+    type: command_check
+    command: go test ./... 2>&1 | tail -3
+    severity: warn
+BELIEFS_GO
+            ;;
+    esac
+
+    # Feature-specific assertions (if features were detected)
+    if [[ ${#FEATURES[@]} -gt 0 ]]; then
+        echo "" >> config/evals/beliefs.yml
+        echo "  # ── Features — do they exist and have substance? ──" >> config/evals/beliefs.yml
+        for i in "${!FEATURES[@]}"; do
+            feat="${FEATURES[$i]}"
+            feat_path="${FEATURE_PATHS[$i]}"
+            if [[ -f "$feat_path" ]]; then
+                # File feature — check it has real content (not a stub)
+                cat >> config/evals/beliefs.yml <<BELIEFS_FEAT
+
+  - id: ${feat}-has-substance
+    belief: "${feat} has real implementation (not a stub)"
+    type: file_check
+    path: "${feat_path}"
+    min_lines: 10
+    feature: ${feat}
+    severity: warn
+BELIEFS_FEAT
+            elif [[ -d "$feat_path" ]]; then
+                # Directory feature — check it has files
+                cat >> config/evals/beliefs.yml <<BELIEFS_FEAT
+
+  - id: ${feat}-has-substance
+    belief: "${feat} has real implementation"
+    type: command_check
+    command: test \$(find ${feat_path} -type f \\( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.py' -o -name '*.go' -o -name '*.sh' \\) 2>/dev/null | wc -l | tr -d ' ') -ge 1
+    feature: ${feat}
+    severity: warn
+BELIEFS_FEAT
+            fi
+        done
+    fi
+
+    echo -e "  ${GREEN}✓${NC} config/evals/beliefs.yml"
+else
+    echo -e "  ${DIM}·${NC} config/evals/beliefs.yml (exists)"
+fi
+
+# ============================================================
+# Phase 2c: Generate project CLAUDE.md
+# ============================================================
+if [[ ! -f "CLAUDE.md" || "$FORCE" == true ]]; then
+    # Build feature list for CLAUDE.md
+    CLAUDE_MD_FEATURES=""
+    if [[ ${#FEATURES[@]} -gt 0 ]]; then
+        for i in "${!FEATURES[@]}"; do
+            feat="${FEATURES[$i]}"
+            if [[ "$CLAUDE_ANALYZED" == true ]]; then
+                feat_del=$(_get_feat_delivers "$feat")
+                [[ -z "$feat_del" ]] && feat_del="see config/rhino.yml"
+            else
+                feat_del="see config/rhino.yml"
+            fi
+            CLAUDE_MD_FEATURES+="- **${feat}** — ${feat_del}
+"
+        done
+    fi
+
+    # Hypothesis display (strip bracket placeholders)
+    CLAUDE_HYPO="$HYPOTHESIS"
+    [[ "$CLAUDE_HYPO" == \[* ]] && CLAUDE_HYPO="(edit config/rhino.yml to define)"
+
+    cat > CLAUDE.md <<CLAUDE_MD
+# ${PROJECT_NAME}
+
+## Value Hypothesis
+${CLAUDE_HYPO}
+
+## Features
+${CLAUDE_MD_FEATURES:-No features detected yet. Run \`/init --force\` after adding code.}
+## Do NOT Build
+<!-- Add things here that should never be built, to prevent drift -->
+
+## Configuration
+- Project config: \`config/rhino.yml\`
+- Assertions: \`config/evals/beliefs.yml\`
+- Plans: \`.claude/plans/\`
+
+## Notes
+Global \`~/.claude/CLAUDE.md\` provides rhino-os methodology (measurement, learning loop, commands).
+This file is project-specific — value hypothesis, features, and constraints for this codebase.
+CLAUDE_MD
+    echo -e "  ${GREEN}✓${NC} CLAUDE.md (project-level)"
+else
+    echo -e "  ${DIM}·${NC} CLAUDE.md (exists)"
+fi
+
+# ============================================================
 # Phase 3: Create .claude/ structure
 # ============================================================
-mkdir -p .claude/cache .claude/scores .claude/plans config/evals
+mkdir -p .claude/cache .claude/scores .claude/plans
 
 # --- Scaffold planning files ---
 
@@ -487,7 +853,7 @@ echo -e "  ${GREEN}✓${NC} .claude/ directories"
 if [[ -z "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
     # 3b-i. Symlink mind files into .claude/rules/
     mkdir -p .claude/rules
-    for mind_file in identity.md thinking.md standards.md self.md; do
+    for mind_file in identity.md thinking.md standards.md; do
         src="$RHINO_DIR/mind/$mind_file"
         target=".claude/rules/$mind_file"
         if [[ -f "$src" ]]; then
@@ -518,9 +884,9 @@ if [[ -z "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
         done
     done
     # Core commands (higher priority — overwrite lens if same name)
-    for cmd_file in "$RHINO_DIR"/.claude/commands/*.md; do
+    # Use commands/ directly (not .claude/commands/ which are symlinks themselves)
+    for cmd_file in "$RHINO_DIR"/commands/*.md; do
         [[ ! -f "$cmd_file" ]] && continue
-        [[ -L "$cmd_file" ]] && continue
         name="$(basename "$cmd_file")"
         ln -sf "$cmd_file" ".claude/commands/$name"
     done
@@ -686,5 +1052,7 @@ echo -e "         ${DIM}${FEATURE_COUNT} features${NC}"
 
 echo -e "${SEP}"
 echo ""
-echo -e "  ${DIM}next: /plan${NC}"
+echo -e "  ${DIM}next:${NC} ${BOLD}/plan${NC}                 ${DIM}find the bottleneck${NC}"
+echo -e "        ${BOLD}/product${NC}              ${DIM}product thinking session${NC}"
+echo -e "        ${BOLD}/roadmap${NC}              ${DIM}see your thesis${NC}"
 echo ""

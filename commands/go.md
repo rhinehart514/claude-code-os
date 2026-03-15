@@ -2,6 +2,9 @@
 description: "Fully autonomous mode. Plan, predict, build, measure, update model, repeat. Accepts a feature name to scope: /go auth"
 ---
 
+!cat .claude/cache/score-cache.json 2>/dev/null | jq -r '.score // "?"' 2>/dev/null || echo "no score"
+!tail -5 .claude/knowledge/predictions.tsv 2>/dev/null || echo "no predictions"
+
 # /go
 
 Autonomous creation loop. You plan, build, measure, and learn — no human in the loop until you hit a wall or plateau.
@@ -41,11 +44,32 @@ Before building, read:
 2. `rhino todo active` — promoted todos (founder's priority)
 3. `.claude/plans/strategy.yml` — current bottleneck, stage
 4. `.claude/plans/roadmap.yml` — current thesis (what we're trying to prove)
-5. `.claude/knowledge/experiment-learnings.md` — known patterns, dead ends to avoid
-6. `.claude/knowledge/predictions.tsv` — recent predictions (calibration)
+5. `.claude/knowledge/experiment-learnings.md` (fall back to `~/.claude/knowledge/`) — known patterns, dead ends to avoid
+6. `.claude/knowledge/predictions.tsv` (fall back to `~/.claude/knowledge/`) — recent predictions (calibration)
 7. `.claude/cache/score-cache.json` — per-feature scores (baseline)
+8. `config/rhino.yml` features section — maturity, weight, depends_on
+
+**Compute the product map:**
+- Product completion % (weighted maturity average)
+- Bottleneck feature (lowest maturity × highest weight)
+- Dependency order (don't build features whose dependencies aren't working yet)
+
+If no tasks exist and no plan exists, use the product map to decide what to build: target the bottleneck feature, aim to move it to the next maturity level.
 
 This context informs every prediction and decision in the loop.
+
+## Agent-assisted mode
+
+When a move is complex (multiple files, new feature, unfamiliar territory):
+1. Spawn `explorer` agent if the move requires research (unfamiliar library, unknown territory)
+2. Spawn `builder` agent with task description + acceptance criteria
+3. Spawn `measurer` agent after builder commits — get honest measurement
+4. Spawn `reviewer` agent for quality check against product standards
+5. Decide keep/revert based on measurer + reviewer results
+
+For simple single-file fixes, work directly (no agents needed). Agent coordination adds overhead — only use it when the move genuinely benefits from parallel investigation or honest external measurement.
+
+Agent definitions live in `agents/` (measurer.md, explorer.md, builder.md, reviewer.md).
 
 ## The loop
 
@@ -73,6 +97,8 @@ Make atomic git commits — each commit is a reviewable, revertable unit.
 ### 4. Measure
 Run `rhino eval .` after each commit. Eval = value (assertion pass rate). Use `rhino score .` as a supporting health check.
 
+- **Infrastructure or logic layer regressed** → revert the commit, log why (mechanical, reliable)
+- **UX layer regressed** → warn but don't auto-revert (LLM variance too high for mechanical keep/revert)
 - **Assertion regressed** (was passing, now failing) → revert the commit, log why
 - **Assertion progressed** (was failing, now passing) → keep
 - **Eval stable or improved** → keep
@@ -103,20 +129,30 @@ TaskUpdate → completed. Pick next move. Loop.
 ```
 ◆ go — session complete
 
+  product: **58%** → **64%** ↑6   score: 50 → 68 ↑18
   moves: **3** completed · 1 reverted
-  eval:  scoring 58→68 ↑10 · learning 48→48 — · commands 70→72 ↑2
   predictions: 3/4 correct (75%)
+
+▾ product map (after)
+  scoring    ████████████████████  polished  w:5
+  commands   ████████████████░░░░  working   w:5
+  learning   ██████░░░░░░░░░░░░░░  building  w:4  ← bottleneck
+  install    ████████████████████  polished  w:3
 
 ▾ what changed
   ✓ move 1: wired trend_for() in score output (+10 scoring)
   ✗ move 2: auto-grade attempt broke session_start hook (reverted)
   ✓ move 3: added cross-recommendations to /eval (+2 commands)
 
+▾ maturity updates
+  · scoring: working → polished (all assertions passing + tests)
+  · commands: building → working (cross-recommendations wired)
+
 ▾ model updates
   · trend visualization is high-ROI (Known Pattern — 3 experiments)
   · session_start hook is fragile — needs tests before modification (Uncertain)
 
-bottleneck now: **learning** at 48 — unchanged, needs different approach
+bottleneck: **learning** (building, w:4) — unchanged, needs different approach
 
 /eval full        validate before shipping
 /ideate learning  current approach exhausted — brainstorm
@@ -181,5 +217,8 @@ This file is the evidence trail. `rhino trail` aggregates these into a visible a
 - `rhino score .` fails: use git diff size as proxy, do NOT skip revert check
 - No plan exists: run /plan logic inline first
 - Dirty git state: `git stash` before starting
+- strategy.yml missing: skip strategy read, use feature pass rates as priority
+- experiment-learnings.md missing: create with standard template (Known/Uncertain/Unknown/Dead Ends)
+- predictions.tsv missing: create with header row, note "first session"
 
 $ARGUMENTS

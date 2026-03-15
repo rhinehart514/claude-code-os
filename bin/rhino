@@ -279,6 +279,168 @@ cmd_test() {
 }
 
 # ============================================================
+# UPDATE
+# ============================================================
+cmd_update() {
+    local install_path_file="$HOME/.config/rhino-os/install-path"
+    local install_path=""
+
+    if [[ -f "$install_path_file" ]]; then
+        install_path="$(cat "$install_path_file")"
+    else
+        # Fall back to this script's own repo
+        install_path="$RHINO_DIR"
+    fi
+
+    if [[ ! -d "$install_path/.git" ]]; then
+        echo -e "  ${RED}✗${NC} $install_path is not a git repo — can't update"
+        exit 1
+    fi
+
+    echo ""
+    echo -e "  ${CYAN}◆${NC} ${BOLD}rhino update${NC}"
+    echo -e "  ${DIM}$install_path${NC}"
+    echo ""
+
+    # Check for dirty tree
+    if ! git -C "$install_path" diff --quiet 2>/dev/null || \
+       ! git -C "$install_path" diff --cached --quiet 2>/dev/null; then
+        echo -e "  ${YELLOW}⚠${NC} Working tree has uncommitted changes."
+        echo -e "  ${DIM}Commit or stash them first, then re-run rhino update.${NC}"
+        echo ""
+        git -C "$install_path" status --short
+        exit 1
+    fi
+
+    local before
+    before="$(git -C "$install_path" rev-parse HEAD)"
+
+    if ! git -C "$install_path" pull --ff-only 2>&1; then
+        echo ""
+        echo -e "  ${RED}✗${NC} Pull failed — likely a diverged branch."
+        echo -e "  ${DIM}Try: cd $install_path && git pull --rebase${NC}"
+        exit 1
+    fi
+
+    local after
+    after="$(git -C "$install_path" rev-parse HEAD)"
+
+    echo ""
+    if [[ "$before" == "$after" ]]; then
+        echo -e "  ${GREEN}✓${NC} Already up to date."
+    else
+        echo -e "  ${BOLD}New commits:${NC}"
+        git -C "$install_path" log --oneline "${before}..${after}" | sed 's/^/    /'
+        echo ""
+        echo -e "  ${DIM}Refreshing symlinks...${NC}"
+        bash "$install_path/install.sh"
+    fi
+    echo ""
+}
+
+# ============================================================
+# DOCTOR
+# ============================================================
+cmd_doctor() {
+    echo ""
+    echo -e "  ${CYAN}◆${NC} ${BOLD}rhino doctor${NC}"
+    echo ""
+
+    local pass=0 fail=0
+
+    # Helper
+    _pass() { echo -e "  ${GREEN}✓${NC} $1"; pass=$((pass + 1)); }
+    _fail() { echo -e "  ${RED}✗${NC} $1"; fail=$((fail + 1)); }
+    _warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
+
+    # 1. rhino CLI on PATH
+    if command -v rhino &>/dev/null; then
+        _pass "rhino CLI on PATH"
+    else
+        _fail "rhino CLI not on PATH"
+    fi
+
+    # 2. Install path stored
+    local install_path_file="$HOME/.config/rhino-os/install-path"
+    if [[ -f "$install_path_file" ]]; then
+        _pass "install path recorded ($(cat "$install_path_file"))"
+    else
+        _fail "install path not recorded ($install_path_file missing)"
+    fi
+
+    # 3. Mind files in ~/.claude/rules/
+    local mind_ok=true
+    for mind_file in identity.md thinking.md standards.md; do
+        if [[ -L "$HOME/.claude/rules/$mind_file" ]]; then
+            if [[ -e "$HOME/.claude/rules/$mind_file" ]]; then
+                : # valid symlink
+            else
+                _fail "broken symlink: ~/.claude/rules/$mind_file"
+                mind_ok=false
+            fi
+        else
+            _fail "missing: ~/.claude/rules/$mind_file"
+            mind_ok=false
+        fi
+    done
+    $mind_ok && _pass "mind files in ~/.claude/rules/"
+
+    # 4. Command files in ~/.claude/commands/
+    local cmd_count=0 broken_cmd=0
+    for f in "$HOME/.claude/commands"/*.md; do
+        [[ ! -L "$f" ]] && continue
+        cmd_count=$((cmd_count + 1))
+        if [[ ! -e "$f" ]]; then
+            broken_cmd=$((broken_cmd + 1))
+            _fail "broken symlink: $f"
+        fi
+    done
+    if [[ $cmd_count -ge 5 && $broken_cmd -eq 0 ]]; then
+        _pass "commands in ~/.claude/commands/ ($cmd_count linked)"
+    elif [[ $cmd_count -lt 5 ]]; then
+        _fail "only $cmd_count commands linked (expected 5+)"
+    fi
+
+    # 5. All symlinks valid (agents, bin tools)
+    local broken_links=0
+    for dir in "$HOME/.claude/agents" "$HOME/bin"; do
+        [[ ! -d "$dir" ]] && continue
+        for f in "$dir"/*; do
+            [[ ! -L "$f" ]] && continue
+            if [[ ! -e "$f" ]]; then
+                _fail "broken symlink: $f"
+                broken_links=$((broken_links + 1))
+            fi
+        done
+    done
+    [[ $broken_links -eq 0 ]] && _pass "all symlinks valid"
+
+    # 6. Node 18+ (warn only — needed for taste)
+    if command -v node &>/dev/null; then
+        local node_major
+        node_major="$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)"
+        if [[ "$node_major" -ge 18 ]] 2>/dev/null; then
+            _pass "Node $node_major (18+ for taste)"
+        else
+            _warn "Node $node_major found — 18+ recommended for rhino taste"
+        fi
+    else
+        _warn "Node not found — needed for rhino taste (visual eval)"
+    fi
+
+    # Summary
+    echo ""
+    if [[ $fail -eq 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} ${BOLD}All checks passed${NC} ($pass/$pass)"
+    else
+        echo -e "  ${RED}✗${NC} ${BOLD}$fail issue(s)${NC} — $pass passed, $fail failed"
+    fi
+    echo ""
+
+    [[ $fail -gt 0 ]] && return 1 || return 0
+}
+
+# ============================================================
 # EVAL
 # ============================================================
 cmd_eval() {
@@ -325,6 +487,8 @@ cmd_help() {
     echo -e "  ${BOLD}System${NC}"
     echo -e "    trail           ${DIM}Evidence trail — session arc over time${NC}"
     echo -e "    init            ${DIM}Bootstrap rhino-os into any repo${NC}"
+    echo -e "    update          ${DIM}Pull latest + refresh symlinks${NC}"
+    echo -e "    doctor          ${DIM}Verify install health (symlinks, deps)${NC}"
     echo -e "    status          ${DIM}Health overview${NC}"
     echo -e "    self            ${DIM}Self-diagnostic${NC}"
     echo -e "    bench           ${DIM}Calibration check${NC}"
@@ -360,6 +524,8 @@ case "${1:-help}" in
     serve)      shift; require_dep "node" "rhino serve"; node "$RHINO_DIR/bin/serve.mjs" "$@" ;;
     init)       shift; bash "$RHINO_DIR/bin/init.sh" "$@" ;;
     trail)      shift; bash "$RHINO_DIR/bin/trail.sh" "$@" ;;
+    update)     cmd_update ;;
+    doctor)     cmd_doctor ;;
     install)    shift; bash "$RHINO_DIR/install.sh" "$@" ;;
     uninstall)  shift; bash "$RHINO_DIR/uninstall.sh" "$@" ;;
     help|--help|-h) cmd_help ;;
