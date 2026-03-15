@@ -88,8 +88,10 @@ Symlinks only — no copies, no modifications. Updates are `git pull`.
 | What | Where | Why |
 |------|-------|-----|
 | Mind files | `~/.claude/rules/` | Always loaded by Claude Code as system context |
-| Hooks | `~/.claude/hooks/` | Boot card on session start |
-| CLI | `~/bin/rhino` | Terminal access to score, taste, eval |
+| Commands | `~/.claude/commands/` | /plan, /go, /eval available in every project |
+| CLI | `~/bin/rhino` | Terminal access to score, taste, eval, trail |
+
+Then run `rhino init` in each project to set up per-project hooks and config.
 
 ### Uninstall
 
@@ -132,9 +134,10 @@ A typical session: `/plan auth` -> `/go auth` -> `/plan` next time.
 
 Every action has a prediction. Wrong predictions update the model. Over sessions, Claude gets better at knowing what works for *your* product.
 
-- **Predictions** (`~/.claude/knowledge/predictions.tsv`) — logged with evidence, graded after measurement
+- **Predictions** (`~/.claude/knowledge/predictions.tsv`) — logged with evidence, auto-graded by `grade.sh`
 - **Knowledge model** (`~/.claude/knowledge/experiment-learnings.md`) — known patterns, uncertain patterns, unknown territory, dead ends
 - **Assertions** (`beliefs.yml`) — the definition of done, enforced mechanically
+- **Session trail** (`rhino trail`) — persistent evidence of improvement across sessions
 
 You don't need to understand this to start. Run `/plan`, follow its lead.
 
@@ -175,6 +178,7 @@ One number. Measures what matters.
     test            Run test suites
 
   System
+    trail           Evidence trail — session arc over time
     init            Bootstrap rhino-os into any repo
     status          Health overview
     self            Self-diagnostic

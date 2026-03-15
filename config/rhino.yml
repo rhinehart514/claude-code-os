@@ -85,9 +85,9 @@ features:
     for: "solo founder who just made changes"
     code: ["bin/score.sh", "bin/eval.sh", "bin/lib/config.sh"]
   learning:
-    delivers: "a model that gets smarter every session — predictions, grading, knowledge updates"
+    delivers: "a model that gets smarter every session — predictions, grading, knowledge updates, session trail"
     for: "the system itself — compounds over time"
-    code: ["hooks/session_start.sh", "bin/self.sh", "~/.claude/knowledge/predictions.tsv"]
+    code: ["hooks/session_start.sh", "bin/self.sh", "bin/grade.sh", "bin/trail.sh", "~/.claude/knowledge/predictions.tsv"]
   self-diagnostic:
     delivers: "system health check — measures calibration, staleness, learning loop integrity"
     for: "solo founder who wants to know if the system is working"

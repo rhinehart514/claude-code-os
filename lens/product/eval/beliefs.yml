@@ -195,10 +195,11 @@ beliefs:
     quality: completeness
     capabilities:
       - "predictions.tsv gets new entries logged with evidence"
-      - "predictions get graded (correct column filled in)"
+      - "grade.sh auto-grades predictions against score history"
       - "experiment-learnings.md gets updated when predictions are wrong"
       - "session boot card surfaces prediction accuracy and staleness"
-      - "stale predictions and knowledge are detected and flagged"
+      - "session logs (.claude/sessions/) persist evidence across conversations"
+      - "rhino trail renders the arc of improvement across sessions"
     severity: warn
 
   - id: assertions-graduating
