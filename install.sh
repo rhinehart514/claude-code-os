@@ -43,14 +43,80 @@ echo ""
 
 # --- 1. Create directories ---
 for dir in \
-    "$CLAUDE_DIR/knowledge"; do
+    "$CLAUDE_DIR/knowledge" \
+    "$CLAUDE_DIR/rules" \
+    "$CLAUDE_DIR/commands"; do
     if [[ ! -d "$dir" ]]; then
         $DRY_RUN || mkdir -p "$dir"
         action "mkdir $dir"
     fi
 done
 
-# --- 2. Symlink CLI ---
+# --- 2. Symlink mind files → ~/.claude/rules/ ---
+echo -e "  ${BOLD}Mind${NC}"
+echo ""
+for mind_file in identity.md thinking.md standards.md self.md; do
+    src="$RHINO_DIR/mind/$mind_file"
+    dest="$CLAUDE_DIR/rules/$mind_file"
+    [[ ! -f "$src" ]] && continue
+    if [[ -L "$dest" && "$(readlink "$dest")" == "$src" ]]; then
+        skip "~/.claude/rules/$mind_file"
+    else
+        $DRY_RUN || ln -sf "$src" "$dest"
+        action "~/.claude/rules/$mind_file"
+    fi
+done
+# Lens mind files (e.g., product-eyes.md, product-self.md)
+for lens_dir in "$RHINO_DIR"/lens/*/mind; do
+    [[ ! -d "$lens_dir" ]] && continue
+    for lens_mind in "$lens_dir"/*.md; do
+        [[ ! -f "$lens_mind" ]] && continue
+        name="$(basename "$lens_mind")"
+        dest="$CLAUDE_DIR/rules/$name"
+        if [[ -L "$dest" && "$(readlink "$dest")" == "$lens_mind" ]]; then
+            skip "~/.claude/rules/$name"
+        else
+            $DRY_RUN || ln -sf "$lens_mind" "$dest"
+            action "~/.claude/rules/$name (lens)"
+        fi
+    done
+done
+
+# --- 3. Symlink commands → ~/.claude/commands/ ---
+echo ""
+echo -e "  ${BOLD}Commands${NC}"
+echo ""
+CMD_COUNT=0
+for cmd_file in "$RHINO_DIR"/.claude/commands/*.md; do
+    [[ ! -f "$cmd_file" ]] && continue
+    [[ -L "$cmd_file" ]] && continue
+    name="$(basename "$cmd_file")"
+    dest="$CLAUDE_DIR/commands/$name"
+    if [[ -L "$dest" && "$(readlink "$dest")" == "$cmd_file" ]]; then
+        skip "~/.claude/commands/$name"
+    else
+        $DRY_RUN || ln -sf "$cmd_file" "$dest"
+        action "~/.claude/commands/$name"
+    fi
+    CMD_COUNT=$((CMD_COUNT + 1))
+done
+# Lens commands
+for lens_cmd_dir in "$RHINO_DIR"/lens/*/commands; do
+    [[ ! -d "$lens_cmd_dir" ]] && continue
+    for cmd_file in "$lens_cmd_dir"/*.md; do
+        [[ ! -f "$cmd_file" ]] && continue
+        name="$(basename "$cmd_file")"
+        dest="$CLAUDE_DIR/commands/$name"
+        # Don't overwrite core commands
+        [[ -L "$dest" ]] && continue
+        $DRY_RUN || ln -sf "$cmd_file" "$dest"
+        action "~/.claude/commands/$name (lens)"
+        CMD_COUNT=$((CMD_COUNT + 1))
+    done
+done
+echo -e "    ${DIM}${CMD_COUNT} commands available${NC}"
+
+# --- 5. Symlink CLI ---
 echo ""
 echo -e "  ${BOLD}CLI${NC}"
 echo ""
@@ -89,7 +155,7 @@ else
     action "~/bin/rhino"
 fi
 
-# --- 3. Set RHINO_DIR in shell profile ---
+# --- 6. Set RHINO_DIR in shell profile ---
 echo ""
 echo -e "  ${BOLD}Environment${NC}"
 PROFILE=""
