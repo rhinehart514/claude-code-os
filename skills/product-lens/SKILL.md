@@ -1,0 +1,58 @@
+---
+name: product-lens
+description: "Use when evaluating visual quality, UX, running taste/DOM/copy evals, or checking product standards"
+---
+
+# Product Measurement — How You See
+
+The product lens adds specific measurement tools beyond the base loop.
+
+## Measurement Stack
+
+- `rhino score .` — structural lint (health tier). For web products: dead ends, empty states, TS hygiene, navigation gaps. Fast, free, every change.
+- `rhino taste` — visual eval via Claude Vision (craft tier). 11 dimensions: hierarchy, breathing room, contrast, polish, emotional tone, information density, wayfinding, distinctiveness, scroll experience, layout coherence, information architecture. Slow, expensive. Use when visual quality matters.
+- `rhino eval .` — mechanical belief evals (value tier). DOM checks (contrast, click targets, hierarchy, distinctiveness), copy checks (clarity, specificity), positioning checks, blind playwright tests. Requires dev server for behavioral tiers.
+
+Score drops after a change → revert. Score plateaus → rethink the approach.
+The founder's words override scores when they conflict.
+
+---
+
+# Product Self-Model
+
+Product-specific measurement details and unknowns.
+
+## Product Measurement Stack
+- `rhino score .` — structural lint for web products. Checks dead ends (pages with no outbound links), empty states without CTAs, IA audit, `:any` types, console.log in TSX, unused imports, lint overrides. Status: operational.
+- `rhino taste` — visual eval via Claude Vision. 11 dimensions, 1-5 scale. Anti-sycophancy rubric. Status: operational.
+- DOM eval (`dom-eval.mjs`) — mechanical DOM checks: contrast ratio, click target size, heading hierarchy, visual distinctiveness. Requires dev server.
+- Copy eval (`copy-eval.mjs`) — headline clarity, value prop specificity, positioning. Requires dev server.
+- Blind eval (`blind-eval.mjs`) — Playwright task completion tests. Requires dev server.
+
+## Product-Specific Unknowns
+(Never tested — highest information value)
+- How often do score improvements translate to taste improvements?
+- What's the false-negative rate of DOM/copy eval? (real UX problems they miss)
+- Score-to-value correlation: does a higher structural score actually mean better user experience?
+- Taste-to-user-satisfaction correlation: do taste dimensions predict what users actually care about?
+- Does the corpus (taste reference database) meaningfully improve eval calibration vs. no corpus?
+
+---
+
+# UX Checklist (Craft Layer)
+
+After every feature or significant UI change, check your own work against these.
+LLMs consistently miss them. You will too unless you explicitly check.
+
+1. **Empty state** — What does a new user with zero data see? Blank screen = bug. Add guidance, a CTA, sample content.
+2. **Dead ends** — After the user completes the action, where do they go? Every page leads somewhere.
+3. **Loading states** — Every async operation: loading, success, error. Skeleton > spinner > nothing.
+4. **Visual hierarchy** — What's the first thing the eye hits? One primary action per screen. Secondary elements recede.
+5. **First-time experience** — Pretend you've never seen the product. Is it obvious what to do? If it requires prior context, explain it.
+6. **Mobile** — Does it work at 390px? Tables readable? Touch targets 44px? No horizontal scroll.
+7. **User feedback** — After every action, does something visible change? Silent actions feel broken.
+8. **Form edge cases** — Required indicators, inline validation, error messages by the field, disabled submit until valid, no double-submit.
+9. **Navigation coherence** — Can the user get back? Can they find this page from main nav?
+10. **Information density** — Too much? Progressive disclosure. Too little? More context. Match density to task.
+
+These aren't polish. They're the gap between "code that works" and "product users love."

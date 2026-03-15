@@ -5,7 +5,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RHINO_DIR="$(dirname "$SCRIPT_DIR")"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    RHINO_DIR="$(dirname "$SCRIPT_DIR")"
+fi
 
 echo "rhino-os quickstart smoke test (base + lens)"
 echo ""

@@ -1,0 +1,10 @@
+{
+  "name": "rhino-os",
+  "version": "7.2.0",
+  "description": "A learning plugin for Claude Code — measurement, predictions, and autonomous building that compounds across sessions",
+  "author": { "name": "Laney Fraass" },
+  "homepage": "https://github.com/rhinehart514/rhino-os",
+  "repository": "https://github.com/rhinehart514/rhino-os",
+  "license": "MIT",
+  "keywords": ["product", "measurement", "learning", "eval", "autonomous", "scoring"]
+}

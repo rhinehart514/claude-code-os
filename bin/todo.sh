@@ -6,11 +6,15 @@ set -uo pipefail
 # NOTE: set -e intentionally omitted. Item parsing uses grep/awk patterns
 # where empty results (missing fields) return 1 — that's normal, not an error.
 
-_BACKLOG_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_BACKLOG_SOURCE" ]]; do
-    _BACKLOG_SOURCE="$(readlink "$_BACKLOG_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_BACKLOG_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _BACKLOG_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_BACKLOG_SOURCE" ]]; do
+        _BACKLOG_SOURCE="$(readlink "$_BACKLOG_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_BACKLOG_SOURCE")/.." && pwd)"
+fi
 
 # Project-local first, then rhino-os's own todos
 PROJECT_DIR="$(pwd)"

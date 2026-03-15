@@ -8,11 +8,15 @@ PROJECT_DIR="${1:-.}"
 cd "$PROJECT_DIR" 2>/dev/null || { echo "Cannot access $PROJECT_DIR"; exit 1; }
 
 # Resolve RHINO_DIR
-_DATA_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_DATA_SOURCE" ]]; do
-    _DATA_SOURCE="$(readlink "$_DATA_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_DATA_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _DATA_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_DATA_SOURCE" ]]; do
+        _DATA_SOURCE="$(readlink "$_DATA_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_DATA_SOURCE")/.." && pwd)"
+fi
 
 # --- Colors ---
 RED='\033[0;31m'

@@ -6,7 +6,11 @@
 #   source "$(dirname "$0")/lib/config.sh"
 #   cache_ttl=$(cfg scoring.cache_ttl 300)
 
-_RHINO_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    _RHINO_CONFIG_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _RHINO_CONFIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
 _RHINO_CONFIG_FILE="$_RHINO_CONFIG_DIR/config/rhino.yml"
 
 # Discover all lens configs (glob into array, last match wins in cfg())

@@ -1,10 +1,26 @@
 # rhino-os
 
-An operating system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (Anthropic's AI coding agent for the terminal) that makes your product measurably better every session.
+A learning plugin for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that makes your product measurably better every session.
 
-**What is Claude Code?** A CLI tool where you talk to Claude in your terminal and it reads, writes, and runs code. rhino-os gives Claude Code a brain — identity, memory, measurement, and a learning loop that compounds across sessions.
+**What is Claude Code?** A CLI tool where you talk to Claude in your terminal and it reads, writes, and runs code. rhino-os is a plugin that adds measurement, learning, and strategy on top.
 
 Inspired by [Karpathy's autoresearch](https://github.com/karpathy/autoresearch).
+
+---
+
+## What rhino-os Adds to Claude Code
+
+Claude Code provides the runtime — chat, code read/write/run, MCP tools, hooks, commands, rules. rhino-os adds the intelligence layer:
+
+| Claude Code provides | rhino-os adds |
+|---------------------|--------------|
+| Read/write/run code | **Measurement** — score, eval, taste (is my product good?) |
+| MCP tools (context7, playwright) | **Learning** — predictions, grading, knowledge model (get smarter each session) |
+| Hooks + commands | **Strategy** — bottleneck finding, feature tracking, roadmap theses |
+| Rules (system context) | **Identity** — cofounder behavior, standards, reasoning framework |
+| Chat interface | **Autonomous building** — /go loop (keep what passes, revert what doesn't) |
+
+rhino-os doesn't replace Claude Code. It makes Claude Code compound.
 
 ---
 
@@ -66,6 +82,15 @@ Fix your health issues, but don't confuse them with value.
 ## Quick Start
 
 **Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed. macOS or Linux.
+
+### Option 1: Plugin (recommended)
+
+```
+/plugin marketplace add rhinehart514/rhino-os
+/plugin install rhino-os@rhino-marketplace
+```
+
+### Option 2: Manual
 
 ```bash
 # 1. Install rhino-os (one time)
@@ -198,7 +223,15 @@ One number. Measures what matters.
 
 ```
 rhino-os/
-  mind/                    identity + reasoning (always loaded via ~/.claude/rules/)
+  .claude-plugin/          plugin manifest (for /plugin install)
+    plugin.json            name, version, description
+    marketplace.json       marketplace listing
+  commands/                slash commands (plan, go, eval, feature, etc.)
+  .claude/commands/        symlinks → commands/ (backward compat)
+  skills/                  auto-triggered skills for plugin system
+    rhino-mind/SKILL.md    core operating model (identity + thinking + standards + self)
+    product-lens/SKILL.md  product measurement (eyes + self + UX checklist)
+  mind/                    identity + reasoning (source of truth)
     identity.md            cofounder behavior
     thinking.md            predict -> measure -> update model
     standards.md           what quality means (value > craft > health)
@@ -210,10 +243,11 @@ rhino-os/
     self.sh                4-system self-diagnostic
     bench.sh               calibration check against fixture repos
     init.sh                bootstrap rhino-os into any repo
-  .claude/commands/        slash commands (plan, go, eval, feature, etc.)
   config/
     rhino.yml              tunables + value hypothesis + signals
   hooks/
+    hooks.json             declarative hook config (for plugin system)
+    run-hook.cmd           polyglot hook launcher (Unix + Windows)
     session_start.sh       boot card on session start
     post_skill.sh          plan file validation after skill writes
     post_edit.sh           write-time quality checks

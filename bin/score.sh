@@ -924,7 +924,7 @@ EOF
             bar=$(make_bar "$local_min")
             echo -e "  \033[1mScore: ${overall_color}${local_min}/100\033[0m${score_delta_display}  ${overall_color}${bar}\033[0m  \033[2m($ASSERTION_PASS_COUNT/$ASSERTION_COUNT assertions passing)\033[0m"
 
-            # Per-feature breakdown with change indicators
+            # Per-feature breakdown with quality sub-lines
             if [[ -n "$FEATURES_JSON" && "$FEATURES_JSON" != "{}" ]] && command -v jq &>/dev/null; then
                 echo ""
                 # Handle both beliefs features (pass/total) and generative features (score)
@@ -932,13 +932,14 @@ EOF
                     if .value.type == "generative" then .value.score / 100
                     else .value.pass / (.value.total + 0.001)
                     end
-                ) | .[] | "\(.key) \(.value.type // "beliefs") \(.value.pass // 0) \(.value.total // 0) \(.value.score // 0)"' <<< "$FEATURES_JSON" 2>/dev/null | while read -r fname ftype fpass ftotal fscore; do
+                ) | .[] | .key' <<< "$FEATURES_JSON" 2>/dev/null | while read -r fname; do
                     [[ -z "$fname" ]] && continue
+                    ftype=$(jq -r ".\"$fname\".type // \"beliefs\"" <<< "$FEATURES_JSON" 2>/dev/null)
                     if [[ "$ftype" == "generative" ]]; then
+                        fscore=$(jq -r ".\"$fname\".score // 0" <<< "$FEATURES_JSON" 2>/dev/null)
                         fpct="$fscore"
                         fbar=$(make_bar "$fpct")
                         fcolor=$(dim_color "$fpct")
-                        # Check for change from previous run
                         fdelta=""
                         if [[ -n "$PREV_FEATURES_JSON" && "$PREV_FEATURES_JSON" != "{}" ]]; then
                             prev_score=$(echo "$PREV_FEATURES_JSON" | jq -r ".\"$fname\".score // empty" 2>/dev/null)
@@ -951,13 +952,31 @@ EOF
                                 fi
                             fi
                         fi
-                        printf "  %-12s ${fcolor}${fbar}\033[0m  %s/100${fdelta}\n" "$fname" "$fpct"
+                        printf "  %-16s ${fcolor}${fbar}\033[0m  %s/100${fdelta}\n" "$fname" "$fpct"
+                        # Quality sub-lines (also for generative features that have belief data)
+                        _has_quality=$(jq -r ".\"$fname\".quality // empty" <<< "$FEATURES_JSON" 2>/dev/null)
+                        if [[ -n "$_has_quality" && "$_has_quality" != "null" ]]; then
+                            _qline="    "
+                            for _qdim in correctness craft completeness; do
+                                _qpass=$(jq -r ".\"$fname\".quality.\"$_qdim\".pass // empty" <<< "$FEATURES_JSON" 2>/dev/null)
+                                _qtotal=$(jq -r ".\"$fname\".quality.\"$_qdim\".total // empty" <<< "$FEATURES_JSON" 2>/dev/null)
+                                if [[ -n "$_qpass" && -n "$_qtotal" && "$_qtotal" != "0" ]]; then
+                                    if [[ "$_qpass" -eq "$_qtotal" ]]; then _qc="\033[0;32m"
+                                    elif [[ $((_qpass * 100 / _qtotal)) -ge 50 ]]; then _qc="\033[1;33m"
+                                    else _qc="\033[0;31m"
+                                    fi
+                                    _qline+="\033[2m${_qdim}\033[0m ${_qc}${_qpass}/${_qtotal}\033[0m  "
+                                fi
+                            done
+                            echo -e "$_qline"
+                        fi
                     else
+                        fpass=$(jq -r ".\"$fname\".pass // 0" <<< "$FEATURES_JSON" 2>/dev/null)
+                        ftotal=$(jq -r ".\"$fname\".total // 0" <<< "$FEATURES_JSON" 2>/dev/null)
                         fpct=0
                         [[ "$ftotal" -gt 0 ]] && fpct=$((fpass * 100 / ftotal))
                         fbar=$(make_bar "$fpct")
                         fcolor=$(dim_color "$fpct")
-                        # Check for change from previous run
                         fdelta=""
                         if [[ -n "$PREV_FEATURES_JSON" && "$PREV_FEATURES_JSON" != "{}" ]]; then
                             prev_pass=$(echo "$PREV_FEATURES_JSON" | jq -r ".\"$fname\".pass // empty" 2>/dev/null)
@@ -970,7 +989,24 @@ EOF
                                 fi
                             fi
                         fi
-                        printf "  %-12s ${fcolor}${fbar}\033[0m  %s/%s${fdelta}\n" "$fname" "$fpass" "$ftotal"
+                        printf "  %-16s ${fcolor}${fbar}\033[0m  %s/%s${fdelta}\n" "$fname" "$fpass" "$ftotal"
+                        # Quality sub-lines
+                        _has_quality=$(jq -r ".\"$fname\".quality // empty" <<< "$FEATURES_JSON" 2>/dev/null)
+                        if [[ -n "$_has_quality" && "$_has_quality" != "null" ]]; then
+                            _qline="    "
+                            for _qdim in correctness craft completeness; do
+                                _qpass=$(jq -r ".\"$fname\".quality.\"$_qdim\".pass // empty" <<< "$FEATURES_JSON" 2>/dev/null)
+                                _qtotal=$(jq -r ".\"$fname\".quality.\"$_qdim\".total // empty" <<< "$FEATURES_JSON" 2>/dev/null)
+                                if [[ -n "$_qpass" && -n "$_qtotal" && "$_qtotal" != "0" ]]; then
+                                    if [[ "$_qpass" -eq "$_qtotal" ]]; then _qc="\033[0;32m"
+                                    elif [[ $((_qpass * 100 / _qtotal)) -ge 50 ]]; then _qc="\033[1;33m"
+                                    else _qc="\033[0;31m"
+                                    fi
+                                    _qline+="\033[2m${_qdim}\033[0m ${_qc}${_qpass}/${_qtotal}\033[0m  "
+                                fi
+                            done
+                            echo -e "$_qline"
+                        fi
                     fi
                 done
             fi

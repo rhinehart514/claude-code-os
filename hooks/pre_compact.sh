@@ -9,12 +9,14 @@ INPUT=$(cat)
 PROJECT_DIR=$(pwd)
 
 # --- Resolve RHINO_DIR ---
-_PC_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_PC_SOURCE" ]]; do
-    _PC_SOURCE="$(readlink "$_PC_SOURCE")"
-done
-_PC_DIR="$(cd "$(dirname "$_PC_SOURCE")" && pwd)"
-RHINO_DIR="$(cd "$_PC_DIR/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _PC_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_PC_SOURCE" ]]; do _PC_SOURCE="$(readlink "$_PC_SOURCE")"; done
+    _PC_DIR="$(cd "$(dirname "$_PC_SOURCE")" && pwd)"
+    RHINO_DIR="$(cd "$_PC_DIR/.." && pwd)"
+fi
 
 # Colors
 C_BOLD='\033[1m'

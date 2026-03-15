@@ -13,6 +13,12 @@ RHINO_DIR="$SCRIPT_DIR"
 CLAUDE_DIR="$HOME/.claude"
 DRY_RUN=false
 
+# Plugin mode detection
+PLUGIN_MODE=false
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]] || [[ -f "$RHINO_DIR/.claude-plugin/plugin.json" ]]; then
+    PLUGIN_MODE=true
+fi
+
 for arg in "$@"; do
     case "$arg" in
         --check|--dry-run) DRY_RUN=true ;;
@@ -52,44 +58,48 @@ for dir in \
     fi
 done
 
-# --- 2. Symlink mind files → ~/.claude/rules/ ---
-echo -e "  ${BOLD}Mind${NC}"
-echo ""
-for mind_file in identity.md thinking.md standards.md self.md; do
-    src="$RHINO_DIR/mind/$mind_file"
-    dest="$CLAUDE_DIR/rules/$mind_file"
-    [[ ! -f "$src" ]] && continue
-    if [[ -L "$dest" && "$(readlink "$dest")" == "$src" ]]; then
-        skip "~/.claude/rules/$mind_file"
-    else
-        $DRY_RUN || ln -sf "$src" "$dest"
-        action "~/.claude/rules/$mind_file"
-    fi
-done
-# Lens mind files (e.g., product-eyes.md, product-self.md)
-for lens_dir in "$RHINO_DIR"/lens/*/mind; do
-    [[ ! -d "$lens_dir" ]] && continue
-    for lens_mind in "$lens_dir"/*.md; do
-        [[ ! -f "$lens_mind" ]] && continue
-        name="$(basename "$lens_mind")"
-        dest="$CLAUDE_DIR/rules/$name"
-        if [[ -L "$dest" && "$(readlink "$dest")" == "$lens_mind" ]]; then
-            skip "~/.claude/rules/$name"
+# --- 2. Symlink mind files → ~/.claude/rules/ (skip in plugin mode — handled by skills) ---
+if ! $PLUGIN_MODE; then
+    echo -e "  ${BOLD}Mind${NC}"
+    echo ""
+    for mind_file in identity.md thinking.md standards.md self.md; do
+        src="$RHINO_DIR/mind/$mind_file"
+        dest="$CLAUDE_DIR/rules/$mind_file"
+        [[ ! -f "$src" ]] && continue
+        if [[ -L "$dest" && "$(readlink "$dest")" == "$src" ]]; then
+            skip "~/.claude/rules/$mind_file"
         else
-            $DRY_RUN || ln -sf "$lens_mind" "$dest"
-            action "~/.claude/rules/$name (lens)"
+            $DRY_RUN || ln -sf "$src" "$dest"
+            action "~/.claude/rules/$mind_file"
         fi
     done
-done
+    # Lens mind files (e.g., product-eyes.md, product-self.md)
+    for lens_dir in "$RHINO_DIR"/lens/*/mind; do
+        [[ ! -d "$lens_dir" ]] && continue
+        for lens_mind in "$lens_dir"/*.md; do
+            [[ ! -f "$lens_mind" ]] && continue
+            name="$(basename "$lens_mind")"
+            dest="$CLAUDE_DIR/rules/$name"
+            if [[ -L "$dest" && "$(readlink "$dest")" == "$lens_mind" ]]; then
+                skip "~/.claude/rules/$name"
+            else
+                $DRY_RUN || ln -sf "$lens_mind" "$dest"
+                action "~/.claude/rules/$name (lens)"
+            fi
+        done
+    done
+else
+    echo -e "  ${BOLD}Mind${NC}"
+    echo -e "    ${DIM}plugin mode — handled by skills/${NC}"
+fi
 
 # --- 3. Symlink commands → ~/.claude/commands/ ---
 echo ""
 echo -e "  ${BOLD}Commands${NC}"
 echo ""
 CMD_COUNT=0
-for cmd_file in "$RHINO_DIR"/.claude/commands/*.md; do
+for cmd_file in "$RHINO_DIR"/commands/*.md; do
     [[ ! -f "$cmd_file" ]] && continue
-    [[ -L "$cmd_file" ]] && continue
     name="$(basename "$cmd_file")"
     dest="$CLAUDE_DIR/commands/$name"
     if [[ -L "$dest" && "$(readlink "$dest")" == "$cmd_file" ]]; then

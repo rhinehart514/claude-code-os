@@ -5,11 +5,13 @@ set -euo pipefail
 # Score = value, not health. Measurement tools: score, taste, eval, status, config
 
 VERSION="7.0.0"
-_RHINO_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_RHINO_SOURCE" ]]; do
-    _RHINO_SOURCE="$(readlink "$_RHINO_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_RHINO_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _RHINO_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_RHINO_SOURCE" ]]; do _RHINO_SOURCE="$(readlink "$_RHINO_SOURCE")"; done
+    RHINO_DIR="$(cd "$(dirname "$_RHINO_SOURCE")/.." && pwd)"
+fi
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -321,6 +323,7 @@ cmd_help() {
     echo -e "    skill info      ${DIM}Show lens details${NC}"
     echo ""
     echo -e "  ${BOLD}System${NC}"
+    echo -e "    trail           ${DIM}Evidence trail — session arc over time${NC}"
     echo -e "    init            ${DIM}Bootstrap rhino-os into any repo${NC}"
     echo -e "    status          ${DIM}Health overview${NC}"
     echo -e "    self            ${DIM}Self-diagnostic${NC}"
@@ -356,6 +359,7 @@ case "${1:-help}" in
     skill)      shift; bash "$RHINO_DIR/bin/skill.sh" "$@" ;;
     serve)      shift; require_dep "node" "rhino serve"; node "$RHINO_DIR/bin/serve.mjs" "$@" ;;
     init)       shift; bash "$RHINO_DIR/bin/init.sh" "$@" ;;
+    trail)      shift; bash "$RHINO_DIR/bin/trail.sh" "$@" ;;
     install)    shift; bash "$RHINO_DIR/install.sh" "$@" ;;
     uninstall)  shift; bash "$RHINO_DIR/uninstall.sh" "$@" ;;
     help|--help|-h) cmd_help ;;

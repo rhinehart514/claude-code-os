@@ -9,11 +9,15 @@ set -uo pipefail
 #   bench.sh --json       # machine-readable
 
 # --- Resolve RHINO_DIR ---
-_BENCH_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_BENCH_SOURCE" ]]; do
-    _BENCH_SOURCE="$(readlink "$_BENCH_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_BENCH_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _BENCH_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_BENCH_SOURCE" ]]; do
+        _BENCH_SOURCE="$(readlink "$_BENCH_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_BENCH_SOURCE")/.." && pwd)"
+fi
 
 # --- Args ---
 JSON_OUTPUT=false

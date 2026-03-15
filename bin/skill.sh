@@ -4,11 +4,15 @@ set -euo pipefail
 # skill.sh — Manage rhino-os lenses (skills)
 # Usage: rhino skill [list|install|remove|info] [args]
 
-_SKILL_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_SKILL_SOURCE" ]]; do
-    _SKILL_SOURCE="$(readlink "$_SKILL_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_SKILL_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _SKILL_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_SKILL_SOURCE" ]]; do
+        _SKILL_SOURCE="$(readlink "$_SKILL_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_SKILL_SOURCE")/.." && pwd)"
+fi
 
 # --- Colors ---
 RED='\033[0;31m'

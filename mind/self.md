@@ -56,6 +56,31 @@ How rhino-os itself is performing. Updated from real data, not guesses.
 - The CLI (bin/) should serve the commands, not the other way around. Commands are the product.
 - Mind files are loaded but never validated — no mechanism to check if they actually influenced behavior.
 
+## Available MCP Tools
+- **context7**: resolve-library-id + query-docs — real-time library documentation for any framework. Use in /research for accurate docs instead of web search hallucinations.
+- **playwright**: browser automation — navigate, click, snapshot, evaluate, network requests. Use in /research site for live product analysis.
+- **Vercel**: deploy, project management, runtime logs, toolbar threads. Use in /ship for deployment.
+
+## Plugin Surface (what rhino-os extends in Claude Code)
+
+Two install modes, same capabilities:
+
+**Plugin mode** (`CLAUDE_PLUGIN_ROOT` set):
+- `skills/rhino-mind/SKILL.md` — mind files concatenated into a single skill
+- `commands/*.md` — slash commands delivered via plugin system
+- `hooks/hooks.json` — hook definitions referencing hooks/*.sh
+- MCP tools — context7, playwright, Vercel (when available)
+
+**Manual install** (legacy symlinks):
+- `~/.claude/rules/` — mind files symlinked as system context
+- `~/.claude/commands/` — slash commands symlinked
+- `settings.json` — hook configuration pointing to hooks/*.sh
+- MCP tools — context7, playwright, Vercel (when available)
+
+**Shared** (both modes):
+- `~/.claude/knowledge/` — predictions.tsv, experiment-learnings.md (persistent learning)
+- `~/.claude/cache/` — research artifacts, score cache (cross-command communication)
+
 ## Meta-Learning
 - The predict→measure→update loop works when predictions are graded. It breaks when they're not.
 - 63% accuracy is well-calibrated. Predictions are informative, not performative.

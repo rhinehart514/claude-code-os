@@ -4,9 +4,13 @@
 # Fallback: reads from beliefs.yml if no features: section
 set -euo pipefail
 
-_FEAT_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_FEAT_SOURCE" ]]; do _FEAT_SOURCE="$(readlink "$_FEAT_SOURCE")"; done
-RHINO_DIR="$(cd "$(dirname "$_FEAT_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _FEAT_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_FEAT_SOURCE" ]]; do _FEAT_SOURCE="$(readlink "$_FEAT_SOURCE")"; done
+    RHINO_DIR="$(cd "$(dirname "$_FEAT_SOURCE")/.." && pwd)"
+fi
 
 # Colors
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'

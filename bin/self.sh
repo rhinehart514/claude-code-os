@@ -14,11 +14,15 @@ fi
 export RHINO_SELF_DEPTH=$((RHINO_SELF_DEPTH + 1))
 
 # --- Resolve RHINO_DIR ---
-_SELF_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_SELF_SOURCE" ]]; do
-    _SELF_SOURCE="$(readlink "$_SELF_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_SELF_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _SELF_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_SELF_SOURCE" ]]; do
+        _SELF_SOURCE="$(readlink "$_SELF_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_SELF_SOURCE")/.." && pwd)"
+fi
 
 source "$RHINO_DIR/bin/lib/config.sh"
 
@@ -179,7 +183,7 @@ fi
 # ============================================================
 CURRENT_SYSTEM="think"
 
-# mind-integrity (6 pts): 4 mind files present + symlinked
+# mind-integrity (6 pts): 4 mind files present + delivered
 MIND_FILES=(identity.md thinking.md standards.md self.md)
 MIND_MISSING=0
 MIND_UNLINKED=0
@@ -187,19 +191,36 @@ for mf in "${MIND_FILES[@]}"; do
     if [[ ! -f "$RHINO_DIR/mind/$mf" ]]; then
         MIND_MISSING=$((MIND_MISSING + 1))
     fi
-    # Check project-local first, fall back to global
-    RULES_CHECK_DIR="$PWD/.claude/rules"
-    [[ ! -d "$RULES_CHECK_DIR" ]] && RULES_CHECK_DIR="$HOME/.claude/rules"
-    if [[ ! -L "$RULES_CHECK_DIR/$mf" ]] || [[ ! -f "$RULES_CHECK_DIR/$mf" ]]; then
-        MIND_UNLINKED=$((MIND_UNLINKED + 1))
-    fi
 done
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    # Plugin mode: mind files delivered via skills/rhino-mind/SKILL.md
+    if [[ ! -f "$RHINO_DIR/skills/rhino-mind/SKILL.md" ]]; then
+        MIND_UNLINKED=1
+    fi
+else
+    # Legacy mode: check symlinks in rules/
+    for mf in "${MIND_FILES[@]}"; do
+        RULES_CHECK_DIR="$PWD/.claude/rules"
+        [[ ! -d "$RULES_CHECK_DIR" ]] && RULES_CHECK_DIR="$HOME/.claude/rules"
+        if [[ ! -L "$RULES_CHECK_DIR/$mf" ]] || [[ ! -f "$RULES_CHECK_DIR/$mf" ]]; then
+            MIND_UNLINKED=$((MIND_UNLINKED + 1))
+        fi
+    done
+fi
 if [[ "$MIND_MISSING" -eq 0 && "$MIND_UNLINKED" -eq 0 ]]; then
-    check_pass "mind-integrity" "4 mind files present + symlinked" 6
+    if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+        check_pass "mind-integrity" "4 mind files present + SKILL.md delivers them" 6
+    else
+        check_pass "mind-integrity" "4 mind files present + symlinked" 6
+    fi
 elif [[ "$MIND_MISSING" -gt 0 ]]; then
     check_fail "mind-integrity" "$MIND_MISSING mind file(s) missing from mind/" 6
 else
-    check_fail "mind-integrity" "$MIND_UNLINKED mind file(s) not symlinked in rules/" 6
+    if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+        check_fail "mind-integrity" "skills/rhino-mind/SKILL.md missing" 6
+    else
+        check_fail "mind-integrity" "$MIND_UNLINKED mind file(s) not symlinked in rules/" 6
+    fi
 fi
 
 # strategy-ready (6 pts): strategy.yml has stage + bottleneck
@@ -267,8 +288,12 @@ fi
 CURRENT_SYSTEM="act"
 
 # commands-depth (6 pts): slash commands are substantive, not stubs
-CMD_DIR=".claude/commands"
-[[ ! -d "$CMD_DIR" ]] && CMD_DIR="$HOME/.claude/commands"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    CMD_DIR="$RHINO_DIR/commands"
+else
+    CMD_DIR=".claude/commands"
+    [[ ! -d "$CMD_DIR" ]] && CMD_DIR="$HOME/.claude/commands"
+fi
 if [[ -d "$CMD_DIR" ]]; then
     STUB_COUNT=0
     CMD_COUNT=0
@@ -296,7 +321,30 @@ HOOK_TIMEOUT_MS=$(cfg self.hook_timeout_ms 200)
 HOOKS_BROKEN=0
 HOOKS_CHECKED=0
 
-if [[ -f "$PWD/.claude/settings.json" ]] && command -v jq &>/dev/null; then
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    # Plugin mode: validate hooks.json and referenced .sh files
+    HOOKS_JSON="$RHINO_DIR/hooks/hooks.json"
+    if [[ -f "$HOOKS_JSON" ]] && command -v jq &>/dev/null; then
+        while IFS= read -r hook_cmd; do
+            [[ -z "$hook_cmd" ]] && continue
+            HOOKS_CHECKED=$((HOOKS_CHECKED + 1))
+            # Expand ${CLAUDE_PLUGIN_ROOT} template variable
+            hook_cmd="${hook_cmd//\$\{CLAUDE_PLUGIN_ROOT\}/$RHINO_DIR}"
+            # Strip quotes used for paths with spaces
+            hook_cmd="${hook_cmd//\"/}"
+            # Extract just the executable (first word before args)
+            local_cmd="${hook_cmd%% *}"
+            if [[ ! -f "$local_cmd" ]]; then
+                HOOKS_BROKEN=$((HOOKS_BROKEN + 1))
+            elif [[ ! -x "$local_cmd" ]]; then
+                HOOKS_BROKEN=$((HOOKS_BROKEN + 1))
+            fi
+        done < <(jq -r '.. | .command? // empty' "$HOOKS_JSON" 2>/dev/null)
+    elif [[ ! -f "$HOOKS_JSON" ]]; then
+        HOOKS_BROKEN=1
+        HOOKS_CHECKED=1
+    fi
+elif [[ -f "$PWD/.claude/settings.json" ]] && command -v jq &>/dev/null; then
     # Project-local: parse settings.json for hook commands
     while IFS= read -r hook_cmd; do
         [[ -z "$hook_cmd" ]] && continue

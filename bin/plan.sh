@@ -4,11 +4,15 @@
 
 set -euo pipefail
 
-_PLAN_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_PLAN_SOURCE" ]]; do
-    _PLAN_SOURCE="$(readlink "$_PLAN_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_PLAN_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _PLAN_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_PLAN_SOURCE" ]]; do
+        _PLAN_SOURCE="$(readlink "$_PLAN_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_PLAN_SOURCE")/.." && pwd)"
+fi
 
 # Project-local first, then rhino-os's own plan
 PROJECT_DIR="$(pwd)"

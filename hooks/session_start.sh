@@ -7,13 +7,14 @@ PROJECT_DIR=$(pwd)
 INPUT=$(cat)
 
 # --- Resolve RHINO_DIR for config access ---
-_SS_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_SS_SOURCE" ]]; do
-    _SS_SOURCE="$(readlink "$_SS_SOURCE")"
-done
-_SS_DIR="$(cd "$(dirname "$_SS_SOURCE")" && pwd)"
-# hooks/ is at RHINO_DIR/hooks/
-RHINO_DIR="$(cd "$_SS_DIR/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _SS_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_SS_SOURCE" ]]; do _SS_SOURCE="$(readlink "$_SS_SOURCE")"; done
+    _SS_DIR="$(cd "$(dirname "$_SS_SOURCE")" && pwd)"
+    RHINO_DIR="$(cd "$_SS_DIR/.." && pwd)"
+fi
 if [[ -f "$RHINO_DIR/bin/lib/config.sh" ]]; then
     source "$RHINO_DIR/bin/lib/config.sh"
 fi
@@ -121,10 +122,23 @@ if [[ -f "$BELIEFS_FILE" ]]; then
     fi
 fi
 
+# --- Auto-grade predictions before display ---
+PRED_FILE="$PROJECT_DIR/.claude/knowledge/predictions.tsv"
+[[ ! -f "$PRED_FILE" ]] && PRED_FILE="$HOME/.claude/knowledge/predictions.tsv"
+if [[ -f "$PRED_FILE" ]] && [[ -f "$RHINO_DIR/bin/grade.sh" ]]; then
+    # Fast path: only runs when ungraded predictions exist
+    HAS_UNGRADED=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 == "" { c++ } END { print c+0 }')
+    if [[ "$HAS_UNGRADED" -gt 0 ]]; then
+        bash "$RHINO_DIR/bin/grade.sh" --quiet "$PRED_FILE" \
+            "$PROJECT_DIR/.claude/scores/history.tsv" \
+            "$PROJECT_DIR/.claude/cache/score-cache.json" 2>/dev/null || true
+    fi
+fi
+
 # --- Prediction accuracy (last 10) ---
 PRED_DISPLAY=""
 UNGRADED_COUNT=0
-# Project-local first, then global fallback
+# Project-local first, then global fallback (re-resolve after grading)
 PRED_FILE="$PROJECT_DIR/.claude/knowledge/predictions.tsv"
 [[ ! -f "$PRED_FILE" ]] && PRED_FILE="$HOME/.claude/knowledge/predictions.tsv"
 if [[ -f "$PRED_FILE" ]]; then
@@ -212,7 +226,26 @@ if [[ -n "$SCORE_DISPLAY" ]]; then
     else
         SCORE_BAR=$(print_score_bar "$TOTAL")
     fi
-    echo -e "  ${C_DIM}score${C_NC}       ${C_BOLD}${TOTAL}${C_NC}${C_DIM}/100${C_NC}  ${SCORE_BAR}"
+    # Score trend from history.tsv (last 2 distinct scores)
+    TREND_DISPLAY=""
+    HISTORY_FILE="$PROJECT_DIR/.claude/scores/history.tsv"
+    if [[ -f "$HISTORY_FILE" ]]; then
+        HIST_LINES=$(wc -l < "$HISTORY_FILE" | tr -d ' ')
+        if [[ "$HIST_LINES" -ge 3 ]]; then
+            PREV_SCORE=$(tail -2 "$HISTORY_FILE" | head -1 | cut -f5)
+            CURR_SCORE=$(tail -1 "$HISTORY_FILE" | cut -f5)
+            if [[ -n "$PREV_SCORE" && "$PREV_SCORE" =~ ^[0-9]+$ && -n "$CURR_SCORE" && "$CURR_SCORE" =~ ^[0-9]+$ && "$PREV_SCORE" -ne "$CURR_SCORE" ]]; then
+                DELTA=$((CURR_SCORE - PREV_SCORE))
+                if [[ "$DELTA" -gt 0 ]]; then
+                    TREND_DISPLAY="  ${C_GREEN}↑${DELTA}${C_NC} ${C_DIM}from ${PREV_SCORE}${C_NC}"
+                else
+                    ABS_DELTA=$(( -DELTA ))
+                    TREND_DISPLAY="  ${C_RED}↓${ABS_DELTA}${C_NC} ${C_DIM}from ${PREV_SCORE}${C_NC}"
+                fi
+            fi
+        fi
+    fi
+    echo -e "  ${C_DIM}score${C_NC}       ${C_BOLD}${TOTAL}${C_NC}${C_DIM}/100${C_NC}${TREND_DISPLAY}  ${SCORE_BAR}"
     if [[ "$SCORING_MODE" == "assertions" ]]; then
         echo -e "              ${C_DIM}assertions${C_NC} ${ASSERTION_PASS_COUNT}/${ASSERTION_COUNT}  ${C_DIM}·${C_NC}  ${C_DIM}health${C_NC} $(color_score "$HEALTH_MIN")"
         # Show feature scores (worst to best, compact)
@@ -270,6 +303,41 @@ if [[ -n "$ASSERT_DISPLAY" || -n "$PRED_DISPLAY" ]]; then
         SIG_PARTS="${SIG_PARTS:+$SIG_PARTS  ${C_DIM}·${C_NC}  }${PRED_DISPLAY}"
     fi
     echo -e "  ${C_DIM}signals${C_NC}     ${SIG_PARTS}"
+fi
+
+# Learning velocity — show trajectory, not just current state
+if [[ -f "$PRED_FILE" ]]; then
+    # Count patterns learned this week (entries in experiment-learnings.md modified recently)
+    LEARNINGS_FILE="$PROJECT_DIR/.claude/knowledge/experiment-learnings.md"
+    [[ ! -f "$LEARNINGS_FILE" ]] && LEARNINGS_FILE="$HOME/.claude/knowledge/experiment-learnings.md"
+    PATTERNS_LEARNED=""
+    if [[ -f "$LEARNINGS_FILE" ]]; then
+        PATTERN_COUNT=$(grep -c '^\s*-\s' "$LEARNINGS_FILE" 2>/dev/null || echo "0")
+        PATTERNS_LEARNED="${PATTERN_COUNT} patterns"
+    fi
+
+    # Compute accuracy trend: compare last 5 graded vs previous 5 graded
+    GRADED_ALL=$(tail -n +2 "$PRED_FILE" | awk -F'\t' '$6 != ""' 2>/dev/null)
+    GRADED_TOTAL=$(echo "$GRADED_ALL" | grep -c '.' 2>/dev/null || echo "0")
+    if [[ "$GRADED_TOTAL" -ge 6 ]]; then
+        # Recent 5
+        RECENT_CORRECT=$(echo "$GRADED_ALL" | tail -5 | awk -F'\t' '$6 == "yes" { c++ } END { print c+0 }')
+        RECENT_PARTIAL=$(echo "$GRADED_ALL" | tail -5 | awk -F'\t' '$6 == "partial" { c++ } END { print c+0 }')
+        RECENT_EFF=$(awk "BEGIN { printf \"%d\", ($RECENT_CORRECT + $RECENT_PARTIAL * 0.5) * 100 / 5 }")
+        # Previous 5
+        PREV_CORRECT=$(echo "$GRADED_ALL" | tail -10 | head -5 | awk -F'\t' '$6 == "yes" { c++ } END { print c+0 }')
+        PREV_PARTIAL=$(echo "$GRADED_ALL" | tail -10 | head -5 | awk -F'\t' '$6 == "partial" { c++ } END { print c+0 }')
+        PREV_EFF=$(awk "BEGIN { printf \"%d\", ($PREV_CORRECT + $PREV_PARTIAL * 0.5) * 100 / 5 }")
+        TREND_ARROW=""
+        if [[ "$RECENT_EFF" -gt "$PREV_EFF" ]]; then
+            TREND_ARROW="${C_GREEN}↑${C_NC} ${C_DIM}from ${PREV_EFF}%${C_NC}"
+        elif [[ "$RECENT_EFF" -lt "$PREV_EFF" ]]; then
+            TREND_ARROW="${C_RED}↓${C_NC} ${C_DIM}from ${PREV_EFF}%${C_NC}"
+        fi
+        VELOCITY_LINE="  ${C_DIM}learning${C_NC}    ${RECENT_EFF}% accurate${TREND_ARROW:+ ${TREND_ARROW}}"
+        [[ -n "$PATTERNS_LEARNED" ]] && VELOCITY_LINE="${VELOCITY_LINE}  ${C_DIM}·${C_NC}  ${PATTERNS_LEARNED}"
+        echo -e "$VELOCITY_LINE"
+    fi
 fi
 
 # Experiment results stats
@@ -341,14 +409,21 @@ fi
 # 2. Mind files missing?
 if [[ -z "$SELF_REC" ]]; then
     MIND_MISSING_COUNT=0
-    # Check project-local first, fall back to global
-    RULES_DIR="$PROJECT_DIR/.claude/rules"
-    [[ ! -d "$RULES_DIR" ]] && RULES_DIR="$HOME/.claude/rules"
-    for mf in identity.md thinking.md standards.md self.md; do
-        if [[ ! -L "$RULES_DIR/$mf" ]] || [[ ! -f "$RULES_DIR/$mf" ]]; then
-            MIND_MISSING_COUNT=$((MIND_MISSING_COUNT + 1))
+    if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+        # Plugin mode: mind delivered via SKILL.md
+        if [[ ! -f "$RHINO_DIR/skills/rhino-mind/SKILL.md" ]]; then
+            MIND_MISSING_COUNT=1
         fi
-    done
+    else
+        # Legacy mode: check symlinks in rules/
+        RULES_DIR="$PROJECT_DIR/.claude/rules"
+        [[ ! -d "$RULES_DIR" ]] && RULES_DIR="$HOME/.claude/rules"
+        for mf in identity.md thinking.md standards.md self.md; do
+            if [[ ! -L "$RULES_DIR/$mf" ]] || [[ ! -f "$RULES_DIR/$mf" ]]; then
+                MIND_MISSING_COUNT=$((MIND_MISSING_COUNT + 1))
+            fi
+        done
+    fi
     if [[ "$MIND_MISSING_COUNT" -gt 0 ]]; then
         SELF_REC="[self] $MIND_MISSING_COUNT mind file(s) not loaded — run \`rhino self\`"
     fi

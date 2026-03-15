@@ -57,6 +57,9 @@ SCORE_PENALTY=0
 # Per-feature tracking (feature_name:pass:warn:fail accumulated as lines)
 FEATURE_RESULTS=""
 
+# Per-quality tracking (quality_dim:pass:warn:fail accumulated as lines)
+QUALITY_RESULTS=""
+
 # Generative eval numeric scores (feature_name:score accumulated as lines)
 # These contribute directly to the final score as numbers, not pass/warn/fail buckets.
 GENERATIVE_SCORES=""
@@ -224,7 +227,12 @@ fi
 
 # no-dead-skills
 SKILLS_MISSING_RECOVERY=0
-for skill in .claude/commands/*.md; do
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    _SKILL_CMD_DIR="$RHINO_DIR/commands"
+else
+    _SKILL_CMD_DIR=".claude/commands"
+fi
+for skill in "$_SKILL_CMD_DIR"/*.md; do
     [[ ! -f "$skill" ]] && continue
     if ! grep -q 'If something breaks' "$skill" 2>/dev/null; then
         SKILLS_MISSING_RECOVERY=$((SKILLS_MISSING_RECOVERY + 1))
@@ -238,30 +246,64 @@ fi
 
 # hooks-resolve
 HOOKS_BROKEN=0
-for hook in "$HOME/.claude/hooks/"*.sh; do
-    [[ ! -L "$hook" ]] && continue
-    target=$(readlink "$hook" 2>/dev/null)
-    if [[ ! -f "$target" ]]; then
-        HOOKS_BROKEN=$((HOOKS_BROKEN + 1))
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    # Plugin mode: validate hooks.json references
+    _HOOKS_JSON="$RHINO_DIR/hooks/hooks.json"
+    if [[ -f "$_HOOKS_JSON" ]] && command -v jq &>/dev/null; then
+        while IFS= read -r _hcmd; do
+            [[ -z "$_hcmd" ]] && continue
+            # Expand ${CLAUDE_PLUGIN_ROOT} template variable and strip quotes
+            _hcmd="${_hcmd//\$\{CLAUDE_PLUGIN_ROOT\}/$RHINO_DIR}"
+            _hcmd="${_hcmd//\"/}"
+            _hcmd="${_hcmd%% *}"
+            [[ ! -f "$_hcmd" ]] && HOOKS_BROKEN=$((HOOKS_BROKEN + 1))
+        done < <(jq -r '.. | .command? // empty' "$_HOOKS_JSON" 2>/dev/null)
+    elif [[ ! -f "$_HOOKS_JSON" ]]; then
+        HOOKS_BROKEN=1
     fi
-done
-if [[ "$HOOKS_BROKEN" -eq 0 ]]; then
-    check_pass "hooks-resolve" "all hook symlinks resolve"
+    if [[ "$HOOKS_BROKEN" -eq 0 ]]; then
+        check_pass "hooks-resolve" "hooks.json references resolve"
+    else
+        check_fail "hooks-resolve" "$HOOKS_BROKEN broken hook reference(s) in hooks.json" "warn" 3
+    fi
 else
-    check_fail "hooks-resolve" "$HOOKS_BROKEN broken hook symlink(s)" "warn" 3
+    for hook in "$HOME/.claude/hooks/"*.sh; do
+        [[ ! -L "$hook" ]] && continue
+        target=$(readlink "$hook" 2>/dev/null)
+        if [[ ! -f "$target" ]]; then
+            HOOKS_BROKEN=$((HOOKS_BROKEN + 1))
+        fi
+    done
+    if [[ "$HOOKS_BROKEN" -eq 0 ]]; then
+        check_pass "hooks-resolve" "all hook symlinks resolve"
+    else
+        check_fail "hooks-resolve" "$HOOKS_BROKEN broken hook symlink(s)" "warn" 3
+    fi
 fi
 
 # mind-files-loaded
 MIND_MISSING=0
-for mf in identity.md thinking.md standards.md self.md; do
-    if [[ ! -L "$HOME/.claude/rules/$mf" ]] || [[ ! -f "$HOME/.claude/rules/$mf" ]]; then
-        MIND_MISSING=$((MIND_MISSING + 1))
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    # Plugin mode: mind delivered via SKILL.md
+    if [[ ! -f "$RHINO_DIR/skills/rhino-mind/SKILL.md" ]]; then
+        MIND_MISSING=1
     fi
-done
-if [[ "$MIND_MISSING" -eq 0 ]]; then
-    check_pass "mind-files-loaded" "all mind files symlinked in ~/.claude/rules/"
+    if [[ "$MIND_MISSING" -eq 0 ]]; then
+        check_pass "mind-files-loaded" "mind delivered via skills/rhino-mind/SKILL.md"
+    else
+        check_fail "mind-files-loaded" "skills/rhino-mind/SKILL.md missing" "block" 5
+    fi
 else
-    check_fail "mind-files-loaded" "$MIND_MISSING mind file(s) not in ~/.claude/rules/" "block" 5
+    for mf in identity.md thinking.md standards.md self.md; do
+        if [[ ! -L "$HOME/.claude/rules/$mf" ]] || [[ ! -f "$HOME/.claude/rules/$mf" ]]; then
+            MIND_MISSING=$((MIND_MISSING + 1))
+        fi
+    done
+    if [[ "$MIND_MISSING" -eq 0 ]]; then
+        check_pass "mind-files-loaded" "all mind files symlinked in ~/.claude/rules/"
+    else
+        check_fail "mind-files-loaded" "$MIND_MISSING mind file(s) not in ~/.claude/rules/" "block" 5
+    fi
 fi
 
 fi  # end SCORE_MODE != true
@@ -280,11 +322,15 @@ if [[ -z "$EVAL_URL" && "$SCORE_MODE" != "true" ]]; then
 fi
 
 # Resolve RHINO_DIR for eval tools
-_EVAL_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_EVAL_SOURCE" ]]; do
-    _EVAL_SOURCE="$(readlink "$_EVAL_SOURCE")"
-done
-RHINO_DIR="$(cd "$(dirname "$_EVAL_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _EVAL_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_EVAL_SOURCE" ]]; do
+        _EVAL_SOURCE="$(readlink "$_EVAL_SOURCE")"
+    done
+    RHINO_DIR="$(cd "$(dirname "$_EVAL_SOURCE")/.." && pwd)"
+fi
 
 # Cached eval results (lazy-loaded)
 DOM_RESULTS=""
@@ -339,6 +385,7 @@ run_self_eval() {
 
 EVAL_CACHE_DIR=".claude/cache"
 EVAL_CACHE_FILE="$EVAL_CACHE_DIR/eval-cache.json"
+BELIEFS_CACHE_FILE="$EVAL_CACHE_DIR/beliefs-cache.json"
 
 # Read features from rhino.yml using simple YAML parsing
 # Outputs lines: feature_name|delivers|for|code_path1,code_path2
@@ -1136,12 +1183,107 @@ ${review_context}"
                 check_warn "$belief_id" "playwright_task: no dev server or no scenario (set EVAL_URL)"
             fi
             ;;
+        assertion_trend)
+            # Check if assertions are graduating (fail→pass) over time
+            # Reads eval cache history to see if assertions improve across sessions
+            local trend_direction="${belief_direction:-graduating}"
+            local trend_window="${belief_window:-5}"
+            local history_file=".claude/scores/history.tsv"
+            if [[ -f "$history_file" ]]; then
+                local hist_lines
+                hist_lines=$(wc -l < "$history_file" | tr -d ' ')
+                if [[ "$hist_lines" -le 2 ]]; then
+                    check_warn "$belief_id" "assertion_trend: not enough history (${hist_lines} entries)"
+                else
+                    # Check if pass count is increasing over last N entries
+                    local scores
+                    scores=$(tail -n "$trend_window" "$history_file" | cut -f5 | grep -E '^[0-9]+$')
+                    local first_score last_score
+                    first_score=$(echo "$scores" | head -1)
+                    last_score=$(echo "$scores" | tail -1)
+                    if [[ "$trend_direction" == "graduating" ]]; then
+                        if [[ -n "$first_score" && -n "$last_score" && "$last_score" -ge "$first_score" ]]; then
+                            check_pass "$belief_id" "assertions graduating: ${first_score} → ${last_score}"
+                        else
+                            check_fail "$belief_id" "assertions not graduating: ${first_score:-?} → ${last_score:-?}" "warn" 3
+                        fi
+                    elif [[ "$trend_direction" == "not_regressing" ]]; then
+                        if [[ -n "$first_score" && -n "$last_score" && "$last_score" -ge "$((first_score - 5))" ]]; then
+                            check_pass "$belief_id" "assertions stable: ${first_score} → ${last_score}"
+                        else
+                            check_fail "$belief_id" "assertions regressing: ${first_score:-?} → ${last_score:-?}" "warn" 3
+                        fi
+                    fi
+                fi
+            else
+                check_warn "$belief_id" "assertion_trend: no history.tsv found"
+            fi
+            ;;
+        session_continuity)
+            # Check if the system is being used regularly (files modified recently)
+            local max_gap="${belief_max_gap_days:-14}"
+            local now
+            now=$(date +%s)
+            local most_recent=0
+            for _sc_file in .claude/plans/plan.yml ~/.claude/knowledge/predictions.tsv .claude/scores/history.tsv; do
+                local _sc_expanded="${_sc_file/#\~/$HOME}"
+                if [[ -f "$_sc_expanded" ]]; then
+                    local _sc_mtime
+                    _sc_mtime=$(stat -f %m "$_sc_expanded" 2>/dev/null || stat -c %Y "$_sc_expanded" 2>/dev/null || echo 0)
+                    [[ "$_sc_mtime" -gt "$most_recent" ]] && most_recent="$_sc_mtime"
+                fi
+            done
+            if [[ "$most_recent" -eq 0 ]]; then
+                check_warn "$belief_id" "session_continuity: no trackable files found"
+            else
+                local gap_days=$(( (now - most_recent) / 86400 ))
+                if [[ "$gap_days" -le "$max_gap" ]]; then
+                    check_pass "$belief_id" "last session ${gap_days} days ago (max ${max_gap})"
+                else
+                    check_fail "$belief_id" "last session ${gap_days} days ago (max ${max_gap})" "warn" 3
+                fi
+            fi
+            ;;
+        value_velocity)
+            # Check how fast score improves from baseline (time between history entries)
+            local history_file=".claude/scores/history.tsv"
+            if [[ -f "$history_file" ]]; then
+                local hist_lines
+                hist_lines=$(wc -l < "$history_file" | tr -d ' ')
+                if [[ "$hist_lines" -le 2 ]]; then
+                    check_warn "$belief_id" "value_velocity: not enough history"
+                else
+                    # Check if score improved between first and last entry
+                    local first_score last_score
+                    first_score=$(sed -n '2p' "$history_file" | cut -f5)
+                    last_score=$(tail -1 "$history_file" | cut -f5)
+                    if [[ -n "$first_score" && -n "$last_score" && "$first_score" =~ ^[0-9]+$ && "$last_score" =~ ^[0-9]+$ ]]; then
+                        local delta=$((last_score - first_score))
+                        if [[ "$delta" -gt 0 ]]; then
+                            check_pass "$belief_id" "score improved by ${delta} points (${first_score} → ${last_score})"
+                        elif [[ "$delta" -eq 0 ]]; then
+                            check_warn "$belief_id" "value_velocity: score unchanged (${first_score})"
+                        else
+                            check_fail "$belief_id" "score declined by ${delta#-} points (${first_score} → ${last_score})" "warn" 3
+                        fi
+                    else
+                        check_warn "$belief_id" "value_velocity: could not parse scores"
+                    fi
+                fi
+            else
+                check_warn "$belief_id" "value_velocity: no history.tsv found"
+            fi
+            ;;
     esac
 
     # Track per-feature results
     local _feat="${belief_feature:-unscoped}"
     local _dp=$((PASS - _pre_pass)) _dw=$((WARN - _pre_warn)) _df=$((FAIL - _pre_fail))
     FEATURE_RESULTS="${FEATURE_RESULTS}${_feat}:${_dp}:${_dw}:${_df}
+"
+    # Track per-feature~quality results
+    local _qual="${belief_quality:-unscoped}"
+    QUALITY_RESULTS="${QUALITY_RESULTS}${_feat}~${_qual}:${_dp}:${_dw}:${_df}
 "
 }
 
@@ -1158,6 +1300,8 @@ if [[ -f "$BELIEFS_FILE" ]]; then
     belief_scenario=""
     belief_threshold=""
     belief_feature=""
+    belief_quality=""
+    belief_max_gap_days=""
     in_forbidden=false
     in_capabilities=false
     forbidden_words=()
@@ -1185,6 +1329,8 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_window=""
             belief_direction=""
             belief_command=""
+            belief_quality=""
+            belief_max_gap_days=""
             in_forbidden=false
             in_capabilities=false
             forbidden_words=()
@@ -1199,6 +1345,11 @@ if [[ -f "$BELIEFS_FILE" ]]; then
         # Feature
         if echo "$line" | grep -q '^\s*feature:'; then
             belief_feature=$(echo "$line" | sed 's/.*feature: *//')
+        fi
+
+        # Quality dimension
+        if echo "$line" | grep -q '^\s*quality:'; then
+            belief_quality=$(echo "$line" | sed 's/.*quality: *//')
         fi
 
         # Metric
@@ -1266,6 +1417,11 @@ if [[ -f "$BELIEFS_FILE" ]]; then
             belief_command=$(echo "$line" | sed 's/.*command: *//')
         fi
 
+        # Max gap days (for session_continuity)
+        if echo "$line" | grep -q '^\s*max_gap_days:'; then
+            belief_max_gap_days=$(echo "$line" | sed 's/.*max_gap_days: *//')
+        fi
+
         # Forbidden list parsing (for content_check)
         if echo "$line" | grep -q '^\s*forbidden:'; then
             in_forbidden=true
@@ -1325,35 +1481,126 @@ if [[ "$SCORE_MODE" == "true" ]]; then
         echo "$((_bf_pp + _bf_p)):$((_bf_pw + _bf_w)):$((_bf_pf + _bf_f))" > "$_bf_tmpdir/$_bf_name"
     done <<< "$FEATURE_RESULTS"
 
+    # Aggregate per-feature~quality results
+    _fq_tmpdir=$(mktemp -d)
+    while IFS=: read -r _fq_key _fq_p _fq_w _fq_f; do
+        [[ -z "$_fq_key" ]] && continue
+        # _fq_key is "feature~quality"
+        _fq_feat="${_fq_key%%~*}"
+        _fq_qual="${_fq_key##*~}"
+        [[ "$_fq_qual" == "unscoped" ]] && continue
+        mkdir -p "$_fq_tmpdir/$_fq_feat"
+        _fq_pp=0; _fq_pw=0; _fq_pf=0
+        if [[ -f "$_fq_tmpdir/$_fq_feat/$_fq_qual" ]]; then
+            IFS=: read -r _fq_pp _fq_pw _fq_pf < "$_fq_tmpdir/$_fq_feat/$_fq_qual"
+        fi
+        echo "$((_fq_pp + _fq_p)):$((_fq_pw + _fq_w)):$((_fq_pf + _fq_f))" > "$_fq_tmpdir/$_fq_feat/$_fq_qual"
+    done <<< "$QUALITY_RESULTS"
+
     # Add generative scores to feature JSON
     while IFS=: read -r _gf_name _gf_score; do
         [[ -z "$_gf_name" ]] && continue
         echo "gen:${_gf_score}" > "$_bf_tmpdir/$_gf_name.gen"
     done <<< "$GENERATIVE_SCORES"
 
-    _bf_json="{"
-    _bf_first=true
+    # Build features JSON with nested quality
+    # Collect unique feature names (beliefs + generative merged)
+    _bf_names=""
     for _bf_file in "$_bf_tmpdir"/*; do
         [[ ! -f "$_bf_file" ]] && continue
-        _bf_fname=$(basename "$_bf_file")
-        if [[ "$_bf_fname" == *.gen ]]; then
-            # Generative feature — numeric score
-            _bf_fname="${_bf_fname%.gen}"
-            _gf_s=$(cut -d: -f2 < "$_bf_file")
-            $_bf_first || _bf_json+=","
-            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\"}"
-            _bf_first=false
-        else
-            # Beliefs feature — pass/warn/fail
-            IFS=: read -r _bf_p _bf_w _bf_f < "$_bf_file"
-            _bf_t=$((_bf_p + _bf_w + _bf_f))
-            $_bf_first || _bf_json+=","
-            _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t}"
-            _bf_first=false
+        _bf_n=$(basename "$_bf_file")
+        _bf_n="${_bf_n%.gen}"  # strip .gen suffix
+        echo "$_bf_n"
+    done | sort -u > "$_bf_tmpdir/.names"
+
+    _bf_json="{"
+    _bf_first=true
+    while IFS= read -r _bf_fname; do
+        [[ -z "$_bf_fname" ]] && continue
+        $_bf_first || _bf_json+=","
+        _bf_first=false
+
+        _has_gen=false; _has_beliefs=false
+        _gf_s=0
+        _bf_p=0; _bf_w=0; _bf_f=0; _bf_t=0
+
+        # Check for generative score
+        if [[ -f "$_bf_tmpdir/$_bf_fname.gen" ]]; then
+            _has_gen=true
+            _gf_s=$(cut -d: -f2 < "$_bf_tmpdir/$_bf_fname.gen")
         fi
-    done
+
+        # Check for beliefs data
+        if [[ -f "$_bf_tmpdir/$_bf_fname" ]]; then
+            _has_beliefs=true
+            IFS=: read -r _bf_p _bf_w _bf_f < "$_bf_tmpdir/$_bf_fname"
+            _bf_t=$((_bf_p + _bf_w + _bf_f))
+        fi
+
+        # Build quality JSON fragment
+        _qual_frag=""
+        if [[ -d "$_fq_tmpdir/$_bf_fname" ]]; then
+            _qual_frag=",\"quality\":{"
+            _bfq_first=true
+            for _qdim in correctness craft completeness; do
+                if [[ -f "$_fq_tmpdir/$_bf_fname/$_qdim" ]]; then
+                    IFS=: read -r _qp _qw _qf < "$_fq_tmpdir/$_bf_fname/$_qdim"
+                    _qt=$((_qp + _qw + _qf))
+                    [[ "$_qt" -eq 0 ]] && continue
+                    $_bfq_first || _qual_frag+=","
+                    _qual_frag+="\"$_qdim\":{\"pass\":$_qp,\"total\":$_qt}"
+                    _bfq_first=false
+                fi
+            done
+            _qual_frag+="}"
+        fi
+
+        if [[ "$_has_gen" == true && "$_has_beliefs" == true ]]; then
+            # Both: merge generative score + beliefs pass/fail + quality
+            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\",\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t${_qual_frag}}"
+        elif [[ "$_has_gen" == true ]]; then
+            _bf_json+="\"$_bf_fname\":{\"score\":$_gf_s,\"type\":\"generative\"}"
+        else
+            _bf_json+="\"$_bf_fname\":{\"pass\":$_bf_p,\"warn\":$_bf_w,\"fail\":$_bf_f,\"total\":$_bf_t${_qual_frag}}"
+        fi
+    done < "$_bf_tmpdir/.names"
     _bf_json+="}"
-    rm -rf "$_bf_tmpdir"
+    rm -rf "$_bf_tmpdir" "$_fq_tmpdir"
+
+    # Merge cached belief quality data (from last full eval run)
+    # This fills in craft/completeness dimensions that --score mode skips
+    if [[ -f "$BELIEFS_CACHE_FILE" ]] && command -v jq &>/dev/null; then
+        _bc_age=$(( $(date +%s) - $(stat -f %m "$BELIEFS_CACHE_FILE" 2>/dev/null || stat -c %Y "$BELIEFS_CACHE_FILE" 2>/dev/null || echo 0) ))
+        if [[ "$_bc_age" -lt 3600 ]]; then
+            # Use temp file to avoid shell escaping issues with JSON in --argjson
+            _merge_tmp=$(mktemp)
+            echo "$_bf_json" > "$_merge_tmp"
+            _merged=$(jq -c --slurpfile cache "$BELIEFS_CACHE_FILE" '
+                . | to_entries | map(
+                    .key as $k |
+                    ($cache[0].features[$k].quality // null) as $cached_q |
+                    (.value.quality // {}) as $current_q |
+                    if $cached_q != null then
+                        .value.quality = (
+                            ($cached_q | keys) as $all_dims |
+                            (($current_q | keys) + $all_dims) | unique | map(
+                                . as $dim |
+                                ($current_q[$dim] // null) as $cv |
+                                ($cached_q[$dim] // null) as $kv |
+                                if $cv != null and ($cv.total // 0) > 0 then {($dim): $cv}
+                                elif $kv != null then {($dim): $kv}
+                                else empty
+                                end
+                            ) | add // {}
+                        ) | .
+                    else .
+                    end
+                ) | from_entries
+            ' "$_merge_tmp" 2>/dev/null) || _merged=""
+            rm -f "$_merge_tmp"
+            [[ -n "$_merged" ]] && _bf_json="$_merged"
+        fi
+    fi
 
     # Compute blended score:
     # Generative evals (Claude judges value) weight 3x vs beliefs (file checks).
@@ -1370,8 +1617,36 @@ if [[ "$SCORE_MODE" == "true" ]]; then
         _eval_score=$(( (_beliefs_points + _gen_points) / _total_weight ))
     fi
 
+    # Aggregate per-quality results (global, across all features)
+    _bq_tmpdir=$(mktemp -d)
+    while IFS=: read -r _bq_key _bq_p _bq_w _bq_f; do
+        [[ -z "$_bq_key" ]] && continue
+        # _bq_key is "feature~quality" — extract quality part
+        _bq_name="${_bq_key##*~}"
+        [[ "$_bq_name" == "unscoped" ]] && continue
+        _bq_pp=0; _bq_pw=0; _bq_pf=0
+        if [[ -f "$_bq_tmpdir/$_bq_name" ]]; then
+            IFS=: read -r _bq_pp _bq_pw _bq_pf < "$_bq_tmpdir/$_bq_name"
+        fi
+        echo "$((_bq_pp + _bq_p)):$((_bq_pw + _bq_w)):$((_bq_pf + _bq_f))" > "$_bq_tmpdir/$_bq_name"
+    done <<< "$QUALITY_RESULTS"
+
+    _bq_json="{"
+    _bq_first=true
+    for _bq_file in "$_bq_tmpdir"/*; do
+        [[ ! -f "$_bq_file" ]] && continue
+        _bq_fname=$(basename "$_bq_file")
+        IFS=: read -r _bq_p _bq_w _bq_f < "$_bq_file"
+        _bq_t=$((_bq_p + _bq_w + _bq_f))
+        $_bq_first || _bq_json+=","
+        _bq_json+="\"$_bq_fname\":{\"pass\":$_bq_p,\"warn\":$_bq_w,\"fail\":$_bq_f,\"total\":$_bq_t}"
+        _bq_first=false
+    done
+    _bq_json+="}"
+    rm -rf "$_bq_tmpdir"
+
     if [[ "$JSON_OUTPUT" == "true" ]]; then
-        echo "{\"score\":${_eval_score:-null},\"pass\":$PASS,\"warn\":$WARN,\"fail\":$FAIL,\"beliefs_total\":$BELIEFS_TOTAL,\"generative_count\":$GENERATIVE_COUNT,\"generative_sum\":$GENERATIVE_SUM,\"total\":$_total_weight,\"features\":$_bf_json}"
+        echo "{\"score\":${_eval_score:-null},\"pass\":$PASS,\"warn\":$WARN,\"fail\":$FAIL,\"beliefs_total\":$BELIEFS_TOTAL,\"generative_count\":$GENERATIVE_COUNT,\"generative_sum\":$GENERATIVE_SUM,\"total\":$_total_weight,\"features\":$_bf_json,\"quality\":$_bq_json}"
     elif [[ "$BY_FEATURE" == "true" ]]; then
         echo "$_bf_json"
     else
@@ -1442,9 +1717,70 @@ if [[ "$SCORE_MODE" != "true" ]]; then
         echo ""
     fi
 
-    # Beliefs section
+    # Beliefs section — per-feature with quality breakdown
     if [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
         echo -e "  ${BOLD}beliefs${NC}  ${PASS} ${GREEN}✓${NC}  ${DIM}·${NC}  ${WARN} ${YELLOW}⚠${NC}  ${DIM}·${NC}  ${FAIL} ${RED}✗${NC}"
+        echo ""
+
+        # Build per-feature quality breakdown
+        _fqd_tmpdir=$(mktemp -d)
+        while IFS=: read -r _fqd_key _fqd_p _fqd_w _fqd_f; do
+            [[ -z "$_fqd_key" ]] && continue
+            _fqd_feat="${_fqd_key%%~*}"
+            _fqd_qual="${_fqd_key##*~}"
+            [[ "$_fqd_qual" == "unscoped" || "$_fqd_feat" == "unscoped" ]] && continue
+            mkdir -p "$_fqd_tmpdir/$_fqd_feat"
+            _fqd_pp=0; _fqd_pw=0; _fqd_pf=0
+            if [[ -f "$_fqd_tmpdir/$_fqd_feat/$_fqd_qual" ]]; then
+                IFS=: read -r _fqd_pp _fqd_pw _fqd_pf < "$_fqd_tmpdir/$_fqd_feat/$_fqd_qual"
+            fi
+            echo "$((_fqd_pp + _fqd_p)):$((_fqd_pw + _fqd_w)):$((_fqd_pf + _fqd_f))" > "$_fqd_tmpdir/$_fqd_feat/$_fqd_qual"
+        done <<< "$QUALITY_RESULTS"
+
+        # Also aggregate per-feature totals
+        _ftd_tmpdir=$(mktemp -d)
+        while IFS=: read -r _ftd_name _ftd_p _ftd_w _ftd_f; do
+            [[ -z "$_ftd_name" || "$_ftd_name" == "unscoped" ]] && continue
+            _ftd_pp=0; _ftd_pw=0; _ftd_pf=0
+            if [[ -f "$_ftd_tmpdir/$_ftd_name" ]]; then
+                IFS=: read -r _ftd_pp _ftd_pw _ftd_pf < "$_ftd_tmpdir/$_ftd_name"
+            fi
+            echo "$((_ftd_pp + _ftd_p)):$((_ftd_pw + _ftd_w)):$((_ftd_pf + _ftd_f))" > "$_ftd_tmpdir/$_ftd_name"
+        done <<< "$FEATURE_RESULTS"
+
+        # Display each feature with quality sub-lines
+        for _feat_file in "$_ftd_tmpdir"/*; do
+            [[ ! -f "$_feat_file" ]] && continue
+            _feat_name=$(basename "$_feat_file")
+            IFS=: read -r _fp _fw _ff < "$_feat_file"
+            _ft=$((_fp + _fw + _ff))
+            [[ "$_ft" -eq 0 ]] && continue
+            _fpct=$((_fp * 100 / _ft))
+            if [[ "$_fpct" -ge 80 ]]; then _fcolor="${GREEN}"
+            elif [[ "$_fpct" -ge 50 ]]; then _fcolor="${YELLOW}"
+            else _fcolor="${RED}"
+            fi
+            printf "  ${BOLD}%-16s${NC} ${_fcolor}%s/%s${NC}\n" "$_feat_name" "$_fp" "$_ft"
+            # Quality sub-lines
+            if [[ -d "$_fqd_tmpdir/$_feat_name" ]]; then
+                _qual_line="    "
+                for _qdim in correctness craft completeness; do
+                    if [[ -f "$_fqd_tmpdir/$_feat_name/$_qdim" ]]; then
+                        IFS=: read -r _qp _qw _qf < "$_fqd_tmpdir/$_feat_name/$_qdim"
+                        _qt=$((_qp + _qw + _qf))
+                        [[ "$_qt" -eq 0 ]] && continue
+                        if [[ "$_qp" -eq "$_qt" ]]; then _qcolor="${GREEN}"
+                        elif [[ $((_qp * 100 / _qt)) -ge 50 ]]; then _qcolor="${YELLOW}"
+                        else _qcolor="${RED}"
+                        fi
+                        _qual_line+="${DIM}${_qdim}${NC} ${_qcolor}${_qp}/${_qt}${NC}  "
+                    fi
+                done
+                echo -e "$_qual_line"
+            fi
+        done
+        rm -rf "$_fqd_tmpdir" "$_ftd_tmpdir"
+        echo ""
 
         # Show failures first
         for _entry in "${BELIEF_FAILS[@]+"${BELIEF_FAILS[@]}"}"; do
@@ -1477,6 +1813,70 @@ if [[ "$SCORE_MODE" != "true" ]]; then
 
     echo -e "$SEP"
     echo ""
+
+    # Cache per-feature quality results for --score mode to use later
+    # This lets score.sh show craft/completeness without re-running LLM judges
+    if [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
+        mkdir -p "$EVAL_CACHE_DIR"
+        _cache_tmpdir=$(mktemp -d)
+
+        # Aggregate feature results
+        while IFS=: read -r _cf_name _cf_p _cf_w _cf_f; do
+            [[ -z "$_cf_name" || "$_cf_name" == "unscoped" ]] && continue
+            _cf_pp=0; _cf_pw=0; _cf_pf=0
+            if [[ -f "$_cache_tmpdir/$_cf_name" ]]; then
+                IFS=: read -r _cf_pp _cf_pw _cf_pf < "$_cache_tmpdir/$_cf_name"
+            fi
+            echo "$((_cf_pp + _cf_p)):$((_cf_pw + _cf_w)):$((_cf_pf + _cf_f))" > "$_cache_tmpdir/$_cf_name"
+        done <<< "$FEATURE_RESULTS"
+
+        # Aggregate quality per feature
+        _cq_tmpdir=$(mktemp -d)
+        while IFS=: read -r _cq_key _cq_p _cq_w _cq_f; do
+            [[ -z "$_cq_key" ]] && continue
+            _cq_feat="${_cq_key%%~*}"
+            _cq_qual="${_cq_key##*~}"
+            [[ "$_cq_qual" == "unscoped" || "$_cq_feat" == "unscoped" ]] && continue
+            mkdir -p "$_cq_tmpdir/$_cq_feat"
+            _cq_pp=0; _cq_pw=0; _cq_pf=0
+            if [[ -f "$_cq_tmpdir/$_cq_feat/$_cq_qual" ]]; then
+                IFS=: read -r _cq_pp _cq_pw _cq_pf < "$_cq_tmpdir/$_cq_feat/$_cq_qual"
+            fi
+            echo "$((_cq_pp + _cq_p)):$((_cq_pw + _cq_w)):$((_cq_pf + _cq_f))" > "$_cq_tmpdir/$_cq_feat/$_cq_qual"
+        done <<< "$QUALITY_RESULTS"
+
+        # Build JSON cache
+        _bc_json="{"
+        _bc_first=true
+        for _bc_file in "$_cache_tmpdir"/*; do
+            [[ ! -f "$_bc_file" ]] && continue
+            _bc_fname=$(basename "$_bc_file")
+            IFS=: read -r _bc_p _bc_w _bc_f < "$_bc_file"
+            _bc_t=$((_bc_p + _bc_w + _bc_f))
+            $_bc_first || _bc_json+=","
+            _bc_json+="\"$_bc_fname\":{\"pass\":$_bc_p,\"warn\":$_bc_w,\"fail\":$_bc_f,\"total\":$_bc_t"
+            if [[ -d "$_cq_tmpdir/$_bc_fname" ]]; then
+                _bc_json+=",\"quality\":{"
+                _bcq_first=true
+                for _qdim in correctness craft completeness; do
+                    if [[ -f "$_cq_tmpdir/$_bc_fname/$_qdim" ]]; then
+                        IFS=: read -r _qp _qw _qf < "$_cq_tmpdir/$_bc_fname/$_qdim"
+                        _qt=$((_qp + _qw + _qf))
+                        [[ "$_qt" -eq 0 ]] && continue
+                        $_bcq_first || _bc_json+=","
+                        _bc_json+="\"$_qdim\":{\"pass\":$_qp,\"total\":$_qt}"
+                        _bcq_first=false
+                    fi
+                done
+                _bc_json+="}"
+            fi
+            _bc_json+="}"
+            _bc_first=false
+        done
+        _bc_json+="}"
+        echo "{\"cached_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"features\":$_bc_json}" > "$BELIEFS_CACHE_FILE" 2>/dev/null || true
+        rm -rf "$_cache_tmpdir" "$_cq_tmpdir"
+    fi
 fi
 
 # Exit code — block severity failures return non-zero

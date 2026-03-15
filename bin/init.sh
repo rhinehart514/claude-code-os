@@ -5,9 +5,13 @@
 set -euo pipefail
 
 # --- Resolve RHINO_DIR ---
-_INIT_SOURCE="${BASH_SOURCE[0]}"
-while [[ -L "$_INIT_SOURCE" ]]; do _INIT_SOURCE="$(readlink "$_INIT_SOURCE")"; done
-RHINO_DIR="$(cd "$(dirname "$_INIT_SOURCE")/.." && pwd)"
+if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
+else
+    _INIT_SOURCE="${BASH_SOURCE[0]}"
+    while [[ -L "$_INIT_SOURCE" ]]; do _INIT_SOURCE="$(readlink "$_INIT_SOURCE")"; done
+    RHINO_DIR="$(cd "$(dirname "$_INIT_SOURCE")/.." && pwd)"
+fi
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -480,100 +484,104 @@ echo -e "  ${GREEN}✓${NC} .claude/ directories"
 # Phase 3b: Scaffold .claude/ for project-local Claude Code config
 # ============================================================
 
-# 3b-i. Symlink mind files into .claude/rules/
-mkdir -p .claude/rules
-for mind_file in identity.md thinking.md standards.md self.md; do
-    src="$RHINO_DIR/mind/$mind_file"
-    target=".claude/rules/$mind_file"
-    if [[ -f "$src" ]]; then
-        ln -sf "$src" "$target"
-    fi
-done
-# Lens mind files
-for lens_dir in "$RHINO_DIR"/lens/*/mind; do
-    [[ ! -d "$lens_dir" ]] && continue
-    for lens_mind in "$lens_dir"/*.md; do
-        [[ ! -f "$lens_mind" ]] && continue
-        name="$(basename "$lens_mind")"
-        ln -sf "$lens_mind" ".claude/rules/$name"
+if [[ -z "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
+    # 3b-i. Symlink mind files into .claude/rules/
+    mkdir -p .claude/rules
+    for mind_file in identity.md thinking.md standards.md self.md; do
+        src="$RHINO_DIR/mind/$mind_file"
+        target=".claude/rules/$mind_file"
+        if [[ -f "$src" ]]; then
+            ln -sf "$src" "$target"
+        fi
     done
-done
+    # Lens mind files
+    for lens_dir in "$RHINO_DIR"/lens/*/mind; do
+        [[ ! -d "$lens_dir" ]] && continue
+        for lens_mind in "$lens_dir"/*.md; do
+            [[ ! -f "$lens_mind" ]] && continue
+            name="$(basename "$lens_mind")"
+            ln -sf "$lens_mind" ".claude/rules/$name"
+        done
+    done
 
-# 3b-ii. Symlink commands into .claude/commands/
-mkdir -p .claude/commands
-# Lens commands first (lower priority)
-for lens_cmd_dir in "$RHINO_DIR"/lens/*/commands; do
-    [[ ! -d "$lens_cmd_dir" ]] && continue
-    for cmd_file in "$lens_cmd_dir"/*.md; do
+    # 3b-ii. Symlink commands into .claude/commands/
+    mkdir -p .claude/commands
+    # Lens commands first (lower priority)
+    for lens_cmd_dir in "$RHINO_DIR"/lens/*/commands; do
+        [[ ! -d "$lens_cmd_dir" ]] && continue
+        for cmd_file in "$lens_cmd_dir"/*.md; do
+            [[ ! -f "$cmd_file" ]] && continue
+            name="$(basename "$cmd_file")"
+            # Skip if core command with same name exists
+            [[ -f "$RHINO_DIR/.claude/commands/$name" ]] && continue
+            ln -sf "$cmd_file" ".claude/commands/$name"
+        done
+    done
+    # Core commands (higher priority — overwrite lens if same name)
+    for cmd_file in "$RHINO_DIR"/.claude/commands/*.md; do
         [[ ! -f "$cmd_file" ]] && continue
+        [[ -L "$cmd_file" ]] && continue
         name="$(basename "$cmd_file")"
-        # Skip if core command with same name exists
-        [[ -f "$RHINO_DIR/.claude/commands/$name" ]] && continue
         ln -sf "$cmd_file" ".claude/commands/$name"
     done
-done
-# Core commands (higher priority — overwrite lens if same name)
-for cmd_file in "$RHINO_DIR"/.claude/commands/*.md; do
-    [[ ! -f "$cmd_file" ]] && continue
-    [[ -L "$cmd_file" ]] && continue
-    name="$(basename "$cmd_file")"
-    ln -sf "$cmd_file" ".claude/commands/$name"
-done
 
-# 3b-iii. Generate .claude/settings.json
-SETTINGS_TARGET=".claude/settings.json"
-RHINO_SETTINGS='{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
+    # 3b-iii. Generate .claude/settings.json
+    SETTINGS_TARGET=".claude/settings.json"
+    RHINO_SETTINGS='{
+      "hooks": {
+        "SessionStart": [
           {
-            "type": "command",
-            "command": "'"$RHINO_DIR"'/hooks/session_start.sh"
+            "matcher": "",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "'"$RHINO_DIR"'/hooks/session_start.sh"
+              }
+            ]
+          }
+        ],
+        "PreCompact": [
+          {
+            "matcher": "",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "'"$RHINO_DIR"'/hooks/pre_compact.sh"
+              }
+            ]
+          }
+        ],
+        "PostToolUse": [
+          {
+            "matcher": "Edit|Write",
+            "hooks": [
+              {
+                "type": "command",
+                "command": "'"$RHINO_DIR"'/hooks/post_edit.sh"
+              },
+              {
+                "type": "command",
+                "command": "'"$RHINO_DIR"'/hooks/post_skill.sh"
+              }
+            ]
           }
         ]
       }
-    ],
-    "PreCompact": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'"$RHINO_DIR"'/hooks/pre_compact.sh"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "'"$RHINO_DIR"'/hooks/post_edit.sh"
-          },
-          {
-            "type": "command",
-            "command": "'"$RHINO_DIR"'/hooks/post_skill.sh"
-          }
-        ]
-      }
-    ]
-  }
-}'
+    }'
 
-if [[ -f "$SETTINGS_TARGET" ]]; then
-    if command -v jq &>/dev/null; then
-        # Merge: preserve existing settings, overlay hooks
-        tmp="$(mktemp)"
-        echo "$RHINO_SETTINGS" | jq -s '.[0] * {hooks: .[1].hooks}' "$SETTINGS_TARGET" - > "$tmp" && mv "$tmp" "$SETTINGS_TARGET"
+    if [[ -f "$SETTINGS_TARGET" ]]; then
+        if command -v jq &>/dev/null; then
+            # Merge: preserve existing settings, overlay hooks
+            tmp="$(mktemp)"
+            echo "$RHINO_SETTINGS" | jq -s '.[0] * {hooks: .[1].hooks}' "$SETTINGS_TARGET" - > "$tmp" && mv "$tmp" "$SETTINGS_TARGET"
+        else
+            echo -e "  ${YELLOW}⚠${NC} jq not found — .claude/settings.json not updated (has existing content)"
+        fi
     else
-        echo -e "  ${YELLOW}⚠${NC} jq not found — .claude/settings.json not updated (has existing content)"
+        echo "$RHINO_SETTINGS" > "$SETTINGS_TARGET"
     fi
 else
-    echo "$RHINO_SETTINGS" > "$SETTINGS_TARGET"
+    echo -e "  ${DIM}plugin mode — rules, commands, hooks delivered via plugin system${NC}"
 fi
 
 # 3b-iv. Append to .gitignore
