@@ -1,4 +1,5 @@
 ---
+name: skill
 description: "Manage rhino-os lenses (skills). List, install, remove, or inspect lenses."
 ---
 
@@ -74,13 +75,22 @@ Questions (2-3):
 
 If the founder can't answer #3, push back: "This might not be ready to be a skill yet. Keep watching for the pattern — rhino will flag it when it recurs."
 
+**Validation checklist — is this pattern ready?**
+- Has the pattern recurred across 3+ sessions? (One-off observations aren't patterns yet.)
+- Can you name the specific measurement dimension? (Not "quality" — something like "API response consistency" or "navigation dead ends".)
+- Does an existing lens already cover this? Run `rhino skill list` and check for overlap. If a lens measures the same dimension differently, that's a conflict — resolve before creating.
+
 **Once evidence is clear:**
 
 0. Read `config/rhino.yml` features section. Check which existing features the new lens would measure against. Show: "This lens would add measurement for: **[feature1]** (w:[N], [maturity]), **[feature2]** (w:[N], [maturity])." If it doesn't map to any existing feature, note: "This lens measures a new dimension not covered by existing features."
 1. Validate name (lowercase, alphanumeric + hyphens)
 2. Create `lens/<name>/` with only what the evidence justifies:
    - `lens.yml` — manifest with real description from the founder's answers
-   - `eval/beliefs.yml` — seed with 2-3 assertions derived from the pattern they described
+   - `eval/beliefs.yml` — seed with 2-3 assertions derived from the pattern they described. Auto-detect assertion types from what the pattern measures:
+     - File exists or contains a string? → `file_check`
+     - Shell command returns 0? → `command_check`
+     - Forbidden patterns in source? → `content_check`
+     - Genuinely subjective quality judgment? → `llm_judge` (use sparingly — each one adds WARN drag to scoring)
    - Only create `mind/`, `scoring/`, `config/` directories if the pattern needs them
 3. Generate `lens.yml` with the founder's actual words:
 ```yaml

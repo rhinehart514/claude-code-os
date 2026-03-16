@@ -1,4 +1,5 @@
 ---
+name: plan
 description: "Start a work session. Reads all state, finds the bottleneck, proposes what to work on. Accepts a feature name to scope: /plan auth. Also captures tasks: /plan fix the login bug"
 ---
 

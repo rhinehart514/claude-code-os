@@ -1,4 +1,5 @@
 ---
+name: product
 description: "Product thinking session (WHY). Understand who, trace why, surface assumptions, identify risks and gaps. /product runs full. /product assumptions zooms in. Does NOT brainstorm features — use /ideate for that."
 ---
 

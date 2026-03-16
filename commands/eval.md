@@ -1,4 +1,5 @@
 ---
+name: eval
 description: "Is my product good? The one measurement command. /eval runs assertions. /eval taste for visual. /eval auth scopes to a feature."
 ---
 

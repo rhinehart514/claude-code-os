@@ -1,4 +1,5 @@
 ---
+name: init
 description: "Bootstrap rhino-os into any repo. Detects project, understands what it does, generates real config + assertions. One command, zero placeholders."
 ---
 

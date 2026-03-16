@@ -1,4 +1,5 @@
 ---
+name: ship
 description: "Zero-friction deploy. Commit, push, deploy, verify — one command. /ship hotfix for urgent fixes."
 ---
 
@@ -69,7 +70,7 @@ Append to `.claude/changelog.md` (created on first /ship if it doesn't exist)
   assertions: 25/31 passing (no block failures)
   secrets: none detected
   product: **62%** complete
-  version: **v7.2** — 40% of thesis proven
+  version: **v8.0** — 40% of thesis proven
 
   ▾ feature maturity
     ✓ scoring     w:5  working
@@ -103,7 +104,7 @@ Append to `.claude/changelog.md` (created on first /ship if it doesn't exist)
   `a1b2c3d` feat: score reasons — show why each dimension scored what it did
 
   score: 92 → 92 (stable)
-  product: **62%** complete · version: **v7.2** — 40% proven
+  product: **62%** complete · version: **v8.0** — 40% proven
   branch: main → origin/main
   deploy: vercel — building (polling every 2m)
 

@@ -1,4 +1,5 @@
 ---
+name: ideate
 description: "Brainstorm WHAT to build (feature-level ideas). /ideate generates build ideas. /ideate auth brainstorms for a feature. /ideate wild goes high-risk. For product direction, use /product. For thesis-level direction, use /roadmap ideate."
 ---
 

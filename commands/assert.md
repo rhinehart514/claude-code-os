@@ -1,4 +1,5 @@
 ---
+name: assert
 description: "Add, list, check, or remove assertions. Makes beliefs.yml a chat-native activity instead of manual YAML editing."
 ---
 

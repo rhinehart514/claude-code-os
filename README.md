@@ -107,37 +107,25 @@ Fix your health issues, but don't confuse them with value.
 
 ## Quick Start
 
-**Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed. macOS or Linux.
-
-### Option A: Plugin install (recommended)
-
-Inside Claude Code:
-```
-/plugin marketplace add rhinehart514/rhino-os
-/plugin install rhino-os@rhino-marketplace
-```
-
-Done. Commands, skills, agents, and hooks load automatically.
-
-### Option B: Manual install
+**Prerequisites:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed. macOS or Linux. [`jq`](https://jqlang.github.io/jq/download/) installed (used by scoring, eval, and init).
 
 ```bash
 git clone https://github.com/rhinehart514/rhino-os.git ~/rhino-os
 cd ~/rhino-os && ./install.sh
-source ~/.zshrc  # or restart your terminal
+source ~/.zshrc && rhino doctor   # verify install works
 ```
 
-### Then, in any project:
+Then in any project:
 
 ```bash
 cd ~/your-project
-claude            # rhino-os boots automatically
-/init             # detects project, generates config + assertions
+rhino init        # detects project, generates config + assertions, first score
+claude            # start Claude Code — rhino-os boots automatically
 /plan             # find the bottleneck
 /go               # autonomous build loop — keeps what passes, reverts what doesn't
 ```
 
-Your first score will be low. That's correct — you haven't told it what your product should do yet. `/init` generates assertions, then `/go` builds toward passing them.
+Your first score will be low. That's correct — you haven't told it what your product should do yet. `rhino init` generates assertions, then `/go` builds toward passing them.
 
 **Optional:** Node 18+ for visual eval (`rhino taste`).
 
@@ -232,7 +220,7 @@ One number. Measures what matters.
 ## CLI Reference
 
 ```
-  rhino v7.0.0
+  rhino v8.0.3
 
   Measure
     eval [dir]      Run assertions — the one command
@@ -266,7 +254,7 @@ One number. Measures what matters.
 
 ```
 rhino-os/
-  .claude-plugin/          plugin manifest (for /plugin install)
+  .claude-plugin/          plugin manifest (future plugin marketplace support)
     plugin.json            name, version, description
     marketplace.json       marketplace listing
   commands/                slash commands (plan, go, eval, feature, etc.)

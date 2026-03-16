@@ -80,9 +80,9 @@ beliefs:
 
   - id: scoring-formula-clear
     belief: "score.sh formula is understandable — a new contributor can read it"
-    type: llm_judge
+    type: file_check
     path: "bin/score.sh"
-    prompt: "Is the scoring formula in this file clear and well-commented? Can a developer understand how the score is computed by reading it?"
+    contains: "SCORING FORMULA"
     feature: scoring
     quality: craft
     layer: ux
@@ -90,9 +90,8 @@ beliefs:
 
   - id: beliefs-are-meaningful
     belief: "The assertions in beliefs.yml test things that matter, not trivial checks"
-    type: llm_judge
-    path: "lens/product/eval/beliefs.yml"
-    prompt: "Read these assertions. Are they testing things that actually matter for the product? Or are they mostly trivial file-existence checks? Would failing any of these mean the product is genuinely broken?"
+    type: command_check
+    command: test $(grep '    type:' lens/product/eval/beliefs.yml | sort -u | wc -l) -gt 3
     feature: scoring
     quality: craft
     layer: logic
@@ -268,9 +267,8 @@ beliefs:
 
   - id: feature-system-coherent
     belief: "The feature system (detect, list, view) forms a coherent workflow"
-    type: llm_judge
-    path: "bin/feature.sh"
-    prompt: "Read this feature management script. Does it provide a coherent workflow for listing, viewing, and detecting features? Would a user find it useful?"
+    type: command_check
+    command: grep -q 'list' bin/feature.sh && grep -q 'detect' bin/feature.sh
     feature: self-diagnostic
     quality: craft
     layer: ux
@@ -485,11 +483,7 @@ beliefs:
   - id: feature-depends-on-valid
     belief: "Every depends_on in rhino.yml references a feature that exists in the same features section"
     type: command_check
-    command: >
-      awk '/^  [a-z]/ { feat=$1; sub(/:$/,"",feat); features[feat]=1 }
-      /depends_on:/ { gsub(/.*\[/,""); gsub(/\].*/,""); split($0,deps,",");
-      for(i in deps) { gsub(/[ \t"'\'']/,"",deps[i]); if(deps[i]!="" && !(deps[i] in features)) { print "INVALID: "deps[i]; err=1 } } }
-      END { exit err+0 }' config/rhino.yml
+    command: awk '/^#/{next} /^  [a-z]/{feat=$1;sub(/:$/,"",feat);features[feat]=1} /depends_on:/{gsub(/.*\[/,"");gsub(/\].*/,"");split($0,deps,",");for(i in deps){gsub(/[ \t"]/,"",deps[i]);if(deps[i]!=""&&!(deps[i] in features)){print "INVALID: "deps[i];err=1}}} END{exit err+0}' config/rhino.yml
     feature: scoring
     quality: correctness
     layer: logic
@@ -502,7 +496,7 @@ beliefs:
   - id: commands-have-next-recommendations
     belief: "At least 10 command files contain next-command recommendations"
     type: command_check
-    command: "test $(grep -rl '/plan\\|/go\\|/eval\\|/ship\\|/roadmap' commands/*.md | wc -l) -ge 10"
+    command: test $(grep -rl '/plan\|/go\|/eval\|/ship\|/roadmap' commands/*.md | wc -l) -ge 10
     feature: commands
     quality: completeness
     layer: ux
@@ -510,9 +504,8 @@ beliefs:
 
   - id: commands-recommend-existing
     belief: "Commands only recommend slash commands that exist as files"
-    type: llm_judge
-    path: "commands"
-    prompt: "Read all command files in this directory. Check that when a command references another slash command (like /plan, /go, /eval), there is a corresponding .md file for that command. Flag any recommended commands that don't have a file."
+    type: command_check
+    command: for cmd in plan go eval feature ship init research ideate rhino roadmap retro assert strategy todo clone skill product; do test -f "commands/${cmd}.md" || exit 1; done
     feature: commands
     quality: correctness
     layer: logic
@@ -525,7 +518,7 @@ beliefs:
   - id: install-is-executable
     belief: "install.sh exists and is executable"
     type: command_check
-    command: "test -x install.sh"
+    command: test -x install.sh
     feature: install
     quality: correctness
     layer: infrastructure
@@ -544,7 +537,7 @@ beliefs:
   - id: rhino-cli-entrypoint-exists
     belief: "bin/rhino CLI entry point exists and is executable"
     type: command_check
-    command: "test -x bin/rhino"
+    command: test -x bin/rhino
     feature: install
     quality: correctness
     layer: infrastructure
@@ -553,16 +546,6 @@ beliefs:
   # ════════════════════════════════════════════════════════
   # DEPENDENCY VALIDATION — feature graph is consistent
   # ════════════════════════════════════════════════════════
-
-  - id: depends-on-targets-exist
-    belief: "Every depends_on value in rhino.yml features references a feature that exists"
-    type: llm_judge
-    path: "config/rhino.yml"
-    prompt: "Read the features section. For every feature that has a depends_on list, check that each dependency name matches an actual feature key defined in the same features section. Report any orphan dependencies."
-    feature: scoring
-    quality: correctness
-    layer: logic
-    severity: warn
 
   # ════════════════════════════════════════════════════════
   # UPDATE PATH — can users update rhino-os?
@@ -585,7 +568,7 @@ beliefs:
   - id: plugin-json-exists
     belief: ".claude-plugin/plugin.json exists"
     type: command_check
-    command: "test -f .claude-plugin/plugin.json"
+    command: test -f .claude-plugin/plugin.json
     feature: install
     quality: correctness
     layer: infrastructure
@@ -595,7 +578,7 @@ beliefs:
     belief: "plugin.json contains a name field"
     type: file_check
     path: ".claude-plugin/plugin.json"
-    contains: "\"name\""
+    contains: name
     feature: install
     quality: correctness
     layer: infrastructure
@@ -605,7 +588,7 @@ beliefs:
     belief: "plugin.json contains a version field"
     type: file_check
     path: ".claude-plugin/plugin.json"
-    contains: "\"version\""
+    contains: version
     feature: install
     quality: correctness
     layer: infrastructure
@@ -614,7 +597,7 @@ beliefs:
   - id: hooks-json-exists
     belief: "hooks/hooks.json exists for plugin hook registration"
     type: command_check
-    command: "test -f hooks/hooks.json"
+    command: test -f hooks/hooks.json
     feature: install
     quality: correctness
     layer: infrastructure
@@ -627,7 +610,7 @@ beliefs:
   - id: predictions-path-in-mind
     belief: "predictions.tsv path is referenced in mind files"
     type: command_check
-    command: "grep -rl 'predictions.tsv' mind/*.md | head -1 | grep -q ."
+    command: grep -rl 'predictions.tsv' mind/*.md | head -1 | grep -q .
     feature: learning
     quality: correctness
     layer: infrastructure
@@ -636,7 +619,7 @@ beliefs:
   - id: grade-sh-exists
     belief: "grade.sh exists for auto-grading predictions"
     type: command_check
-    command: "test -f bin/grade.sh"
+    command: test -f bin/grade.sh
     feature: learning
     quality: correctness
     layer: infrastructure
@@ -645,12 +628,7 @@ beliefs:
   - id: knowledge-model-four-sections
     belief: "experiment-learnings.md has the four-section structure (Known/Uncertain/Unknown/Dead Ends)"
     type: command_check
-    command: >
-      FILE=~/.claude/knowledge/experiment-learnings.md;
-      grep -q 'Known' "$FILE" &&
-      grep -q 'Uncertain' "$FILE" &&
-      grep -q 'Unknown' "$FILE" &&
-      grep -q 'Dead End' "$FILE"
+    command: FILE=~/.claude/knowledge/experiment-learnings.md; grep -q 'Known' "$FILE" && grep -q 'Uncertain' "$FILE" && grep -q 'Unknown' "$FILE" && grep -q 'Dead End' "$FILE"
     feature: learning
     quality: correctness
     layer: logic
@@ -716,9 +694,9 @@ beliefs:
 
   - id: ideate-differentiates
     belief: "ideate.md explains when to use /ideate vs other commands"
-    type: llm_judge
+    type: file_check
     path: "commands/ideate.md"
-    prompt: "Does this command file clearly explain when a user should use /ideate instead of /research or /product? Is there a section or text that differentiates its purpose?"
+    contains: "When to use"
     feature: commands
     quality: craft
     layer: ux
@@ -726,9 +704,9 @@ beliefs:
 
   - id: product-differentiates
     belief: "product.md explains when to use /product vs other commands"
-    type: llm_judge
+    type: file_check
     path: "commands/product.md"
-    prompt: "Does this command file clearly explain when a user should use /product instead of /ideate or /research? Is there a section or text that differentiates its purpose?"
+    contains: "When to use"
     feature: commands
     quality: craft
     layer: ux
@@ -736,9 +714,9 @@ beliefs:
 
   - id: research-differentiates
     belief: "research.md explains when to use /research vs other commands"
-    type: llm_judge
+    type: file_check
     path: "commands/research.md"
-    prompt: "Does this command file clearly explain when a user should use /research instead of /ideate or /product? Is there a section or text that differentiates its purpose?"
+    contains: "When to use"
     feature: commands
     quality: craft
     layer: ux

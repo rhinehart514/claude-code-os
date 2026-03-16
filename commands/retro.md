@@ -1,4 +1,5 @@
 ---
+name: retro
 description: "What did we learn? Grade predictions, update the knowledge model, detect staleness. The command that closes the learning loop."
 ---
 

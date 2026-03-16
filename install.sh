@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# install.sh — One-command setup for rhino-os v7.
+# install.sh — One-command setup for rhino-os v8.
 # Idempotent — safe to re-run.
 #
 # Usage:
@@ -258,11 +258,19 @@ else
     # Run doctor for verification
     PATH="${LOCAL_BIN:-$HOME/bin}:$PATH" "$RHINO_DIR/bin/rhino" doctor
 
+    # jq warning (non-blocking)
+    if ! command -v jq &>/dev/null; then
+        echo ""
+        echo -e "  ${YELLOW}⚠${NC} ${BOLD}jq not found${NC} — needed by scoring, eval, and init"
+        echo -e "    ${DIM}Install: https://jqlang.github.io/jq/download/${NC}"
+        echo -e "    ${DIM}macOS: brew install jq${NC}"
+    fi
+
     echo ""
-    echo -e "  ${GREEN}✓${NC} ${BOLD}Done.${NC} Reload your shell: ${DIM}source ${PROFILE:-~/.zshrc}${NC}"
+    echo -e "  ${GREEN}✓${NC} ${BOLD}Done.${NC} Run this to verify:"
     echo ""
-    echo -e "  ${DIM}Then run${NC} ${BOLD}rhino init${NC} ${DIM}in your project.${NC}"
+    echo -e "    ${BOLD}source ${PROFILE:-~/.zshrc} && rhino doctor${NC}"
     echo ""
-    echo -e "  ${DIM}Quick test:${NC} source ${PROFILE:-~/.zshrc} && rhino --help"
+    echo -e "  ${DIM}Then in any project:${NC} ${BOLD}rhino init${NC}"
 fi
 echo ""

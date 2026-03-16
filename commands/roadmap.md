@@ -1,4 +1,5 @@
 ---
+name: roadmap
 description: "Version roadmap. /roadmap shows progress. /roadmap next shows what's needed for the next version. /roadmap bump marks current version shipped."
 ---
 
@@ -160,22 +161,21 @@ PATCH (v8.0.1) — Bug fix, polish, incremental. No new question.
 ### Next view:
 
 ```
-◆ roadmap next — v7.2: "The loop works on itself"
+◆ roadmap next — v8.0: "Someone who isn't us can complete a loop"
 
-  ✓ rhino-beliefs
-    Can rhino-os define assertions about itself?
-    evidence: 25 assertions in beliefs.yml, all running
+  · stranger-init
+    Can a stranger clone, install, and run init without errors?
+    status: todo
 
-  ✓ self-loop
-    Does /plan → /go → /eval produce a score improvement?
-    evidence: score 85→89 in one session
+  · stranger-plan
+    Does /plan produce actionable tasks on a project the stranger owns?
+    status: todo
 
-  · prediction-accuracy
-    Are predictions calibrated (50-70% accuracy)?
-    collected: 16 graded, 63% accurate
-    needed: 2 more graded predictions
+  · stranger-improvement
+    Does /go produce a measurable score improvement on an external project?
+    status: todo
 
-gap: **1 evidence item** remaining · `/go` to generate predictions, then grade
+gap: **3 evidence items** remaining
 
 /plan             work toward proving this
 /roadmap bump     graduate (if ready)
@@ -184,18 +184,17 @@ gap: **1 evidence item** remaining · `/go` to generate predictions, then grade
 ### Bump:
 
 ```
-◆ roadmap bump — v7.2 [minor] → proven
+◆ roadmap bump — v8.0 [major] → proven
 
-  thesis: "The loop works on itself"
-  tier: minor (improvement within v7.x thesis)
-  proven: 2026-03-14
-  summary: rhino-os can define assertions about itself, improve its own
-           score through the /plan → /go → /eval loop, and maintain
-           calibrated predictions (63% accuracy, target 50-70%)
+  thesis: "Someone who isn't us can complete a loop"
+  tier: major
+  proven: 2026-03-16
+  summary: strangers can clone, install, init, and run /go to improve
+           score on external projects without help
 
-  current → **v8.0** [major]: "Someone who isn't us can complete a loop"
+  current → **v9.0** [major]: "[next thesis]"
 
-/roadmap next     see what v8.0 needs
+/roadmap next     see what v9.0 needs
 /plan             start working toward v8.0
 ```
 

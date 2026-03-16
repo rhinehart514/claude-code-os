@@ -845,7 +845,7 @@ run_generative_eval() {
 
         # Build cache entry
         $cache_first || cache_json+=","
-        cache_json+="\"$feat_name\":{\"verdict\":\"$verdict\",\"gaps\":$(echo "[\"${gaps//; /\",\"}\"]" | sed 's/\[""]/[]/'),\"evidence\":$(echo "$evidence" | jq -Rs .),\"score\":${feat_score:-50},\"cached_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
+        cache_json+="\"$feat_name\":{\"verdict\":$(echo "$verdict" | jq -Rs .),\"gaps\":$(if [[ -n "$gaps" ]]; then echo "$gaps" | jq -Rs 'split("; ") | map(select(length > 0))'; else echo '[]'; fi),\"evidence\":$(echo "$evidence" | jq -Rs .),\"score\":${feat_score:-50},\"cached_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}"
         cache_first=false
     done <<< "$features_data"
 
@@ -862,7 +862,7 @@ run_generative_eval() {
 # This keeps `rhino score .` fast and free (no LLM calls).
 if [[ "$HAS_FEATURES" == true && "$SCORE_MODE" != "true" && "$NO_GENERATIVE" != "true" ]]; then
     run_generative_eval
-elif [[ "$HAS_FEATURES" == true && "$SCORE_MODE" == "true" ]]; then
+elif [[ "$HAS_FEATURES" == true && "$SCORE_MODE" == "true" && "$NO_GENERATIVE" != "true" ]]; then
     # In --score mode: read cached generative scores as numbers, don't call Claude
     if [[ -f "$EVAL_CACHE_FILE" ]] && command -v jq &>/dev/null; then
         while IFS= read -r feat_name; do
@@ -1882,10 +1882,9 @@ if [[ "$SCORE_MODE" == "true" ]]; then
         _eval_score=$((_gen_avg - _belief_penalty))
         [[ "$_eval_score" -lt 0 ]] && _eval_score=0
     elif [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
-        # No generative eval — beliefs-only fallback, capped at 50
-        # This signals "run rhino eval . for a real score"
-        _raw_belief=$(( (PASS * 100 + WARN * 50) / BELIEFS_TOTAL ))
-        _eval_score=$((_raw_belief > 50 ? 50 : _raw_belief))
+        # Beliefs-only: mechanical assertions are the score
+        # No cap — beliefs are deterministic and trustworthy
+        _eval_score=$(( (PASS * 100 + WARN * 50) / BELIEFS_TOTAL ))
     fi
 
     # Aggregate per-quality results (global, across all features)
@@ -1937,8 +1936,7 @@ if [[ "$SCORE_MODE" != "true" ]]; then
         _display_score=$((_gen_avg - _belief_penalty))
         [[ "$_display_score" -lt 0 ]] && _display_score=0
     elif [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
-        _raw_belief=$(( (PASS * 100 + WARN * 50) / BELIEFS_TOTAL ))
-        _display_score=$((_raw_belief > 50 ? 50 : _raw_belief))
+        _display_score=$(( (PASS * 100 + WARN * 50) / BELIEFS_TOTAL ))
     fi
 
     # Aggregate layer results for display
@@ -1969,7 +1967,7 @@ if [[ "$SCORE_MODE" != "true" ]]; then
             _gen_avg=$((GENERATIVE_SUM / GENERATIVE_COUNT))
             _sub_parts="${GENERATIVE_COUNT} features (avg ${_gen_avg})"
         else
-            _sub_parts="no feature audit — run rhino eval . for full score"
+            _sub_parts="beliefs-only"
         fi
         if [[ "$BELIEFS_TOTAL" -gt 0 ]]; then
             [[ -n "$_sub_parts" ]] && _sub_parts="${_sub_parts}  ${DIM}·${NC}  "

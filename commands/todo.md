@@ -1,4 +1,5 @@
 ---
+name: todo
 description: "Manage your backlog. /todo shows items. /todo add 'fix login' captures. /todo promote <id> activates. /todo done <id> completes."
 ---
 

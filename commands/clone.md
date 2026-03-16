@@ -1,4 +1,5 @@
 ---
+name: clone
 description: "Screenshot any public URL, decompose into components, generate them using your framework + design tokens + conventions. /clone https://example.com"
 ---
 

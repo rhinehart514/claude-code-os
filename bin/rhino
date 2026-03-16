@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# rhino — CLI for rhino-os v7
+# rhino — CLI for rhino-os v8
 # Score = value, not health. Measurement tools: score, taste, eval, status, config
 
-VERSION="7.0.0"
+VERSION="8.0.3"
 if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
     RHINO_DIR="$CLAUDE_PLUGIN_ROOT"
 else
@@ -415,7 +415,15 @@ cmd_doctor() {
     done
     [[ $broken_links -eq 0 ]] && _pass "all symlinks valid"
 
-    # 6. Node 18+ (warn only — needed for taste)
+    # 6. jq (warn — needed for scoring, eval, init, session boot)
+    if command -v jq &>/dev/null; then
+        _pass "jq available"
+    else
+        _warn "jq not found — needed for scoring, eval, init, session boot card"
+        echo -e "       ${DIM}Install: brew install jq  (macOS) or apt install jq  (Linux)${NC}"
+    fi
+
+    # 7. Node 18+ (warn only — needed for taste)
     if command -v node &>/dev/null; then
         local node_major
         node_major="$(node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1)"

@@ -1,4 +1,5 @@
 ---
+name: strategy
 description: "What's the strategy? Shows current stage, bottleneck, loop health, unknowns, and graduation criteria. /strategy refresh re-diagnoses from current data."
 ---
 

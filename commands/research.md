@@ -1,4 +1,5 @@
 ---
+name: research
 description: "Gather evidence (HOW to decide). /research picks the top unknown. /research auth digs into a feature. /research docs <lib> pulls real-time docs. /research site <url> analyzes a live site. Produces findings, not ideas — use /ideate for brainstorming."
 ---
 

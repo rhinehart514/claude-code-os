@@ -627,7 +627,7 @@ fi
 if [[ "$ASSERTION_COUNT" -gt 0 ]]; then
     # Assertions exist → score = assertion pass rate
     # Single eval.sh call with --json for score + features + pass count
-    eval_json=$("$SCRIPT_DIR/eval.sh" . --score --json 2>/dev/null) || eval_json=""
+    eval_json=$("$SCRIPT_DIR/eval.sh" . --score --json --no-generative 2>/dev/null) || eval_json=""
     if [[ -n "$eval_json" ]] && command -v jq &>/dev/null; then
         eval_score=$(echo "$eval_json" | jq -r '.score // empty' 2>/dev/null) || eval_score=""
         ASSERTION_PASS_COUNT=$(echo "$eval_json" | jq -r '.pass // 0' 2>/dev/null) || ASSERTION_PASS_COUNT=0

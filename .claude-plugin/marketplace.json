@@ -2,7 +2,7 @@
   "name": "rhino-marketplace",
   "description": "Measurement-driven product development for Claude Code",
   "owner": {
-    "name": "Laney Fraass",
+    "name": "Jacob Rhinehart",
     "url": "https://github.com/rhinehart514"
   },
   "metadata": {
@@ -12,11 +12,11 @@
   "plugins": [
     {
       "name": "rhino-os",
-      "version": "8.0.0",
+      "version": "8.0.3",
       "source": "./",
       "description": "Learning plugin — measurement, predictions, autonomous building that compounds across sessions",
       "author": {
-        "name": "Laney Fraass"
+        "name": "Jacob Rhinehart"
       },
       "keywords": ["product", "measurement", "learning", "eval", "autonomous", "scoring"],
       "homepage": "https://github.com/rhinehart514/rhino-os",

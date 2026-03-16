@@ -1,4 +1,5 @@
 ---
+name: feature
 description: "Work with features (DO). /feature lists them. /feature auth shows status. /feature new payments commits to building one. Not sure what to build? Use /ideate first."
 ---
 

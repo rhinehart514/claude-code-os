@@ -1,4 +1,5 @@
 ---
+name: go
 description: "Fully autonomous mode. Plan, predict, build, measure, update model, repeat. Accepts a feature name to scope: /go auth"
 ---
 

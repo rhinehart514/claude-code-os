@@ -18,6 +18,9 @@ fi
 if [[ -f "$RHINO_DIR/bin/lib/config.sh" ]]; then
     source "$RHINO_DIR/bin/lib/config.sh"
 fi
+if ! command -v jq &>/dev/null; then
+    echo -e "  \033[1;33m⚠\033[0m jq not found — boot card degraded. Install: brew install jq" >&2
+fi
 SESSION_TYPE=$(echo "$INPUT" | jq -r '.type // "startup"' 2>/dev/null || echo "startup")
 
 # --- Project name ---

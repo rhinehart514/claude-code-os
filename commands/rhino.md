@@ -1,4 +1,5 @@
 ---
+name: rhino
 description: "Project status dashboard. Shows where you are, what's working, what needs attention, and what to do next."
 ---
 

@@ -323,7 +323,8 @@ fi
 
 if [[ "$CLAUDE_ANALYZED" != true ]]; then
     if ! command -v claude &>/dev/null && [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-        echo -e "  ${DIM}·${NC} Install Claude CLI for full project analysis"
+        echo -e "  ${YELLOW}⚠${NC} Claude CLI not available — config will have placeholder values"
+        echo -e "    ${DIM}Run${NC} ${BOLD}/init --force${NC} ${DIM}inside Claude Code for full project analysis${NC}"
     fi
 fi
 
@@ -542,6 +543,22 @@ evals:
 RHINO_YML
 
 echo -e "  ${GREEN}✓${NC} config/rhino.yml (${FEATURE_COUNT} features)"
+
+# --- Basic YAML validation ---
+YAML_OK=true
+if [[ ! -s "config/rhino.yml" ]]; then
+    echo -e "  ${RED}✗${NC} config/rhino.yml is empty — generation failed"
+    YAML_OK=false
+elif ! grep -q '^value:' config/rhino.yml 2>/dev/null; then
+    echo -e "  ${RED}✗${NC} config/rhino.yml missing 'value:' section"
+    YAML_OK=false
+elif ! grep -q 'hypothesis:' config/rhino.yml 2>/dev/null; then
+    echo -e "  ${RED}✗${NC} config/rhino.yml missing 'hypothesis:'"
+    YAML_OK=false
+fi
+if [[ "$YAML_OK" != true ]]; then
+    echo -e "  ${DIM}Try:${NC} ${BOLD}/init --force${NC} ${DIM}inside Claude Code to regenerate${NC}"
+fi
 
 # ============================================================
 # Phase 2b: Generate config/evals/beliefs.yml
@@ -1049,6 +1066,13 @@ else
     echo -e "  ${DIM}score${NC}  ${DIM}—${NC}"
 fi
 echo -e "         ${DIM}${FEATURE_COUNT} features${NC}"
+echo ""
+# Explain what the score means for a new user
+if [[ -n "$SCORE" && "$SCORE_NUM" -le 50 ]]; then
+    echo -e "  ${DIM}The score is your assertion pass rate — what % of your${NC}"
+    echo -e "  ${DIM}project's beliefs are passing. Low after init is normal.${NC}"
+    echo -e "  ${DIM}/plan finds what to fix. /go builds toward passing.${NC}"
+fi
 
 echo -e "${SEP}"
 echo ""

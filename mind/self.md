@@ -80,13 +80,14 @@ Bump auto-detection: thesis changed → major, new features/evidence → minor, 
 
 ## Calibration Data
 - Prediction accuracy: 63% (10/16 graded, with partials at 0.5). In target range (50-70%).
-- Score: 50/100 (26/37 assertions, includes integration plan changes not yet stabilized)
-- Assertions: 38 planted, 26 passing
-- Health: 85
-- Worst features: commands 50, self-diagnostic 50, scoring 54
-- Best feature: docs at 73-76
+- Score: 26/100 (56/63 beliefs passing, 7 gen features avg 49)
+- Assertions: 63 planted (was 64, 1 duplicate deleted), 56 passing
+- Health: 90 (struct:95, hygiene:90)
+- Worst features: self-diagnostic 28, scoring 32
+- Best features: commands 64, docs 62, todo 58
 - External project (commander.js): 80/100 on first init (6 features, 8/10 assertions)
-- 5 large files >500 lines, 1 broken file reference, 19 TODO/FIXME markers
+- 5 large files >500 lines, 19 TODO/FIXME markers
+- v8.1 finding: beliefs-only cap at 50 was HIDING low generative scores. Pipeline now honest but score dropped 50→26. The generative eval (LLM feature audit) avg 49 dominates the formula. Belief pass rate is 89% but doesn't drive the score when generative data exists.
 
 ## What I Would Change About Myself
 - The learning feature should be the smartest part of the system. It's the worst.
